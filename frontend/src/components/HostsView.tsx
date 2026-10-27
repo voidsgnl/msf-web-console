@@ -217,7 +217,7 @@ export function HostsView() {
             <div>
               <h2 className="text-sm font-semibold text-gray-200">Loot &amp; Evidence</h2>
               <p className="mt-1 text-xs text-gray-500">
-                Inspect evidence records, export metadata, and download artifact data when Metasploit makes it available.
+                Inspect evidence records, export metadata, and download inline artifacts or files explicitly allowed in backend configuration.
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-2">
@@ -299,7 +299,7 @@ export function HostsView() {
                           </button>
                           <button
                             disabled={record.has_data !== true}
-                            title={record.has_data === true ? "Download artifact data" : "No artifact data is available in the RPC response"}
+                            title={record.has_data === true ? "Download artifact data" : "No inline data or readable allowlisted file is available"}
                             onClick={() => void downloadLootArtifact(record)}
                             className="rounded border border-border px-2 py-1 text-gray-300 hover:bg-bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
                           >
@@ -312,7 +312,7 @@ export function HostsView() {
                 </tbody>
               </table>
               <div className="border-t border-border bg-bg-secondary/60 px-3 py-2 text-[11px] text-gray-600">
-                {filteredLoot.length} of {rows.length} records · Downloads are available for records whose RPC response includes artifact data.
+                {filteredLoot.length} of {rows.length} records · Downloads are available for records with inline data or a readable allowlisted file.
               </div>
             </div>
           )}
@@ -392,7 +392,7 @@ export function HostsView() {
               </button>
               <button
                 disabled={selectedLoot.record.has_data !== true}
-                title={selectedLoot.record.has_data === true ? "Download artifact data" : "No artifact data is available in the RPC response"}
+                title={selectedLoot.record.has_data === true ? "Download artifact data" : "No inline data or readable allowlisted file is available"}
                 onClick={() => void downloadLootArtifact(selectedLoot.record)}
                 className="rounded border border-border px-3 py-1.5 text-xs text-gray-300 hover:bg-bg-tertiary disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -411,7 +411,7 @@ export function HostsView() {
                 ))}
               </dl>
               <p className="mt-4 text-[11px] leading-relaxed text-gray-600">
-                This view exports metadata separately from the artifact. Downloads transfer the data supplied by Metasploit's db.loots RPC response. If that response has no data for a record, the metadata remains inspectable but the original artifact cannot be downloaded through this route.
+                This view exports metadata separately from the artifact. Downloads use bytes supplied by Metasploit or a database-registered file explicitly allowed through MSF_LOOT_ALLOWED_FILES or MSF_LOOT_ALLOWED_DIRS in backend/.env. Server paths are never sent to the browser, and the browser cannot choose a filesystem path.
               </p>
               {notice && <div role="status" className="mt-3 text-xs text-accent">{notice}</div>}
             </div>
