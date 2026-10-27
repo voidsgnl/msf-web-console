@@ -72,6 +72,11 @@ export function ConsoleTab() {
           const msg = JSON.parse(event.data);
           if (msg.type === "output") {
             term.write(msg.data);
+          } else if (msg.type === "prompt") {
+            // msfrpcd sends the prompt (e.g. "msf6 > ") separately from
+            // output text, so it has to be written explicitly - without
+            // this the console never shows where you're meant to type.
+            term.write(`\x1b[32m${msg.data}\x1b[0m`);
           } else if (msg.type === "error") {
             term.write(`\r\n\x1b[31m[error] ${msg.data}\x1b[0m\r\n`);
           }
