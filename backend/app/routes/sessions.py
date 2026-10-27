@@ -92,9 +92,9 @@ async def session_ws(websocket: WebSocket, session_id: int):
                     result = rpc.call(read_method, session_id)
                 except MsfRpcError as exc:
                     await websocket.send_json({"type": "error", "data": str(exc)})
-                    break
-                # shell_read/meterpreter_read both return {"data": "..."},
-                # but guard for a bare-string response just in case.
+                    return
+                # shell_read/meterpreter_read both return {"data": "..."}, but
+                # guard for a bare-string response just in case.
                 data = result.get("data") if isinstance(result, dict) else result
                 if data:
                     await websocket.send_json({"type": "output", "data": data})
@@ -103,9 +103,44 @@ async def session_ws(websocket: WebSocket, session_id: int):
             while True:
                 msg = await websocket.receive_json()
                 if msg.get("type") == "input":
-                    rpc.call(write_method, session_id, msg["data"])
+                    try:
+                        rpc.call(write_method, session_id, msg["data"])
+                    except MsfRpcError as exc:
+                        await websocket.send_json({"type": "error", "data": str(exc)})
+                        return
 
-        await asyncio.gather(reader(), writer())
+        # Stop the other half of the bridge whenever either direction ends.
+        # In particular, a reader error must not leave writer() waiting forever
+        # on receive_json(), and a disconnected browser must stop the poll loop.
+        tasks = {
+            asyncio.create_task(reader()),
+            asyncio.create_task(writer()),
+        }
+        try:
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+
+            for task in done:
+                try:
+                    task.result()
+                except WebSocketDisconnect:
+                    pass
+                except MsfRpcError as exc:
+                    await websocket.send_json({"type": "error", "data": str(exc)})
+                except Exception as exc:
+                    # The browser may already be gone; do not let an error
+                    # while sending a diagnostic keep the connection alive.
+                    try:
+                        await websocket.send_json({"type": "error", "data": str(exc)})
+                    except Exception:
+                        pass
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     except WebSocketDisconnect:
         pass
