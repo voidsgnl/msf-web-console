@@ -240,7 +240,22 @@ def download_assessment_report():
         for section, method, result_key in datasets:
             result = rpc.call(method, {})
             rows = result.get(result_key, []) if isinstance(result, dict) else []
-            records[section] = [row for row in rows if isinstance(row, dict)]
+            valid_rows = [row for row in rows if isinstance(row, dict)]
+            if section == "loot":
+                sanitized_loot: list[dict[str, Any]] = []
+                for row in valid_rows:
+                    payload = _loot_payload(row)
+                    metadata = {
+                        key: value
+                        for key, value in row.items()
+                        if key != "data" and "path" not in key.lower()
+                    }
+                    metadata["has_data"] = payload is not None
+                    metadata["size"] = len(payload) if payload is not None else None
+                    sanitized_loot.append(metadata)
+                records[section] = sanitized_loot
+            else:
+                records[section] = valid_rows
     except MsfRpcError as exc:
         raise HTTPException(502, str(exc))
 
