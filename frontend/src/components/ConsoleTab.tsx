@@ -16,6 +16,7 @@ export function ConsoleTab() {
 
   useEffect(() => {
     if (!containerRef.current) return;
+    let cancelled = false;
 
     const term = new Terminal({
       fontFamily: "'JetBrains Mono', monospace",
@@ -26,56 +27,85 @@ export function ConsoleTab() {
         cursor: "#3fb950",
       },
       cursorBlink: true,
+      // Generous default so a mis-timed first fit doesn't wrap the banner
+      // into a narrow column before the real size is known.
+      cols: 120,
+      rows: 30,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(containerRef.current);
-    fit.fit();
     termRef.current = term;
 
-    const socket = new WebSocket(consoleSocketUrl());
-    socketRef.current = socket;
-
-    socket.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === "output") {
-        term.write(msg.data);
-      } else if (msg.type === "error") {
-        term.write(`\r\n\x1b[31m[error] ${msg.data}\x1b[0m\r\n`);
+    const safeFit = () => {
+      const el = containerRef.current;
+      if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
+      try {
+        fit.fit();
+      } catch {
+        // container not measurable yet; next resize/raf will retry
       }
     };
 
-    socket.onclose = () => {
-      term.write("\r\n\x1b[90m[console closed]\x1b[0m\r\n");
-    };
+    // The flex layout may not have settled its height on the very first
+    // paint, so fit() right after term.open() can compute a near-zero
+    // column count and wrap the incoming banner into a mangled mess.
+    // Defer the first real fit (and the socket connection, so the banner
+    // arrives after sizing is correct) across a couple of animation
+    // frames, which is enough for layout to stabilize.
+    let socket: WebSocket | null = null;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        safeFit();
 
-    let inputBuffer = "";
-    term.onData((data) => {
-      // Echo locally and buffer until newline, then send the full line —
-      // msfconsole expects line-based input over console.write.
-      term.write(data);
-      if (data === "\r") {
-        term.write("\n");
-        socket.readyState === WebSocket.OPEN &&
-          socket.send(JSON.stringify({ type: "input", data: inputBuffer + "\n" }));
-        inputBuffer = "";
-      } else if (data === "\u007f") {
-        // backspace
-        if (inputBuffer.length > 0) {
-          inputBuffer = inputBuffer.slice(0, -1);
-          term.write("\b \b");
-        }
-      } else {
-        inputBuffer += data;
-      }
+        socket = new WebSocket(consoleSocketUrl());
+        socketRef.current = socket;
+
+        socket.onmessage = (event) => {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "output") {
+            term.write(msg.data);
+          } else if (msg.type === "error") {
+            term.write(`\r\n\x1b[31m[error] ${msg.data}\x1b[0m\r\n`);
+          }
+        };
+
+        socket.onclose = () => {
+          term.write("\r\n\x1b[90m[console closed]\x1b[0m\r\n");
+        };
+
+        let inputBuffer = "";
+        term.onData((data) => {
+          // Echo locally and buffer until newline, then send the full line —
+          // msfconsole expects line-based input over console.write.
+          term.write(data);
+          if (data === "\r") {
+            term.write("\n");
+            if (socket && socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: "input", data: inputBuffer + "\n" }));
+            }
+            inputBuffer = "";
+          } else if (data === "\u007f") {
+            // backspace
+            if (inputBuffer.length > 0) {
+              inputBuffer = inputBuffer.slice(0, -1);
+              term.write("\b \b");
+            }
+          } else {
+            inputBuffer += data;
+          }
+        });
+      });
     });
 
-    const resizeObserver = new ResizeObserver(() => fit.fit());
+    const resizeObserver = new ResizeObserver(() => safeFit());
     resizeObserver.observe(containerRef.current);
 
     return () => {
+      cancelled = true;
       resizeObserver.disconnect();
-      socket.close();
+      socket?.close();
       term.dispose();
     };
   }, []);
