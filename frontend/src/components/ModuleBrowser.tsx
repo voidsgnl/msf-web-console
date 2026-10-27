@@ -12,27 +12,48 @@ export function ModuleBrowser() {
   const [optionValues, setOptionValues] = useState<Record<string, string>>({});
   const [executing, setExecuting] = useState(false);
   const [execResult, setExecResult] = useState<string | null>(null);
+  const [loadingInfo, setLoadingInfo] = useState(false);
+  const [infoError, setInfoError] = useState<string | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const search = async (q: string) => {
     setQuery(q);
     if (q.length < 2) {
       setResults([]);
+      setSearchError(null);
       return;
     }
-    const res = await api.modules.search(q, type);
-    setResults(res.results);
+    try {
+      setSearchError(null);
+      const res = await api.modules.search(q, type);
+      setResults(res.results);
+    } catch (e: any) {
+      console.error("module search failed:", e);
+      setSearchError(e.message ?? String(e));
+      setResults([]);
+    }
   };
 
   const select = async (mod: ModuleRef) => {
     setSelected(mod);
     setExecResult(null);
-    const data = await api.modules.info(mod.type, mod.name);
-    setInfo(data);
-    const defaults: Record<string, string> = {};
-    for (const [key, opt] of Object.entries<any>(data.options || {})) {
-      if (opt.default !== undefined && opt.default !== null) defaults[key] = String(opt.default);
+    setInfo(null);
+    setInfoError(null);
+    setLoadingInfo(true);
+    try {
+      const data = await api.modules.info(mod.type, mod.name);
+      setInfo(data);
+      const defaults: Record<string, string> = {};
+      for (const [key, opt] of Object.entries<any>(data.options || {})) {
+        if (opt.default !== undefined && opt.default !== null) defaults[key] = String(opt.default);
+      }
+      setOptionValues(defaults);
+    } catch (e: any) {
+      console.error("module info failed:", e);
+      setInfoError(e.message ?? String(e));
+    } finally {
+      setLoadingInfo(false);
     }
-    setOptionValues(defaults);
   };
 
   const execute = async () => {
@@ -87,7 +108,10 @@ export function ModuleBrowser() {
               {r.name}
             </button>
           ))}
-          {query.length >= 2 && results.length === 0 && (
+          {searchError && (
+            <div className="p-3 text-xs text-danger">Search failed: {searchError}</div>
+          )}
+          {!searchError && query.length >= 2 && results.length === 0 && (
             <div className="p-3 text-xs text-gray-600">No matches</div>
           )}
         </div>
@@ -96,6 +120,14 @@ export function ModuleBrowser() {
       {/* Detail / options column */}
       <div className="flex-1 overflow-y-auto p-4">
         {!selected && <div className="text-sm text-gray-600">Select a module to view details and options.</div>}
+
+        {selected && loadingInfo && <div className="text-sm text-gray-600">Loading {selected.name}…</div>}
+
+        {selected && infoError && (
+          <div className="text-sm text-danger">
+            Failed to load module info: {infoError}
+          </div>
+        )}
 
         {selected && info && (
           <div className="space-y-4 max-w-2xl">
