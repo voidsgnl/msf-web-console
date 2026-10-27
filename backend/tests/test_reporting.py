@@ -1,6 +1,10 @@
 import unittest
+from unittest.mock import patch
+
+from fastapi import Response
 
 from app.reporting import build_assessment_report
+from app.routes.db import download_assessment_report
 
 
 class AssessmentReportTests(unittest.TestCase):
@@ -60,6 +64,25 @@ class AssessmentReportTests(unittest.TestCase):
         self.assertNotIn("DO-NOT-REPORT-SECRET", report)
         self.assertNotIn("/tmp/private/artifact.txt", report)
         self.assertNotIn("DO-NOT-REPORT-BYTES", report)
+
+    def test_report_endpoint_collects_active_workspace_and_downloads_html(self):
+        rpc_responses = [
+            {"workspace": "test-lab"},
+            {"hosts": [{"address": "192.0.2.15"}]},
+            {"services": [{"host": "192.0.2.15", "port": 8080}]},
+            {"vulns": []},
+            {"creds": [{"username": "tester", "private_data": "DO-NOT-REPORT"}]},
+            {"loots": [{"name": "evidence.txt", "path": "/tmp/evidence.txt"}]},
+        ]
+        with patch("app.routes.db.rpc.call", side_effect=rpc_responses) as rpc_call:
+            response = download_assessment_report()
+
+        self.assertIsInstance(response, Response)
+        self.assertEqual(response.media_type, "text/html")
+        self.assertIn("attachment; filename=\"msf-assessment-test-lab-", response.headers["content-disposition"])
+        self.assertIn("192.0.2.15", response.body.decode("utf-8"))
+        self.assertNotIn("DO-NOT-REPORT", response.body.decode("utf-8"))
+        self.assertEqual(rpc_call.call_count, 6)
 
     def test_empty_report_has_empty_state_for_each_section(self):
         report = build_assessment_report("empty-workspace", {})
