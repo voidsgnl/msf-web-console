@@ -66,8 +66,20 @@ function omitServerPaths(value: unknown): unknown {
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
-        .filter(([key]) => !/path/i.test(key) && key !== "download_id" && key !== "data")
+        .filter(([key]) => !/path/i.test(key) && key !== "data")
         .map(([key, nested]) => [key, omitServerPaths(nested)])
+    );
+  }
+  return value;
+}
+
+function metadataForExport(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(metadataForExport);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => key !== "download_id" && key !== "data" && !/path/i.test(key))
+        .map(([key, nested]) => [key, metadataForExport(nested)])
     );
   }
   return value;
@@ -159,7 +171,7 @@ export function HostsView() {
 
   async function copyLootRecord(record: LootRecord) {
     try {
-      await navigator.clipboard.writeText(JSON.stringify(omitServerPaths(record), null, 2));
+      await navigator.clipboard.writeText(JSON.stringify(metadataForExport(record), null, 2));
       setNotice("Record copied to clipboard.");
     } catch {
       setNotice("Clipboard access was blocked. Use Export JSON instead.");
@@ -218,7 +230,7 @@ export function HostsView() {
               <button
                 disabled={filteredLoot.length === 0}
                 onClick={() => downloadJson(
-                  filteredLoot.map(({ record }) => omitServerPaths(record)),
+                  filteredLoot.map(({ record }) => metadataForExport(record)),
                   `msf-loot-export-${new Date().toISOString().slice(0, 10)}.json`
                 )}
                 className="h-8 px-3 rounded border border-border text-xs text-gray-300 hover:bg-bg-tertiary disabled:opacity-40 disabled:cursor-not-allowed"
@@ -370,7 +382,7 @@ export function HostsView() {
               </button>
               <button
                 onClick={() => downloadJson(
-                  omitServerPaths(selectedLoot.record),
+                  metadataForExport(selectedLoot.record),
                   `loot-${safeFilename(lootName(selectedLoot.record))}.json`
                 )}
                 className="rounded border border-border px-3 py-1.5 text-xs text-gray-300 hover:bg-bg-tertiary"
