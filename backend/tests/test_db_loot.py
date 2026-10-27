@@ -12,7 +12,7 @@ from app.routes.db import (
 class LootHelperTests(unittest.TestCase):
     def test_loot_bytes_preserves_binary_and_encodes_text(self):
         self.assertEqual(_loot_bytes(bytes([0, 255])), bytes([0, 255]))
-        self.assertEqual(_loot_bytes(bytes([0, 255])), bytes([0, 255]))
+        self.assertEqual(_loot_bytes("evidence"), b"evidence")
         self.assertIsNone(_loot_bytes(None))
 
     def test_download_reference_is_stable_and_changes_with_content(self):
