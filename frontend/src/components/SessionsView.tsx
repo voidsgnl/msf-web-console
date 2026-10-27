@@ -62,11 +62,21 @@ export function SessionsView() {
 
   useEffect(() => {
     mounted.current = true;
-    if (activeSessionId !== null) return;
+    return () => {
+      mounted.current = false;
+      requestGeneration.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeSessionId !== null) {
+      requestGeneration.current += 1;
+      refreshAgain.current = false;
+      return;
+    }
     void refresh();
     const timer = window.setInterval(() => void refresh(), 5000);
     return () => {
-      mounted.current = false;
       requestGeneration.current += 1;
       window.clearInterval(timer);
     };
