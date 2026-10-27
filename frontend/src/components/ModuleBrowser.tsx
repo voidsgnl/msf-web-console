@@ -419,8 +419,9 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
   const requiredCount = Object.values<any>(moduleOptions).filter((option) => option.required).length;
   const references = listEntries(moduleInfo.references ?? moduleInfo.refs);
   const targets = listEntries(moduleInfo.targets);
-  // Exploit payload compatibility is fetched by the backend through
-  // module.compatible_payloads, rather than inferred from module.info.
+  // Lists are target-specific when a numeric target has been selected.
+  // Without a target, Metasploit returns module-wide compatibility, which
+  // can include many candidates across different target configurations.
   const payloads = selected?.type === "exploit"
     ? listEntries(compatiblePayloads)
     : listEntries(moduleInfo.compatible_payloads ?? moduleInfo.payloads ?? moduleInfo.payload);
@@ -703,48 +704,115 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                     )}
 
                     {activeTab === "options" && (
-                      <DetailSection
-                        title="Module configuration"
-                        description={`${Object.keys(moduleOptions).length} options · ${requiredCount} required. Values here are sent to Metasploit when you execute the module.`}
-                      >
-                        <div className="flex flex-col sm:flex-row gap-2 sm:items-center justify-between mb-2">
-                          <input
-                            value={optionSearch}
-                            onChange={(event) => setOptionSearch(event.target.value)}
-                            placeholder="Filter options by name or description…"
-                            className="w-full sm:max-w-sm bg-bg-tertiary border border-border rounded px-2.5 py-2 text-xs text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-accent"
-                          />
-                          <button
-                            onClick={() => setShowAdvancedOptions((show) => !show)}
-                            className="shrink-0 text-xs text-accent hover:underline text-left"
+                      <>
+                        <DetailSection
+                          title="Module configuration"
+                          description={`${Object.keys(moduleOptions).length} module options · ${requiredCount} required. Values here are sent to Metasploit when you execute the module.`}
+                        >
+                          <div className="flex flex-col sm:flex-row gap-2 sm:items-center justify-between mb-2">
+                            <input
+                              value={optionSearch}
+                              onChange={(event) => setOptionSearch(event.target.value)}
+                              placeholder="Filter options by name or description…"
+                              className="w-full sm:max-w-sm bg-bg-tertiary border border-border rounded px-2.5 py-2 text-xs text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-accent"
+                            />
+                            <button
+                              onClick={() => setShowAdvancedOptions((show) => !show)}
+                              className="shrink-0 text-xs text-accent hover:underline text-left"
+                            >
+                              {showAdvancedOptions ? "Hide advanced options" : "Show advanced options"}
+                            </button>
+                          </div>
+                          {optionEntries.length ? (
+                            optionEntries.map(([key, option]) => renderOption(key, option, "module"))
+                          ) : (
+                            <p className="py-5 text-xs text-gray-600">No options match this filter.</p>
+                          )}
+                          {Object.keys(validationErrors).length > 0 && (
+                            <p className="mt-3 text-xs text-danger">Complete all required options before executing.</p>
+                          )}
+                        </DetailSection>
+
+                        {selected.type === "exploit" && (
+                          <DetailSection
+                            title="Payload configuration"
+                            description="Choose a compatible payload if you need to override Metasploit's default. The selected payload and its options are passed with the exploit when you execute it."
                           >
-                            {showAdvancedOptions ? "Hide advanced options" : "Show advanced options"}
-                          </button>
-                        </div>
-                        {optionEntries.length ? (
-                          optionEntries.map(([key, option]) => renderOption(key, option))
-                        ) : (
-                          <p className="py-5 text-xs text-gray-600">No options match this filter.</p>
+                            {selectedPayload ? (
+                              <div className="rounded border border-accent/30 bg-accent/5 p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="text-[10px] uppercase tracking-widest text-accent">Selected payload</p>
+                                    <p className="mt-1 font-mono text-xs text-gray-100 break-all">{selectedPayload}</p>
+                                    <p className="text-[10px] text-gray-500 mt-1">Sent as PAYLOAD with the configured datastore options.</p>
+                                  </div>
+                                  <button type="button" onClick={clearPayload} className="shrink-0 text-xs text-gray-400 hover:text-danger underline">Clear</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="rounded border border-border bg-bg-secondary p-3">
+                                <p className="text-xs text-gray-300">No explicit payload selected.</p>
+                                <p className="text-xs text-gray-500 mt-1">Metasploit may choose a default payload if the exploit supports one. Use the Compatible payloads tab to select a specific payload.</p>
+                                {selectedTargetId && <p className="text-[10px] text-gray-500 mt-2">Target ID: {selectedTargetId}</p>}
+                              </div>
+                            )}
+
+                            {payloadOptionsLoading && <p className="text-xs text-gray-500">Loading payload options…</p>}
+                            {payloadOptionsError && (
+                              <div className="rounded border border-danger/30 bg-danger/5 p-3 text-xs text-danger">
+                                Could not load payload options: {payloadOptionsError}
+                              </div>
+                            )}
+                            {selectedPayload && !payloadOptionsLoading && Object.keys(payloadOptions).length > 0 && (
+                              <div className="mt-3">
+                                <h4 className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">Payload-specific options</h4>
+                                {Object.entries<any>(payloadOptions).map(([key, option]) => renderOption(key, option, "payload"))}
+                              </div>
+                            )}
+                            {selectedPayload && !payloadOptionsLoading && Object.keys(payloadOptions).length === 0 && !payloadOptionsError && (
+                              <p className="text-xs text-gray-500 mt-2">This payload exposes no additional datastore options.</p>
+                            )}
+                            <button type="button" onClick={() => setActiveTab("payloads")} className="mt-3 text-xs text-accent hover:underline">
+                              Browse compatible payloads ({payloads.length})
+                            </button>
+                          </DetailSection>
                         )}
-                        {Object.keys(validationErrors).length > 0 && (
-                          <p className="mt-3 text-xs text-danger">Complete all required options before executing.</p>
-                        )}
-                      </DetailSection>
+                      </>
                     )}
 
                     {activeTab === "targets" && (
-                      <DetailSection title="Supported targets" description="Target names and identifiers returned by Metasploit.">
+                      <DetailSection
+                        title="Supported targets"
+                        description={selected.type === "exploit"
+                          ? "Selecting a target narrows the compatible payload list to that target where Metasploit supports it."
+                          : "Target names and identifiers returned by Metasploit."}
+                      >
                         {targets.length ? (
                           <div className="space-y-2">
-                            {targets.map(([id, target]) => (
-                              <div key={id} className="rounded border border-border bg-bg-secondary px-3 py-3 flex items-start gap-3">
-                                <span className="shrink-0 font-mono text-xs text-accent rounded bg-accent/10 px-2 py-1">{id}</span>
-                                <div className="min-w-0">
-                                  <p className="text-xs text-gray-200 break-words">{textValue(target)}</p>
-                                  {String(moduleInfo.default_target) === id && <span className="inline-block mt-1 text-[10px] text-accent">Default target</span>}
+                            {targets.map(([id, target]) => {
+                              const canSelectTarget = selected.type === "exploit" && targetNumber(id) !== undefined;
+                              const active = selectedTargetId === id;
+                              return (
+                                <div key={id} className={`rounded border px-3 py-3 flex items-start gap-3 ${active ? "border-accent/40 bg-accent/5" : "border-border bg-bg-secondary"}`}>
+                                  <span className="shrink-0 font-mono text-xs text-accent rounded bg-accent/10 px-2 py-1">{id}</span>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs text-gray-200 break-words">{textValue(target)}</p>
+                                    {String(moduleInfo.default_target) === id && <span className="inline-block mt-1 text-[10px] text-gray-500">Metasploit default target</span>}
+                                    {active && <span className="inline-block mt-1 ml-2 text-[10px] text-accent">Selected</span>}
+                                  </div>
+                                  {canSelectTarget && (
+                                    <button
+                                      type="button"
+                                      onClick={() => void chooseTarget(id)}
+                                      disabled={active || payloadsLoading}
+                                      className="shrink-0 rounded border border-border px-2.5 py-1.5 text-[10px] text-gray-300 hover:border-accent hover:text-accent disabled:opacity-50"
+                                    >
+                                      {active ? "Selected" : "Use target"}
+                                    </button>
+                                  )}
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         ) : <p className="text-xs text-gray-600">This module did not expose a targets list.</p>}
                       </DetailSection>
@@ -754,30 +822,81 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                       <DetailSection
                         title={selected.type === "exploit" ? "Compatible payloads" : "Payload information"}
                         description={selected.type === "exploit"
-                          ? "Compatibility is queried directly from Metasploit's module.compatible_payloads RPC."
-                          : "Payload compatibility lookup is available for exploit modules; other module types may not use payloads."}
+                          ? "Pick a payload to configure the exploit. Use target selection first when the module has multiple targets; compatibility can differ by target."
+                          : "Payload compatibility lookup is for exploit modules. Payload modules themselves are browsed through the module explorer."}
                       >
                         {selected.type !== "exploit" ? (
                           <p className="text-xs text-gray-500">
-                            This is a {selected.type} module. Metasploit's compatible-payload lookup applies to exploit modules.
+                            This is a {selected.type} module. Payload selection is part of exploit configuration, not this module type.
                           </p>
-                        ) : payloadError ? (
-                          <div className="rounded border border-warning/30 bg-warning/5 p-3">
-                            <p className="text-xs text-warning">Could not retrieve compatible payloads from Metasploit.</p>
-                            <p className="text-xs text-gray-400 mt-1 break-words">{payloadError}</p>
-                          </div>
-                        ) : payloads.length ? (
-                          <div className="space-y-2">
-                            {payloads.map(([id, payload]) => (
-                              <div key={id} className="rounded border border-border bg-bg-secondary px-3 py-2.5">
-                                <p className="text-xs text-gray-200 font-mono break-all">{textValue(payload)}</p>
-                              </div>
-                            ))}
-                          </div>
                         ) : (
-                          <p className="text-xs text-gray-500">
-                            Metasploit returned no compatible payloads for this exploit. This is different from a lookup error; the RPC response contained an empty payload list.
-                          </p>
+                          <>
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                              <div className="text-xs text-gray-300">
+                                {payloadsLoading ? "Checking compatibility…" : `${payloads.length} compatible payloads`}
+                                {selectedTargetId ? ` · target ${selectedTargetId}` : targets.length ? " · all module targets" : ""}
+                              </div>
+                              {selectedPayload && (
+                                <span className="text-[10px] rounded border border-accent/30 bg-accent/10 px-2 py-1 text-accent">
+                                  Selected: {selectedPayload}
+                                </span>
+                              )}
+                            </div>
+
+                            {targets.length > 0 && !selectedTargetId && (
+                              <div className="rounded border border-warning/30 bg-warning/5 px-3 py-2.5 mb-3">
+                                <p className="text-xs text-warning">Showing payloads compatible across the module, not one specific target.</p>
+                                <p className="text-xs text-gray-500 mt-1">Open Targets and choose a target to narrow this list.</p>
+                              </div>
+                            )}
+
+                            <input
+                              value={payloadSearch}
+                              onChange={(event) => setPayloadSearch(event.target.value)}
+                              placeholder="Filter payloads by name (e.g. meterpreter, reverse_tcp)…"
+                              aria-label="Filter compatible payloads"
+                              className="w-full bg-bg-tertiary border border-border rounded px-2.5 py-2 text-xs text-gray-200 font-mono placeholder:text-gray-600 focus:outline-none focus:border-accent mb-3"
+                            />
+
+                            {payloadError ? (
+                              <div className="rounded border border-warning/30 bg-warning/5 p-3">
+                                <p className="text-xs text-warning">Could not retrieve compatible payloads from Metasploit.</p>
+                                <p className="text-xs text-gray-400 mt-1 break-words">{payloadError}</p>
+                                <button type="button" onClick={() => selected && void chooseTarget(selectedTargetId || String(moduleInfo.default_target ?? ""))} className="mt-2 text-xs text-accent hover:underline">Retry compatibility lookup</button>
+                              </div>
+                            ) : payloadsLoading ? (
+                              <p className="py-5 text-xs text-gray-500">Loading compatible payloads from Metasploit…</p>
+                            ) : filteredPayloads.length ? (
+                              <>
+                                <p className="text-[10px] text-gray-500 mb-2">Showing {filteredPayloads.length} of {payloads.length}. Selecting a payload opens its options in the Options tab; it will not execute until you press Execute module.</p>
+                                <div className="space-y-1.5 max-h-[60vh] overflow-y-auto pr-1">
+                                  {filteredPayloads.map(([id, payload]) => {
+                                    const name = textValue(payload);
+                                    const active = selectedPayload === name;
+                                    return (
+                                      <div key={`${id}:${name}`} className={`flex items-center justify-between gap-3 rounded border px-3 py-2.5 ${active ? "border-accent/40 bg-accent/5" : "border-border bg-bg-secondary"}`}>
+                                        <span className={`min-w-0 font-mono text-xs break-all ${active ? "text-accent" : "text-gray-300"}`}>{name}</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => void choosePayload(name)}
+                                          disabled={active || payloadOptionsLoading}
+                                          className="shrink-0 rounded border border-border px-2.5 py-1.5 text-[10px] text-gray-300 hover:border-accent hover:text-accent disabled:opacity-50"
+                                        >
+                                          {active ? "Selected" : "Use payload"}
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </>
+                            ) : (
+                              <p className="text-xs text-gray-500 py-4">
+                                {payloads.length === 0
+                                  ? "Metasploit returned no compatible payloads for this target. This is a genuine empty result, not a lookup error."
+                                  : "No payloads match this filter. Try a broader search."}
+                              </p>
+                            )}
+                          </>
                         )}
                       </DetailSection>
                     )}
@@ -824,8 +943,12 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                         <pre className="text-[11px] leading-5 text-gray-300 whitespace-pre-wrap break-words font-mono">{prettyValue({
                           info: info.info,
                           options: info.options,
-                          compatible_payloads: info.compatible_payloads,
-                          payloads_error: info.payloads_error,
+                          target: selectedTargetId || null,
+                          selected_payload: selectedPayload || null,
+                          compatible_payloads: compatiblePayloads,
+                          payloads_error: payloadError,
+                          payload_options: payloadOptions,
+                          payload_option_values: payloadOptionValues,
                         })}</pre>
                       </DetailSection>
                     )}
