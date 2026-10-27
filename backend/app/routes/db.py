@@ -1,6 +1,8 @@
 import hashlib
 import json
+import os
 import re
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Response
@@ -53,8 +55,11 @@ def vulns():
         raise HTTPException(502, str(exc))
 
 
+MAX_LOOT_FILE_BYTES = 256 * 1024 * 1024
+
+
 def _loot_bytes(value: Any) -> bytes | None:
-    """Convert RPC loot data to bytes without touching server filesystem paths."""
+    """Convert inline RPC loot data to bytes."""
     if isinstance(value, bytes):
         return value
     if isinstance(value, bytearray):
@@ -64,9 +69,61 @@ def _loot_bytes(value: Any) -> bytes | None:
     return None
 
 
+def _configured_loot_paths(variable: str) -> list[Path]:
+    raw = os.getenv(variable, "")
+    return [
+        Path(entry).expanduser().resolve()
+        for entry in raw.split(os.pathsep)
+        if entry.strip()
+    ]
+
+
+def _read_registered_loot_file(record: dict[str, Any]) -> bytes | None:
+    """
+    Read a loot file only when its database-reported path is explicitly allowed.
+
+    By default only ~/.msf4/loot is allowed. Operators may add specific files
+    or directories through MSF_LOOT_ALLOWED_FILES and MSF_LOOT_ALLOWED_DIRS.
+    Client requests never supply a filesystem path.
+    """
+    raw_path = record.get("path")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None
+
+    try:
+        candidate = Path(raw_path).expanduser().resolve(strict=True)
+        if not candidate.is_file():
+            return None
+
+        allowed_dirs = _configured_loot_paths("MSF_LOOT_ALLOWED_DIRS")
+        if not os.getenv("MSF_LOOT_ALLOWED_DIRS"):
+            allowed_dirs = [(Path.home() / ".msf4" / "loot").resolve()]
+
+        allowed_files = _configured_loot_paths("MSF_LOOT_ALLOWED_FILES")
+        is_allowed_dir = any(candidate.is_relative_to(root) for root in allowed_dirs)
+        is_allowed_file = candidate in allowed_files
+        if not (is_allowed_dir or is_allowed_file):
+            return None
+
+        if candidate.stat().st_size > MAX_LOOT_FILE_BYTES:
+            return None
+
+        with candidate.open("rb") as stream:
+            payload = stream.read(MAX_LOOT_FILE_BYTES + 1)
+        return payload if len(payload) <= MAX_LOOT_FILE_BYTES else None
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _loot_payload(record: dict[str, Any]) -> bytes | None:
+    """Prefer bytes from RPC; fall back to an allowlisted database-registered file."""
+    inline = _loot_bytes(record.get("data"))
+    return inline if inline is not None else _read_registered_loot_file(record)
+
+
 def _loot_fingerprint(record: dict[str, Any]) -> str:
-    """Fingerprint the returned data and metadata because db.loots has no ID."""
-    payload = _loot_bytes(record.get("data"))
+    """Fingerprint metadata and artifact bytes without exposing a server path."""
+    payload = _loot_payload(record)
     identity = {
         key: record.get(key)
         for key in ("name", "ltype", "ctype", "host", "service", "created_at", "updated_at", "info")
@@ -84,7 +141,7 @@ def _loot_download_id(record: dict[str, Any], offset: int = 0) -> str:
 def _public_loot_record(record: dict[str, Any], offset: int = 0) -> dict[str, Any]:
     """Return safe metadata only; keep potentially large/sensitive artifact bytes server-side."""
     public = {key: value for key, value in record.items() if key != "data" and "path" not in key.lower()}
-    payload = _loot_bytes(record.get("data"))
+    payload = _loot_payload(record)
     public["download_id"] = _loot_download_id(record, offset)
     public["has_data"] = payload is not None
     public["size"] = len(payload) if payload is not None else None
@@ -142,11 +199,11 @@ def download_loot(download_id: str):
     if selected is None or _loot_fingerprint(selected) != match.group(2):
         raise HTTPException(404, "Loot record changed or was not found. Refresh the loot list and try again.")
 
-    payload = _loot_bytes(selected.get("data"))
+    payload = _loot_payload(selected)
     if payload is None:
         raise HTTPException(
             404,
-            "This loot record has no artifact data available through the Metasploit RPC response.",
+            "Artifact bytes are unavailable. If the loot record points to a file, add that exact file or its directory to MSF_LOOT_ALLOWED_FILES or MSF_LOOT_ALLOWED_DIRS in backend/.env, then restart the backend.",
         )
 
     filename = _safe_loot_filename(selected.get("name"))
