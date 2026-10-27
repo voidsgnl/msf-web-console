@@ -17,6 +17,7 @@ export function ConsoleTab() {
   useEffect(() => {
     if (!containerRef.current) return;
     let cancelled = false;
+    let inputBuffer = "";
 
     const term = new Terminal({
       fontFamily: "'JetBrains Mono', monospace",
@@ -60,6 +61,41 @@ export function ConsoleTab() {
     // arrives after sizing is correct) across a couple of animation
     // frames, which is enough for layout to stabilize.
     let socket: WebSocket | null = null;
+
+    const handleTerminalSelectionQuery = (event: Event) => {
+      const detail = (event as CustomEvent<{ text: string }>).detail;
+      if (detail) detail.text = term.getSelection();
+    };
+
+    const announceContext = (message: string) => {
+      window.dispatchEvent(new CustomEvent("msf-context-notice", { detail: message }));
+    };
+
+    const handleContextAction = async (event: Event) => {
+      const detail = (event as CustomEvent<{ action: string; kind: string }>).detail;
+      if (detail?.kind !== "console") return;
+      if (detail.action === "select-all-terminal") {
+        term.selectAll();
+        announceContext("Terminal output selected.");
+      } else if (detail.action === "clear-terminal") {
+        term.clear();
+        term.clearSelection();
+        inputBuffer = "";
+        announceContext("Terminal display cleared. This does not clear Metasploit sessions or jobs.");
+      } else if (detail.action === "paste-terminal") {
+        try {
+          const text = await navigator.clipboard.readText();
+          term.paste(text);
+          announceContext("Clipboard text pasted into the terminal.");
+        } catch {
+          announceContext("Clipboard access was blocked. Use your browser's permitted paste shortcut instead.");
+        }
+      }
+    };
+
+    window.addEventListener("msf-terminal-selection-query", handleTerminalSelectionQuery);
+    window.addEventListener("msf-context-action", handleContextAction);
+
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (cancelled) return;
@@ -92,25 +128,27 @@ export function ConsoleTab() {
           term.write("\r\n\x1b[90m[console closed]\x1b[0m\r\n");
         };
 
-        let inputBuffer = "";
         term.onData((data) => {
-          // Echo locally and buffer until newline, then send the full line —
-          // msfconsole expects line-based input over console.write.
-          term.write(data);
-          if (data === "\r") {
-            term.write("\n");
-            if (socket && socket.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify({ type: "input", data: inputBuffer + "\n" }));
+          // The backend bridges complete console lines. Process a pasted
+          // multi-line string character by character so each newline submits
+          // the current line instead of being swallowed into the input buffer.
+          const normalized = data.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+          for (const character of normalized) {
+            if (character === "\n") {
+              term.write("\r\n");
+              if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: "input", data: inputBuffer + "\n" }));
+              }
+              inputBuffer = "";
+            } else if (character === "\u007f" || character === "\b") {
+              if (inputBuffer.length > 0) {
+                inputBuffer = inputBuffer.slice(0, -1);
+                term.write("\b \b");
+              }
+            } else {
+              term.write(character);
+              inputBuffer += character;
             }
-            inputBuffer = "";
-          } else if (data === "\u007f") {
-            // backspace
-            if (inputBuffer.length > 0) {
-              inputBuffer = inputBuffer.slice(0, -1);
-              term.write("\b \b");
-            }
-          } else {
-            inputBuffer += data;
           }
         });
       });
@@ -122,6 +160,8 @@ export function ConsoleTab() {
     return () => {
       cancelled = true;
       resizeObserver.disconnect();
+      window.removeEventListener("msf-terminal-selection-query", handleTerminalSelectionQuery);
+      window.removeEventListener("msf-context-action", handleContextAction);
       socket?.close();
       term.dispose();
     };
