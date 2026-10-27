@@ -287,9 +287,7 @@ function buildItems(
   }
 
   const actions = contextualButtons(context);
-  const scopeIsActionableButton = context.scope instanceof HTMLButtonElement
-    && context.scope.dataset.contextKind;
-  if (scopeIsActionableButton) {
+  if (context.scope instanceof HTMLButtonElement && context.scope.dataset.contextKind) {
     const kind = context.scope.dataset.contextKind;
     items.push({
       label: kind === "module" ? "Open module details" : "Activate item",
