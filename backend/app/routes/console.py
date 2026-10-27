@@ -3,6 +3,7 @@ import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.msf_rpc import rpc, MsfRpcError
+from app.security import origin_is_allowed
 
 router = APIRouter(prefix="/api/console", tags=["console"])
 
@@ -16,6 +17,11 @@ async def console_ws(websocket: WebSocket):
     the browser: client -> console.write, console.read polled -> client.
     One WebSocket connection = one console.
     """
+    origin = websocket.headers.get("origin")
+    if not origin_is_allowed(origin):
+        await websocket.close(code=1008, reason="Origin not allowed.")
+        return
+
     await websocket.accept()
     console_id = None
 
