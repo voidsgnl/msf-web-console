@@ -1,5 +1,17 @@
 const BASE = "/api";
 
+export type Workspace = {
+  id: number;
+  name: string;
+  created_at?: number;
+  updated_at?: number;
+};
+
+export type CurrentWorkspace = {
+  workspace: string;
+  workspace_id: number;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -43,6 +55,18 @@ export const api = {
     vulns: () => request<{ vulns: any[] }>("/db/vulns"),
     loot: () => request<{ loot: any[] }>("/db/loot"),
     creds: () => request<{ creds: any[] }>("/db/creds"),
+    workspaces: () => request<{ workspaces: Workspace[] }>("/db/workspaces"),
+    currentWorkspace: () => request<CurrentWorkspace>("/db/workspace"),
+    setWorkspace: (name: string) =>
+      request<CurrentWorkspace>("/db/workspace", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      }),
+    createWorkspace: (name: string) =>
+      request<CurrentWorkspace>("/db/workspaces", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      }),
   },
 
   jobs: {
