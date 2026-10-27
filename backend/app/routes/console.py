@@ -48,6 +48,17 @@ async def console_ws(websocket: WebSocket):
         console_id = created["id"]
         await websocket.send_json({"type": "ready", "console_id": console_id})
 
+        # Style every new console with a Starship-like prompt (colored "msf"
+        # label + a colored arrow instead of the default plain ">") rather
+        # than the bare "msf6 > " msfconsole ships with. %grn/%clr are
+        # Metasploit's own prompt color tokens. These are real `set`
+        # commands against framework datastore options (Prompt/PromptChar),
+        # so they're silent on success - nothing visible lands in the
+        # banner, just the applied style on the next prompt render.
+        rpc.call("console.write", console_id, "set PROMPT %grnmsf%clr\n")
+        rpc.call("console.write", console_id, "set PromptChar %grn❯%clr\n")
+        await asyncio.sleep(0.3)  # let msfrpcd process both `set` commands
+
         # Drain the initial banner
         initial = rpc.call("console.read", console_id)
         if initial.get("data"):
