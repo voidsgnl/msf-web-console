@@ -41,6 +41,23 @@ def search_modules(q: str, type: str | None = None):
     return {"query": q, "results": results[:200]}
 
 
+@router.get("/compatible-payloads")
+def compatible_payloads(name: str, target: int | None = None):
+    """Return all compatible payloads or those compatible with one exploit target."""
+    try:
+        if target is None:
+            result = rpc.call("module.compatible_payloads", name)
+        else:
+            result = rpc.call("module.target_compatible_payloads", name, target)
+        return {
+            "module": name,
+            "target": target,
+            "payloads": result.get("payloads", []),
+        }
+    except MsfRpcError as exc:
+        raise HTTPException(502, str(exc))
+
+
 @router.get("/{type}/{name:path}/info")
 def module_info(type: str, name: str):
     if type not in MODULE_TYPES:
@@ -48,26 +65,7 @@ def module_info(type: str, name: str):
     try:
         info = rpc.call("module.info", type, name)
         options = rpc.call("module.options", type, name)
-
-        # Metasploit exposes compatible payloads through a dedicated RPC
-        # method; module.info does not reliably include them in its metadata.
-        compatible_payloads = None
-        payloads_error = None
-        if type == "exploit":
-            try:
-                payload_result = rpc.call("module.compatible_payloads", name)
-                compatible_payloads = payload_result.get("payloads", [])
-            except MsfRpcError as payload_exc:
-                # Keep the regular module inspector usable if payload
-                # compatibility lookup fails independently.
-                payloads_error = str(payload_exc)
-
-        return {
-            "info": info,
-            "options": options,
-            "compatible_payloads": compatible_payloads,
-            "payloads_error": payloads_error,
-        }
+        return {"info": info, "options": options}
     except MsfRpcError as exc:
         raise HTTPException(502, str(exc))
 
