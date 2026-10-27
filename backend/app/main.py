@@ -2,27 +2,33 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.routes import console, db, jobs, modules, sessions, system
-from app.security import LocalOnlyMiddleware, allowed_hosts, allowed_web_origins
+from app.routes import auth, console, db, jobs, modules, sessions, system
+from app.security import (
+    AuthenticationMiddleware,
+    LocalOnlyMiddleware,
+    allowed_hosts,
+    allowed_web_origins,
+)
 
 app = FastAPI(title="MSF Web Console API")
 
-# The UI is local-only until a real user authentication system is implemented.
-# CORS is a browser policy, not authentication; Host validation and the client
-# address guard below are separate defence-in-depth protections.
+# Cookies are only sent to explicitly allowlisted browser origins.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_web_origins(),
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type"],
 )
 app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=allowed_hosts(),
 )
+# Both checks remain active: login does not disable the local-only boundary.
 app.add_middleware(LocalOnlyMiddleware)
+app.add_middleware(AuthenticationMiddleware)
 
+app.include_router(auth.router)
 app.include_router(system.router)
 app.include_router(modules.router)
 app.include_router(sessions.router)
@@ -36,6 +42,6 @@ def root():
     return {
         "name": "MSF Web Console API",
         "docs": "/docs",
-        "access": "local-only",
-        "authentication_configured": False,
+        "access": "authenticated-local-only",
+        "authentication_configured": True,
     }
