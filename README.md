@@ -43,8 +43,9 @@ typed it into `msfconsole`.
 - Database workspace switcher: list workspaces, switch active workspace,
   create a workspace and switch to it; database views refresh after switching
 
-Still planned: workspace deletion/renaming, auth/login screen (currently
-single-user, local-only), a dedicated PDF export endpoint, and richer finding enrichment. Metasploit's `db.loots` RPC may
+Still planned: workspace deletion/renaming, an auth/login screen (currently
+single-user, local-only), a dedicated PDF export endpoint, and trusted external
+CVE/advisory enrichment beyond the metadata already stored in Metasploit. Metasploit's `db.loots` RPC may
 return a registered artifact path without inline content. Inline content can be
 downloaded directly. For file-backed records, the backend reads only files under
 `MSF_LOOT_ALLOWED_DIRS` (default: `~/.msf4/loot`) or exact files listed in
