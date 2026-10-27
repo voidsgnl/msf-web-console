@@ -504,6 +504,8 @@ export function HostsView() {
                 <tbody>
                   {filteredLoot.map(({ record, index }) => (
                     <tr key={`${stringifyValue(record.name)}-${stringifyValue(record.ltype)}-${stringifyValue(record.host)}-${index}`}
+                      data-context-kind="loot"
+                      data-context-label={lootName(record)}
                       className="border-b border-border/50 text-gray-300 hover:bg-bg-tertiary/60">
                       <td className="py-2 px-3 max-w-sm">
                         <div className="truncate text-gray-200">{lootName(record)}</div>
@@ -648,7 +650,7 @@ export function HostsView() {
                   {filteredDatabaseRows.map(({ record, index }) => {
                     const host = relatedHostValue(record);
                     return (
-                      <tr key={`${tab}-${index}`} className="border-b border-border/50 text-gray-300 hover:bg-bg-tertiary/50">
+                      <tr key={`${tab}-${index}`} data-context-kind={tab} data-context-label={`${tab} record ${index + 1}`} className="border-b border-border/50 text-gray-300 hover:bg-bg-tertiary/50">
                         {databaseColumns.map((column) => (
                           <td key={column} className="max-w-xs truncate px-3 py-2" title={recordValue(column, record[column])}>
                             {recordValue(column, record[column])}
@@ -705,6 +707,8 @@ export function HostsView() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="database-record-title"
+            data-context-kind={tab}
+            data-context-label={`${tab} record ${selectedRecord.index + 1}`}
             className="flex max-h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded border border-border bg-bg-primary shadow-2xl"
           >
             <div className="flex items-start justify-between gap-4 border-b border-border p-4">
