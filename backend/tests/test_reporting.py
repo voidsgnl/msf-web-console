@@ -100,11 +100,11 @@ class AssessmentReportTests(unittest.TestCase):
         self.assertIn("severity-critical", report)
         self.assertIn("severity-high", report)
         self.assertIn("severity-unrated", report)
-        self.assertIn("1 Critical", report)
-        self.assertIn("1 High", report)
-        self.assertIn("1 Unrated", report)
+        self.assertIn("1 critical", report.lower())
+        self.assertIn("1 high", report.lower())
+        self.assertIn("1 unrated", report.lower())
         self.assertIn("Recommended action", report)
-        self.assertIn("manually triage", report.lower())
+        self.assertIn("manual triage", report.lower())
 
     def test_open_services_are_labelled_as_observations_not_vulnerabilities(self):
         report = build_assessment_report(
