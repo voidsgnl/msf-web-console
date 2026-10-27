@@ -345,7 +345,7 @@ export function ContextMenu() {
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (!target) return;
       // xterm.js implements its own right-click paste behavior and should retain it.
-      if (target.closest(".xterm, [data-native-context-menu], [data-context-menu-ignore]")) return;
+      if (target.closest(".xterm, [data-native-context-menu], [data-context-menu-ignore], [data-app-context-menu]")) return;
 
       event.preventDefault();
       const editor = closestEditor(target);
