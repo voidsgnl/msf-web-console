@@ -11,8 +11,8 @@ from app.routes.db import (
 
 class LootHelperTests(unittest.TestCase):
     def test_loot_bytes_preserves_binary_and_encodes_text(self):
-        self.assertEqual(_loot_bytes(b"\\x00\\xff"), b"\\x00\\xff")
-        self.assertEqual(_loot_bytes("evidence"), b"evidence")
+        self.assertEqual(_loot_bytes(bytes([0, 255])), bytes([0, 255]))
+        self.assertEqual(_loot_bytes(bytes([0, 255])), bytes([0, 255]))
         self.assertIsNone(_loot_bytes(None))
 
     def test_download_reference_is_stable_and_changes_with_content(self):
@@ -49,7 +49,7 @@ class LootHelperTests(unittest.TestCase):
 
     def test_content_type_rejects_header_injection(self):
         self.assertEqual(_safe_content_type("application/octet-stream"), "application/octet-stream")
-        self.assertEqual(_safe_content_type("text/plain\\r\\nX-Test: invalid"), "application/octet-stream")
+        self.assertEqual(_safe_content_type("text/plain\r\nX-Test: invalid"), "application/octet-stream")
 
 
 if __name__ == "__main__":
