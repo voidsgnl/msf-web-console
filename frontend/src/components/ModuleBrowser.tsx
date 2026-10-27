@@ -100,6 +100,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
   const [payloadSearch, setPayloadSearch] = useState("");
   const [selectedTargetId, setSelectedTargetId] = useState("");
   const [selectedPayload, setSelectedPayload] = useState("");
+  const [selectedPayloadDescription, setSelectedPayloadDescription] = useState("");
   const [payloadOptions, setPayloadOptions] = useState<Record<string, any>>({});
   const [payloadOptionValues, setPayloadOptionValues] = useState<Record<string, string>>({});
   const [payloadOptionsLoading, setPayloadOptionsLoading] = useState(false);
@@ -179,6 +180,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     setPayloadSearch("");
     setSelectedTargetId("");
     setSelectedPayload("");
+    setSelectedPayloadDescription("");
     setPayloadOptions({});
     setPayloadOptionValues({});
     setPayloadOptionsLoading(false);
@@ -230,6 +232,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
       return next;
     });
     setSelectedPayload("");
+    setSelectedPayloadDescription("");
     setPayloadOptions({});
     setPayloadOptionValues({});
     setPayloadOptionsError(null);
@@ -256,6 +259,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
         }
       }
       setSelectedPayload(payloadName);
+      setSelectedPayloadDescription(String(payloadInfo.info?.description ?? ""));
       setPayloadOptions(payloadInfo.options || {});
       setPayloadOptionValues(defaults);
       setOptionValues((current) => ({ ...current, PAYLOAD: payloadName }));
@@ -271,6 +275,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
 
   const clearPayload = () => {
     setSelectedPayload("");
+    setSelectedPayloadDescription("");
     setPayloadOptions({});
     setPayloadOptionValues({});
     setPayloadOptionsError(null);
@@ -759,6 +764,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                                   <div className="min-w-0">
                                     <p className="text-[10px] uppercase tracking-widest text-accent">Selected payload</p>
                                     <p className="mt-1 font-mono text-xs text-gray-100 break-all">{selectedPayload}</p>
+                                    {selectedPayloadDescription && <p className="text-xs text-gray-400 mt-2 leading-relaxed whitespace-pre-wrap">{selectedPayloadDescription}</p>}
                                     <p className="text-[10px] text-gray-500 mt-1">Sent as PAYLOAD with the configured datastore options.</p>
                                   </div>
                                   <button type="button" onClick={clearPayload} className="shrink-0 text-xs text-gray-400 hover:text-danger underline">Clear</button>
