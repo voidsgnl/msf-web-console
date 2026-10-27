@@ -223,7 +223,7 @@ export function HostsView() {
                       className="border-b border-border/50 text-gray-300 hover:bg-bg-tertiary/60">
                       <td className="py-2 px-3 max-w-sm">
                         <div className="truncate text-gray-200">{lootName(record)}</div>
-                        {record.info && record.info !== record.name && (
+                        {Boolean(record.info) && record.info !== record.name && (
                           <div className="mt-1 truncate text-gray-600">{stringifyValue(record.info)}</div>
                         )}
                       </td>
