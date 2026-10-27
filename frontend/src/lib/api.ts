@@ -49,6 +49,10 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ type, name, options }),
       }),
+    runningStats: () =>
+      request<{ waiting?: string[]; running?: string[]; results?: string[] }>("/modules/running-stats"),
+    results: (runUuid: string) =>
+      request<{ status?: string; result?: unknown; error?: string }>("/modules/results/" + encodeURIComponent(runUuid)),
   },
 
   sessions: {
