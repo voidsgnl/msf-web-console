@@ -23,7 +23,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if (res.status === 401 && !path.startsWith("/auth/")) {
       window.dispatchEvent(new CustomEvent("msf-auth-required"));
     }
-    throw new Error(`${res.status}: ${text}`);
+    let message = text;
+    try {
+      const payload = JSON.parse(text);
+      if (typeof payload.detail === "string") message = payload.detail;
+    } catch {
+      // Keep non-JSON responses readable.
+    }
+    throw new Error(`${res.status}: ${message}`);
   }
   return res.json();
 }
