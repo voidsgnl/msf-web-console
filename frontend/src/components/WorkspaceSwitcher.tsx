@@ -1,5 +1,7 @@
-import { FormEvent, useEffect, useState } from "react";
-import { api, Workspace } from "../lib/api";
+import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
+import { api } from "../lib/api";
+import type { Workspace } from "../lib/api";
 
 export function WorkspaceSwitcher({
   onWorkspaceChanged,
@@ -10,6 +12,7 @@ export function WorkspaceSwitcher({
   const [currentWorkspace, setCurrentWorkspace] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -17,13 +20,14 @@ export function WorkspaceSwitcher({
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
+    setError(null);
 
     Promise.all([api.db.workspaces(), api.db.currentWorkspace()])
       .then(([workspaceResult, currentResult]) => {
         if (!active) return;
         setWorkspaces(workspaceResult.workspaces ?? []);
         setCurrentWorkspace(currentResult.workspace ?? "");
-        setError(null);
       })
       .catch((e: unknown) => {
         if (active) {
@@ -37,7 +41,7 @@ export function WorkspaceSwitcher({
     return () => {
       active = false;
     };
-  }, []);
+  }, [reloadKey]);
 
   const switchWorkspace = async (name: string) => {
     if (!name || name === currentWorkspace || busy) return;
@@ -165,7 +169,19 @@ export function WorkspaceSwitcher({
       <span className="sr-only" aria-live="polite">
         {message ?? error ?? ""}
       </span>
-      {error && <span className="max-w-48 truncate text-xs text-danger" title={error}>{error}</span>}
+      {error && (
+        <>
+          <span className="max-w-48 truncate text-xs text-danger" title={error}>{error}</span>
+          <button
+            type="button"
+            onClick={() => setReloadKey((key) => key + 1)}
+            disabled={loading || busy}
+            className="text-xs text-accent hover:underline disabled:opacity-50"
+          >
+            Retry
+          </button>
+        </>
+      )}
       {message && !error && <span className="max-w-48 truncate text-xs text-gray-500">{message}</span>}
     </div>
   );
