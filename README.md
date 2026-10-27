@@ -41,12 +41,12 @@ typed it into `msfconsole`.
 - Jobs list + stop
 - Database explorer: hosts, services, vulnerabilities, loot, and credentials, with cross-record search, field/value filtering, record inspection, host-to-service/vulnerability navigation, and JSON metadata export; sensitive fields are redacted by default
 - CVE/NVD enrichment: vulnerability records are scanned for CVE identifiers (in `refs` or elsewhere in the record), which can be looked up against the National Vulnerability Database for CVSS score, severity, description, and reference links. Lookups are self-throttled to stay under NVD's public rate limit and cached server-side; set `NVD_API_KEY` in `backend/.env` for a higher limit. Requires outbound network access from the backend to `services.nvd.nist.gov`.
-- Assessment report for the active workspace: executive summary, severity counts, database-record-based vulnerability findings, remediation guidance, open-service exposure observations, inventory tables, and print-to-PDF styling. Credential values, common filesystem paths, artifact bytes, and download references are filtered.
+- Assessment report for the active workspace: executive summary, severity counts, database-record-based vulnerability findings, affected-host summary, remediation guidance, open-service exposure observations, and sanitized inventory tables. Export a native PDF directly from the backend or download the HTML snapshot. Credential values, common filesystem paths, artifact bytes, and download references are filtered.
 - Loot evidence browser: search records, inspect all returned metadata, copy a record, and export one or filtered records as JSON
 - Loot artifact download: retrieve inline artifact data from the Framework `db.loots` RPC response or, when RPC returns metadata only, read the associated file only when its exact path or containing directory is allowlisted in backend configuration; browser-supplied filesystem paths are never accepted
 - Workspace management: list, switch, create and delete workspaces; deleting the active workspace switches back to the default workspace, and the default workspace itself is protected
 
-Still planned: workspace renaming (the standard Metasploit database RPC does not expose a rename operation), multi-user accounts/roles, and a dedicated PDF export endpoint (the assessment report currently relies on browser print-to-PDF).
+Still planned: workspace renaming (the standard Metasploit database RPC does not expose a rename operation). The application remains single-account; multi-user accounts and roles are outside the current design.
 
 ## Security boundary
 
@@ -67,7 +67,7 @@ MSF_WEB_COOKIE_SECURE=false
 
 Replace the example password with a strong, unique password. The application refuses to unlock the API until a username and a password of at least 12 characters are configured; known placeholder passwords are rejected. Keep `MSF_WEB_COOKIE_SECURE=false` for the standard local HTTP development URL only. Set it to `true` when the browser-facing UI is served over HTTPS. Sessions are in-memory, so restarting the backend signs everyone out.
 
-The optional `MSF_WEB_ALLOWED_HOSTS` and `MSF_WEB_CORS_ORIGINS` settings customize the local development allowlists. Adding an origin or host does not enable remote access. A multi-user account and permission system has not been implemented.
+The optional `MSF_WEB_ALLOWED_HOSTS` and `MSF_WEB_CORS_ORIGINS` settings customize the local development allowlists. Adding an origin or host does not enable remote access. The app intentionally uses one configured account; multi-user accounts and roles are not part of this design.
 
 Metasploit's `db.loots` RPC may return a registered artifact path without inline content. Inline content can be downloaded directly. For file-backed records, the backend reads only files under `MSF_LOOT_ALLOWED_DIRS` (default: `~/.msf4/loot`) or exact files listed in `MSF_LOOT_ALLOWED_FILES`; client requests cannot choose a filesystem path. To permit the synthetic test artifact, add `MSF_LOOT_ALLOWED_FILES=/tmp/msf-web-console-loot-test.txt` to `backend/.env` and restart the backend. Keep the list narrow because loot can contain sensitive evidence. JSON exports contain sanitized metadata, not the original artifact bytes.
 
@@ -152,7 +152,7 @@ backend/
       sessions.py        list, read/write, stop
       db.py               database views + workspace management + reports
       cve.py               CVE/NVD enrichment
-      reporting.py           safe HTML assessment report generator
+      reporting.py           safe HTML assessment report generator\n    pdf_reporting.py       native PDF assessment report generator
       jobs.py               list/info/stop
       console.py             WebSocket console bridge
 frontend/
