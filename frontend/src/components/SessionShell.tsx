@@ -74,8 +74,14 @@ export function SessionShell({ sessionId, onClose }: { sessionId: number; onClos
           }
         };
 
-        socket.onclose = () => {
-          term.write("\r\n\x1b[90m[session connection closed]\x1b[0m\r\n");
+        socket.onclose = (event) => {
+          if (cancelled) return;
+          if (event.code === 4401 || event.code === 4403) {
+            window.dispatchEvent(new CustomEvent("msf-auth-required"));
+            term.write("\\r\\n\\x1b[31m[login required] Your session expired. Sign in again to reconnect.\\x1b[0m\\r\\n");
+            return;
+          }
+          term.write("\\r\\n\\x1b[90m[session connection closed]\\x1b[0m\\r\\n");
         };
 
         let inputBuffer = "";
