@@ -16,6 +16,8 @@ _PLACEHOLDER_PASSWORDS = {
     "change-me",
     "replace-with-a-long-random-password",
     "your-password-here",
+    "use-a-unique-password-of-at-least-12-characters",
+    "change-this-password",
 }
 
 
