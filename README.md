@@ -30,8 +30,11 @@ typed it into `msfconsole`.
   for multiple concurrent consoles
 - Module search/browse across exploit, auxiliary, post, payload, encoder,
   nop
-- Module info + option editing + execute, with job progress and new-session
-  detection
+- Module info + option editing + execution for exploit, auxiliary, and post
+  modules, including required-option checks, job/UUID tracking, returned result
+  display, and new-session detection
+- Payload generation with a binary-safe artifact download; encoder and NOP
+  modules remain inspectable but are not sent through the generic execute API
 - Target-aware compatible payload browsing and selection, including payload
   option editing before exploit execution
 - Session list + kill + interactive session shell/meterpreter terminal
