@@ -34,12 +34,16 @@ export const api = {
         `/modules/search?q=${encodeURIComponent(q)}${type ? `&type=${type}` : ""}`
       ),
     info: (type: string, name: string) =>
-      request<{
-        info: Record<string, unknown>;
-        options: Record<string, unknown>;
-        compatible_payloads?: string[] | null;
-        payloads_error?: string | null;
-      }>(`/modules/${type}/${encodeURIComponent(name)}/info`),
+      request<{ info: Record<string, unknown>; options: Record<string, any> }>(
+        `/modules/${type}/${encodeURIComponent(name)}/info`
+      ),
+    compatiblePayloads: (name: string, target?: number) => {
+      const params = new URLSearchParams({ name });
+      if (target !== undefined) params.set("target", String(target));
+      return request<{ module: string; target: number | null; payloads: string[] }>(
+        `/modules/compatible-payloads?${params.toString()}`
+      );
+    },
     execute: (type: string, name: string, options: Record<string, unknown>) =>
       request<Record<string, unknown>>("/modules/execute", {
         method: "POST",
