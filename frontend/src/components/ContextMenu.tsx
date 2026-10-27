@@ -27,7 +27,7 @@ function closestEditor(target: HTMLElement): HTMLElement | null {
   const editor = target.closest<HTMLElement>('input, textarea, [contenteditable="true"], [contenteditable=""]');
   if (!editor) return null;
   if (editor instanceof HTMLInputElement) {
-    if (editor.disabled || editor.readOnly || /^(button|submit|reset|checkbox|radio|file|image|hidden|color|range)$/i.test(editor.type)) {
+    if (editor.disabled || editor.readOnly || /^(button|submit|reset|checkbox|radio|file|image|hidden|color|range|number|date|datetime-local|month|week|time)$/i.test(editor.type)) {
       return null;
     }
   }
@@ -428,6 +428,10 @@ export function ContextMenu() {
   }, [context?.id]);
 
   const items = context ? buildItems(context, announce, close) : [];
+  const contextKind = context?.scope?.dataset.contextKind;
+  const contextLabel = context?.scope?.dataset.contextLabel
+    || context?.scope?.innerText.trim().slice(0, 100)
+    || "";
 
   return (
     <>
@@ -441,13 +445,13 @@ export function ContextMenu() {
           style={{ left: context.x, top: context.y }}
           onContextMenu={(event) => event.preventDefault()}
         >
-          {(context.scope?.dataset.contextLabel || context.scope?.dataset.contextKind) && (
+          {context && (contextLabel || contextKind) && (
             <div className="border-b border-border/80 px-2 py-2">
               <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-gray-500">
-                {context.scope.dataset.contextKind || "Item"}
+                {contextKind || "Item"}
               </div>
-              <div className="mt-1 truncate font-mono text-[11px] text-gray-200" title={context.scope.dataset.contextLabel}>
-                {context.scope.dataset.contextLabel || context.scope.innerText.trim().slice(0, 100)}
+              <div className="mt-1 truncate font-mono text-[11px] text-gray-200" title={contextLabel}>
+                {contextLabel}
               </div>
             </div>
           )}
