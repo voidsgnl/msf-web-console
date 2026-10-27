@@ -48,6 +48,7 @@ function safeFilename(value: unknown): string {
 }
 
 function formatBytes(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
   const bytes = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(bytes) || bytes < 0) return "—";
   if (bytes < 1024) return String(bytes) + " B";
@@ -164,7 +165,7 @@ export function HostsView() {
     const query = lootQuery.trim().toLowerCase();
     return (rows as LootRecord[])
       .map((record, index) => ({ record, index }))
-      .filter(({ record }) => !query || stringifyValue(record).toLowerCase().includes(query));
+      .filter(({ record }) => !query || stringifyValue(metadataForExport(record)).toLowerCase().includes(query));
   }, [rows, lootQuery]);
 
   const columns = rows.length > 0 ? Object.keys(rows[0]).slice(0, 6) : [];
