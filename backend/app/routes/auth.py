@@ -66,8 +66,9 @@ def _clear_failed_logins(client: str) -> None:
 
 
 @router.get("/session")
-def session_status(request: Request):
+def session_status(request: Request, response: Response):
     """Public bootstrap endpoint; reports auth setup without disclosing a password."""
+    response.headers["Cache-Control"] = "no-store"
     configured = authentication_configured()
     token = request.cookies.get(SESSION_COOKIE_NAME)
     username = sessions.username_for(token) if configured else None
