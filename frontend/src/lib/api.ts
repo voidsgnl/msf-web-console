@@ -14,17 +14,31 @@ export type CurrentWorkspace = {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     ...init,
   });
   if (!res.ok) {
     const text = await res.text();
+    if (res.status === 401 && !path.startsWith("/auth/")) {
+      window.dispatchEvent(new CustomEvent("msf-auth-required"));
+    }
     throw new Error(`${res.status}: ${text}`);
   }
   return res.json();
 }
 
 export const api = {
+  auth: {
+    session: () => request<{ configured: boolean; authenticated: boolean; username?: string | null }>("/auth/session"),
+    login: (username: string, password: string) =>
+      request<{ authenticated: boolean; username: string }>("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username, password }),
+      }),
+    logout: () => request<{ authenticated: boolean }>("/auth/logout", { method: "POST" }),
+  },
+
   status: () => request<{ connected: boolean; version?: unknown; error?: string }>("/system/status"),
 
   modules: {
@@ -66,9 +80,10 @@ export const api = {
     vulns: () => request<{ vulns: any[] }>("/db/vulns"),
     loot: () => request<{ loot: any[] }>("/db/loot"),
     downloadLoot: async (downloadId: string): Promise<{ blob: Blob; filename: string }> => {
-      const response = await fetch(`${BASE}/db/loot/${encodeURIComponent(downloadId)}/download`);
+      const response = await fetch(`${BASE}/db/loot/${encodeURIComponent(downloadId)}/download`, { credentials: "same-origin" });
       if (!response.ok) {
         const message = await response.text();
+        if (response.status === 401) window.dispatchEvent(new CustomEvent("msf-auth-required"));
         throw new Error(`${response.status}: ${message}`);
       }
       const disposition = response.headers.get("Content-Disposition") ?? "";
@@ -79,9 +94,10 @@ export const api = {
       };
     },
     downloadReport: async (): Promise<{ blob: Blob; filename: string }> => {
-      const response = await fetch(`${BASE}/db/report`);
+      const response = await fetch(`${BASE}/db/report`, { credentials: "same-origin" });
       if (!response.ok) {
         const message = await response.text();
+        if (response.status === 401) window.dispatchEvent(new CustomEvent("msf-auth-required"));
         throw new Error(`${response.status}: ${message}`);
       }
       const disposition = response.headers.get("Content-Disposition") ?? "";
