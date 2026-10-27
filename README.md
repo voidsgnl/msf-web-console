@@ -37,14 +37,14 @@ typed it into `msfconsole`.
 - Session list + kill + interactive session shell/meterpreter terminal
 - Jobs list + stop
 - Database browser: hosts, services, vulns, loot, creds
-- Printable HTML assessment report for the active workspace, with inventory summaries and sensitive credential values omitted
+- Assessment report for the active workspace: executive summary, severity counts, database-record-based vulnerability findings, remediation guidance, open-service exposure observations, inventory tables, and print-to-PDF styling. Credential values, common filesystem paths, artifact bytes, and download references are filtered.
 - Loot evidence browser: search records, inspect all returned metadata, copy a record, and export one or filtered records as JSON
 - Loot artifact download: retrieve inline artifact data from the Framework `db.loots` RPC response or, when RPC returns metadata only, read the associated file only when its exact path or containing directory is allowlisted in backend configuration; browser-supplied filesystem paths are never accepted
 - Database workspace switcher: list workspaces, switch active workspace,
   create a workspace and switch to it; database views refresh after switching
 
 Still planned: workspace deletion/renaming, auth/login screen (currently
-single-user, local-only), PDF-native report export. Metasploit's `db.loots` RPC may
+single-user, local-only), a dedicated PDF export endpoint, and richer finding enrichment. Metasploit's `db.loots` RPC may
 return a registered artifact path without inline content. Inline content can be
 downloaded directly. For file-backed records, the backend reads only files under
 `MSF_LOOT_ALLOWED_DIRS` (default: `~/.msf4/loot`) or exact files listed in
@@ -130,7 +130,7 @@ backend/
       modules.py        search, info, execute
       sessions.py        list, read/write, stop
       db.py               database views + workspace management + reports
-    reporting.py           safe HTML assessment report generator
+      reporting.py           safe HTML assessment report generator
       jobs.py               list/info/stop
       console.py             WebSocket console bridge
 frontend/
