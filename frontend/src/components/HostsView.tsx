@@ -47,6 +47,18 @@ function safeFilename(value: unknown): string {
   return (base || "loot-record").slice(0, 100);
 }
 
+function omitServerPaths(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(omitServerPaths);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !/path/i.test(key))
+        .map(([key, nested]) => [key, omitServerPaths(nested)])
+    );
+  }
+  return value;
+}
+
 function downloadJson(value: unknown, filename: string) {
   const blob = new Blob([JSON.stringify(value, null, 2) + "\n"], {
     type: "application/json;charset=utf-8",
@@ -59,7 +71,7 @@ function downloadJson(value: unknown, filename: string) {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function lootName(record: LootRecord): string {
@@ -92,7 +104,9 @@ export function HostsView() {
 
     loaders[tab]()
       .then((result) => {
-        if (active) setRows(Array.isArray(result) ? result : []);
+        if (!active) return;
+        const records = Array.isArray(result) ? result : [];
+        setRows(tab === "loot" ? records.map((record) => omitServerPaths(record)) : records);
       })
       .catch((cause: unknown) => {
         if (!active) return;
@@ -119,7 +133,7 @@ export function HostsView() {
 
   async function copyLootRecord(record: LootRecord) {
     try {
-      await navigator.clipboard.writeText(JSON.stringify(record, null, 2));
+      await navigator.clipboard.writeText(JSON.stringify(omitServerPaths(record), null, 2));
       setNotice("Record copied to clipboard.");
     } catch {
       setNotice("Clipboard access was blocked. Use Export JSON instead.");
@@ -162,7 +176,7 @@ export function HostsView() {
               <button
                 disabled={filteredLoot.length === 0}
                 onClick={() => downloadJson(
-                  filteredLoot.map(({ record }) => record),
+                  filteredLoot.map(({ record }) => omitServerPaths(record)),
                   `msf-loot-export-${new Date().toISOString().slice(0, 10)}.json`
                 )}
                 className="h-8 px-3 rounded border border-border text-xs text-gray-300 hover:bg-bg-tertiary disabled:opacity-40 disabled:cursor-not-allowed"
@@ -302,7 +316,7 @@ export function HostsView() {
               </button>
               <button
                 onClick={() => downloadJson(
-                  selectedLoot.record,
+                  omitServerPaths(selectedLoot.record),
                   `loot-${safeFilename(lootName(selectedLoot.record))}.json`
                 )}
                 className="rounded border border-border px-3 py-1.5 text-xs text-gray-300 hover:bg-bg-tertiary"
