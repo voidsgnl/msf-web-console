@@ -232,7 +232,7 @@ function contextSpecificItems(
     } else if (kind === "services") {
       add("Copy service endpoint", copyValue(value, "Service value copied."));
       add("View host", dispatch("view-host"));
-      add("View vulnerabilities", () => dispatchContextAction(context, "view-vulns"));
+      add("View vulnerabilities", dispatch("view-vulns"));
     } else if (kind === "vulns") {
       add("Enrich via NVD", dispatch("enrich-vuln"));
       if (cves.length) {
