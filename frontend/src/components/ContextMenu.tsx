@@ -27,7 +27,7 @@ function closestEditor(target: HTMLElement): HTMLElement | null {
   const editor = target.closest<HTMLElement>('input, textarea, [contenteditable="true"], [contenteditable=""]');
   if (!editor) return null;
   if (editor instanceof HTMLInputElement) {
-    if (editor.disabled || editor.readOnly || /^(button|submit|reset|checkbox|radio|file|image|hidden|color|range|number|date|datetime-local|month|week|time)$/i.test(editor.type)) {
+    if (editor.disabled || editor.readOnly || /^(button|submit|reset|checkbox|radio|file|image|hidden|color|range)$/i.test(editor.type)) {
       return null;
     }
   }
@@ -99,7 +99,13 @@ function editableSelectionExists(context: ContextSnapshot): boolean {
 
 function replaceInputSelection(editor: HTMLInputElement | HTMLTextAreaElement, text: string, start: number, end: number) {
   editor.focus();
-  editor.setRangeText(text, start, end, "end");
+  try {
+    editor.setRangeText(text, start, end, "end");
+  } catch {
+    // Some input types (for example number/date) don't expose a text selection.
+    // Replace the field value rather than failing the paste action.
+    editor.value = text;
+  }
   editor.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
@@ -165,7 +171,7 @@ function buildItems(
 ): MenuItem[] {
   const items: MenuItem[] = [];
   const hasSelection = Boolean(context.selectedText);
-  const textToCopy = context.selectedText || clickedText(context);
+  const textToCopy = context.selectedText || (context.editor ? "" : clickedText(context));
   const hasEditorSelection = editableSelectionExists(context);
   const editor = context.editor;
 
@@ -212,9 +218,10 @@ function buildItems(
       if (!editor) return;
       try {
         const text = await navigator.clipboard.readText();
-        if ((editor instanceof HTMLInputElement || editor instanceof HTMLTextAreaElement)
-          && context.selectionStart !== null && context.selectionEnd !== null) {
-          replaceInputSelection(editor, text, context.selectionStart, context.selectionEnd);
+        if (editor instanceof HTMLInputElement || editor instanceof HTMLTextAreaElement) {
+          const start = context.selectionStart ?? editor.value.length;
+          const end = context.selectionEnd ?? start;
+          replaceInputSelection(editor, text, start, end);
         } else {
           replaceRichSelection(editor, context.range, text);
         }
@@ -232,7 +239,11 @@ function buildItems(
     run: () => {
       if (editor instanceof HTMLInputElement || editor instanceof HTMLTextAreaElement) {
         editor.focus();
-        editor.setSelectionRange(0, editor.value.length);
+        try {
+          editor.setSelectionRange(0, editor.value.length);
+        } catch {
+          editor.select();
+        }
       } else if (editor) {
         editor.focus();
         const range = document.createRange();
