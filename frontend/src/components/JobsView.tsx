@@ -230,7 +230,7 @@ export function JobsView() {
             {detailError && (
               <div role="alert" className="text-xs text-danger">
                 <p>Could not load this job's details: {detailError}</p>
-                <button onClick={() => void showJobInfo(selectedJobId)} className="mt-2 underline">Try again</button>
+                <button onClick={() => void showJobInfo(selectedJobId, false)} className="mt-2 underline">Try again</button>
               </div>
             )}
             {jobInfo && !detailLoading && (
