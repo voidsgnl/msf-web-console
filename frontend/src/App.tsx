@@ -5,12 +5,14 @@ import { ModuleBrowser } from "./components/ModuleBrowser";
 import { SessionsView } from "./components/SessionsView";
 import { HostsView } from "./components/HostsView";
 import { JobsView } from "./components/JobsView";
+import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
 import { api } from "./lib/api";
 
 export default function App() {
   const [view, setView] = useState<View>("console");
   const [connected, setConnected] = useState(false);
   const [checked, setChecked] = useState(false);
+  const [workspaceRevision, setWorkspaceRevision] = useState(0);
 
   useEffect(() => {
     const check = () =>
@@ -36,11 +38,15 @@ export default function App() {
           </div>
         )}
 
+        <div className="relative z-20 h-12 shrink-0 flex items-center justify-end px-4 border-b border-border bg-bg-secondary">
+          <WorkspaceSwitcher onWorkspaceChanged={() => setWorkspaceRevision((revision) => revision + 1)} />
+        </div>
+
         <div className="flex-1 min-h-0">
           {view === "console" && <ConsoleView />}
           {view === "modules" && <ModuleBrowser onViewSessions={() => setView("sessions")} />}
           {view === "sessions" && <SessionsView />}
-          {view === "hosts" && <HostsView />}
+          {view === "hosts" && <HostsView key={workspaceRevision} />}
           {view === "jobs" && <JobsView />}
         </div>
       </div>
