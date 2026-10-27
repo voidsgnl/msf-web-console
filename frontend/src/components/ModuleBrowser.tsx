@@ -732,6 +732,8 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
           {results.map((module) => (
             <button
               key={`${module.type}/${module.name}`}
+              data-context-kind="module"
+              data-context-label={`${module.type}/${module.name}`}
               onClick={() => void select(module)}
               className={`w-full text-left px-3 py-2.5 border-b border-border/50 transition-colors ${
                 selected?.type === module.type && selected?.name === module.name
