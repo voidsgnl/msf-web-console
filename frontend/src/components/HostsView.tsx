@@ -47,9 +47,9 @@ function extractHttpReferences(record: Record<string, unknown>): string[] {
   } catch {
     return [];
   }
-  const matches = text.match(/https?:\\/\\/[^\\s"'<>]+/gi) ?? [];
+  const matches = text.match(/https?:\/\/[^\s"'<>]+/gi) ?? [];
   return Array.from(new Set(matches.map((url) => url.replace(/[),.;]+$/, ""))))
-    .filter((url) => /^https?:\\/\\//i.test(url))
+    .filter((url) => /^https?:\/\//i.test(url))
     .slice(0, 8);
 }
 
