@@ -40,7 +40,7 @@ class LootHelperTests(unittest.TestCase):
         self.assertNotIn("path", public)
         self.assertTrue(public["has_data"])
         self.assertEqual(public["size"], len(b"secret evidence"))
-        self.assertRegex(public["download_id"], r"^[a-f0-9]{64}$")
+        self.assertRegex(public["download_id"], r"^0\.[a-f0-9]{64}$")
 
     def test_filename_is_reduced_to_safe_basename(self):
         self.assertEqual(_safe_loot_filename(r"..\\..\\capture file.bin"), "capture_file.bin")
