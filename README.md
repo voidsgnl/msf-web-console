@@ -92,7 +92,7 @@ backend on port 8000, including WebSocket upgrades for the console.
 
 ## Development checks
 
-Run the backend loot helper tests from the `backend` directory:
+Run all backend unit tests from the `backend` directory:
 
 ```bash
 python -m unittest discover -s tests
@@ -129,7 +129,8 @@ backend/
       system.py        health/status
       modules.py        search, info, execute
       sessions.py        list, read/write, stop
-      db.py               database views + workspace management
+      db.py               database views + workspace management + reports
+    reporting.py           safe HTML assessment report generator
       jobs.py               list/info/stop
       console.py             WebSocket console bridge
 frontend/
