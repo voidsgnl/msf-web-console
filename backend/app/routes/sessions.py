@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from app.msf_rpc import rpc, MsfRpcError
+from app.security import origin_is_allowed
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -68,6 +69,11 @@ async def session_ws(websocket: WebSocket, session_id: int):
     reported type, since msfrpcd has no single generic "write/read" call
     that works for both.
     """
+    origin = websocket.headers.get("origin")
+    if not origin_is_allowed(origin):
+        await websocket.close(code=1008, reason="Origin not allowed.")
+        return
+
     await websocket.accept()
 
     try:
