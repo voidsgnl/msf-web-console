@@ -1,10 +1,14 @@
+import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi import HTTPException, Response
 
 from app.routes.db import (
     _loot_bytes,
+    _loot_payload,
     _loot_download_id,
     download_loot,
     _public_loot_record,
@@ -60,6 +64,25 @@ class LootHelperTests(unittest.TestCase):
                 download_loot("../../etc/passwd")
         self.assertEqual(raised.exception.status_code, 400)
         rpc_call.assert_not_called()
+
+    def test_registered_file_is_read_only_when_exact_path_is_allowlisted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / "evidence.txt"
+            artifact.write_bytes(b"registered artifact")
+            record = {"name": "evidence.txt", "path": str(artifact)}
+            with patch.dict(os.environ, {"MSF_LOOT_ALLOWED_FILES": str(artifact), "MSF_LOOT_ALLOWED_DIRS": ""}):
+                self.assertEqual(_loot_payload(record), b"registered artifact")
+
+            with patch.dict(os.environ, {"MSF_LOOT_ALLOWED_FILES": "", "MSF_LOOT_ALLOWED_DIRS": ""}):
+                self.assertIsNone(_loot_payload(record))
+
+    def test_registered_file_under_allowlisted_directory_can_be_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / "evidence.txt"
+            artifact.write_bytes(b"directory artifact")
+            record = {"name": "evidence.txt", "path": str(artifact)}
+            with patch.dict(os.environ, {"MSF_LOOT_ALLOWED_FILES": "", "MSF_LOOT_ALLOWED_DIRS": directory}):
+                self.assertEqual(_loot_payload(record), b"directory artifact")
 
     def test_public_record_omits_artifact_bytes_and_server_paths(self):
         record = {
