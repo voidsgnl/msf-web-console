@@ -38,7 +38,7 @@ export default function App() {
 
         <div className="flex-1 min-h-0">
           {view === "console" && <ConsoleView />}
-          {view === "modules" && <ModuleBrowser />}
+          {view === "modules" && <ModuleBrowser onViewSessions={() => setView("sessions")} />}
           {view === "sessions" && <SessionsView />}
           {view === "hosts" && <HostsView />}
           {view === "jobs" && <JobsView />}
