@@ -303,7 +303,7 @@ export function JobsView() {
                     : "Unnamed job";
                 const isSelected = selectedJobId === id;
                 return (
-                  <tr key={id} className="border-b border-border/50 text-gray-300">
+                  <tr key={id} data-context-kind="job" data-context-label={`Job ${id} · ${name}`} className="border-b border-border/50 text-gray-300">
                     <td className="py-2 pr-4 align-top text-accent">{id}</td>
                     <td className="py-2 pr-4 align-top break-words">{name}</td>
                     <td className="py-2 pr-4 align-top">
