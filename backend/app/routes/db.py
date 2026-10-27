@@ -313,6 +313,37 @@ def set_workspace(req: WorkspaceRequest):
         raise _rpc_error(exc)
 
 
+@router.delete("/workspaces/{name:path}")
+def delete_workspace(name: str):
+    """Delete a named workspace, protecting Metasploit's default workspace."""
+    workspace_name = _workspace_name(name)
+    if workspace_name.casefold() == "default":
+        raise HTTPException(400, "The default workspace is protected and cannot be deleted.")
+
+    try:
+        listed = rpc.call("db.workspaces")
+        available = listed.get("workspaces", []) if isinstance(listed, dict) else []
+        if not any(
+            isinstance(workspace, dict) and workspace.get("name") == workspace_name
+            for workspace in available
+        ):
+            raise HTTPException(404, f"Workspace not found: {workspace_name}")
+
+        result = rpc.call("db.del_workspace", workspace_name)
+        if not isinstance(result, dict) or result.get("result") != "success":
+            raise HTTPException(502, f"Metasploit did not confirm deletion of workspace: {workspace_name}")
+
+        current = rpc.call("db.current_workspace")
+        refreshed = rpc.call("db.workspaces")
+        return {
+            "deleted_workspace": workspace_name,
+            "current_workspace": current,
+            "workspaces": refreshed.get("workspaces", []) if isinstance(refreshed, dict) else [],
+        }
+    except MsfRpcError as exc:
+        raise _rpc_error(exc)
+
+
 @router.post("/workspaces")
 def create_workspace(req: WorkspaceRequest):
     """Create a workspace and make it the active workspace."""
