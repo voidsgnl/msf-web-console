@@ -50,7 +50,7 @@ function safeFilename(value: unknown): string {
 function formatBytes(value: unknown): string {
   const bytes = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(bytes) || bytes < 0) return "—";
-  if (bytes < 1024) return \`\${bytes} B\`;
+  if (bytes < 1024) return String(bytes) + " B";
   const units = ["KB", "MB", "GB", "TB"];
   let size = bytes / 1024;
   let unit = 0;
@@ -58,7 +58,7 @@ function formatBytes(value: unknown): string {
     size /= 1024;
     unit += 1;
   }
-  return \`\${size.toFixed(size < 10 ? 1 : 0)} \${units[unit]}\`;
+  return String(size.toFixed(size < 10 ? 1 : 0)) + " " + units[unit];
 }
 
 function omitServerPaths(value: unknown): unknown {
@@ -280,7 +280,7 @@ export function HostsView() {
                           <button
                             onClick={() => { setSelectedLoot({ record, index }); setNotice(""); }}
                             className="rounded border border-border px-2 py-1 text-accent hover:bg-bg-secondary"
-                            aria-label={\`Inspect \${lootName(record)}\`}
+                            aria-label={lootName(record)}
                           >
                             Inspect
                           </button>
