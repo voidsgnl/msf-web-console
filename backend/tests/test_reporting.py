@@ -24,7 +24,7 @@ class AssessmentReportTests(unittest.TestCase):
         self.assertIn("Workspace:</strong> default", report)
         self.assertIn("Hosts", report)
         self.assertIn("Services", report)
-        self.assertIn("Vulnerabilities", report)
+        self.assertIn("Vulnerability Records", report)
         self.assertIn("Credentials (secrets omitted)", report)
         self.assertIn("Loot &amp; Evidence", report)
         self.assertIn("192.0.2.10", report)
