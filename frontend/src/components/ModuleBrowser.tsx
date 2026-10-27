@@ -115,6 +115,8 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
   const [infoError, setInfoError] = useState<string | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const mounted = useRef(true);
+  const selectionGeneration = useRef(0);
+  const payloadRequestGeneration = useRef(0);
 
   useEffect(() => {
     mounted.current = true;
@@ -143,7 +145,30 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     }
   };
 
+  const loadCompatiblePayloads = async (moduleName: string, target?: number) => {
+    const requestGeneration = ++payloadRequestGeneration.current;
+    setPayloadsLoading(true);
+    setPayloadError(null);
+    try {
+      const result = await api.modules.compatiblePayloads(moduleName, target);
+      if (mounted.current && requestGeneration === payloadRequestGeneration.current) {
+        setCompatiblePayloads(result.payloads ?? []);
+      }
+    } catch (e: unknown) {
+      if (mounted.current && requestGeneration === payloadRequestGeneration.current) {
+        setPayloadError(e instanceof Error ? e.message : String(e));
+        setCompatiblePayloads([]);
+      }
+    } finally {
+      if (mounted.current && requestGeneration === payloadRequestGeneration.current) {
+        setPayloadsLoading(false);
+      }
+    }
+  };
+
   const select = async (mod: ModuleRef) => {
+    const generation = ++selectionGeneration.current;
+    payloadRequestGeneration.current += 1;
     setSelected(mod);
     setActiveTab("overview");
     setProgress(null);
@@ -165,7 +190,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     setLoadingInfo(true);
     try {
       const data = await api.modules.info(mod.type, mod.name);
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== selectionGeneration.current) return;
       setInfo(data);
       const defaults: Record<string, string> = {};
       for (const [key, opt] of Object.entries<any>(data.options || {})) {
@@ -180,22 +205,18 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
       setOptionValues(defaults);
 
       if (mod.type === "exploit") {
-        try {
-          const payloadResult = await api.modules.compatiblePayloads(mod.name, defaultTarget);
-          if (mounted.current) setCompatiblePayloads(payloadResult.payloads ?? []);
-        } catch (payloadLookupError: any) {
-          if (mounted.current) setPayloadError(payloadLookupError.message ?? String(payloadLookupError));
-        } finally {
-          if (mounted.current) setPayloadsLoading(false);
-        }
+        void loadCompatiblePayloads(mod.name, defaultTarget);
       } else {
         setPayloadsLoading(false);
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("module info failed:", e);
-      if (mounted.current) setInfoError(e.message ?? String(e));
+      if (mounted.current && generation === selectionGeneration.current) {
+        setInfoError(e instanceof Error ? e.message : String(e));
+        setPayloadsLoading(false);
+      }
     } finally {
-      if (mounted.current) setLoadingInfo(false);
+      if (mounted.current && generation === selectionGeneration.current) setLoadingInfo(false);
     }
   };
 
@@ -215,30 +236,18 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     setValidationErrors({});
     setPayloadError(null);
     setCompatiblePayloads([]);
-    setPayloadsLoading(true);
-
-    try {
-      const numericTarget = targetNumber(targetId);
-      const result = await api.modules.compatiblePayloads(
-        selected.name,
-        numericTarget
-      );
-      if (mounted.current) setCompatiblePayloads(result.payloads ?? []);
-    } catch (e: any) {
-      if (mounted.current) setPayloadError(e.message ?? String(e));
-    } finally {
-      if (mounted.current) setPayloadsLoading(false);
-    }
+    void loadCompatiblePayloads(selected.name, targetNumber(targetId));
   };
 
   const choosePayload = async (payloadName: string) => {
-    if (!selected || selected.type !== "exploit" || !payloadName) return;
+    if (!selected || selected.type !== "exploit" || !payloadName || payloadOptionsLoading) return;
+    const generation = selectionGeneration.current;
 
     setPayloadOptionsLoading(true);
     setPayloadOptionsError(null);
     try {
       const payloadInfo = await api.modules.info("payload", payloadName);
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== selectionGeneration.current) return;
 
       const defaults: Record<string, string> = {};
       for (const [key, option] of Object.entries<any>(payloadInfo.options || {})) {
@@ -251,10 +260,12 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
       setPayloadOptionValues(defaults);
       setOptionValues((current) => ({ ...current, PAYLOAD: payloadName }));
       setActiveTab("options");
-    } catch (e: any) {
-      if (mounted.current) setPayloadOptionsError(e.message ?? String(e));
+    } catch (e: unknown) {
+      if (mounted.current && generation === selectionGeneration.current) {
+        setPayloadOptionsError(e instanceof Error ? e.message : String(e));
+      }
     } finally {
-      if (mounted.current) setPayloadOptionsLoading(false);
+      if (mounted.current && generation === selectionGeneration.current) setPayloadOptionsLoading(false);
     }
   };
 
@@ -866,7 +877,20 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                               <div className="rounded border border-warning/30 bg-warning/5 p-3">
                                 <p className="text-xs text-warning">Could not retrieve compatible payloads from Metasploit.</p>
                                 <p className="text-xs text-gray-400 mt-1 break-words">{payloadError}</p>
-                                <button type="button" onClick={() => selected && void chooseTarget(selectedTargetId || String(moduleInfo.default_target ?? ""))} className="mt-2 text-xs text-accent hover:underline">Retry compatibility lookup</button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (selected) {
+                                      void loadCompatiblePayloads(
+                                        selected.name,
+                                        targetNumber(selectedTargetId || moduleInfo.default_target)
+                                      );
+                                    }
+                                  }}
+                                  className="mt-2 text-xs text-accent hover:underline"
+                                >
+                                  Retry compatibility lookup
+                                </button>
                               </div>
                             ) : payloadsLoading ? (
                               <p className="py-5 text-xs text-gray-500">Loading compatible payloads from Metasploit…</p>
