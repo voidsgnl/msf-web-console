@@ -164,6 +164,147 @@ function contextualButtons(context: ContextSnapshot): HTMLButtonElement[] {
     .filter((button, index, list) => list.findIndex((other) => labelForButton(other) === labelForButton(button)) === index);
 }
 
+function dataValue(context: ContextSnapshot, key: string): string {
+  return context.scope?.dataset[key] ?? context.row?.dataset[key] ?? "";
+}
+
+function dispatchContextAction(context: ContextSnapshot, action: string): void {
+  window.dispatchEvent(new CustomEvent("msf-context-action", {
+    detail: {
+      action,
+      kind: dataValue(context, "contextKind"),
+      index: dataValue(context, "contextIndex"),
+      value: dataValue(context, "contextValue"),
+    },
+  }));
+}
+
+function clickRowButton(context: ContextSnapshot, pattern: RegExp): boolean {
+  const container = context.row ?? context.scope;
+  const button = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+    .find((candidate) => pattern.test(labelForButton(candidate)) && !candidate.disabled);
+  if (!button) return false;
+  button.click();
+  return true;
+}
+
+function contextSpecificItems(
+  context: ContextSnapshot,
+  announce: (message: string) => void,
+  close: () => void
+): MenuItem[] {
+  const kind = dataValue(context, "contextKind");
+  const value = dataValue(context, "contextValue");
+  const cves = dataValue(context, "contextCves")
+    .split(",")
+    .map((id) => id.trim().toUpperCase())
+    .filter((id) => /^CVE-\d{4}-\d{4,7}$/.test(id));
+  let references: string[] = [];
+  try {
+    const parsed = JSON.parse(dataValue(context, "contextReferences") || "[]");
+    if (Array.isArray(parsed)) {
+      references = parsed
+        .filter((item): item is string => typeof item === "string" && /^https?:\/\//i.test(item))
+        .slice(0, 8);
+    }
+  } catch {
+    references = [];
+  }
+  const items: MenuItem[] = [];
+  const add = (label: string, run: MenuItem["run"], hint?: string) => items.push({ label, run, hint });
+  const separator = () => items.push({ label: "", disabled: true, run: () => {} });
+  const copyValue = (text: string, message: string) => async () => {
+    const ok = await writeClipboard(text);
+    announce(ok ? message : "Clipboard access was blocked.");
+    close();
+  };
+
+  if (["hosts", "services", "vulns", "creds"].includes(kind)) {
+    separator();
+    add(kind === "vulns" ? "Inspect vulnerability" : kind === "hosts" ? "Inspect host" : kind === "services" ? "Inspect service" : "Inspect credential",
+      () => dispatchContextAction(context, "inspect-record"));
+    add("Export record JSON", () => dispatchContextAction(context, "export-record"));
+    if (kind === "hosts") {
+      add("Copy host address", copyValue(value, "Host address copied."), "Ctrl+C");
+      add("View related services", () => dispatchContextAction(context, "view-services"));
+      add("View vulnerabilities", () => dispatchContextAction(context, "view-vulns"));
+    } else if (kind === "services") {
+      add("Copy service endpoint", copyValue(value, "Service value copied."));
+      add("View host", () => dispatchContextAction(context, "view-host"));
+      add("View vulnerabilities", () => dispatchContextAction(context, "view-vulns"));
+    } else if (kind === "vulns") {
+      add("Enrich via NVD", () => dispatchContextAction(context, "enrich-vuln"));
+      if (cves.length) {
+        add(cves.length === 1 ? "Copy CVE identifier" : "Copy CVE identifiers", copyValue(cves.join("\n"), "CVE identifier(s) copied."));
+        cves.forEach((id) => add(`Open ${id} advisory`, () => {
+          window.open(`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(id)}`, "_blank", "noopener,noreferrer");
+          close();
+        }));
+      }
+      references.forEach((url, index) => add(`Open advisory reference ${index + 1}`, () => {
+        window.open(url, "_blank", "noopener,noreferrer");
+        close();
+      }));
+    } else if (kind === "creds") {
+      add("Copy username", copyValue(value, "Username copied."));
+    }
+    return items;
+  }
+
+  if (kind === "loot") {
+    separator();
+    add("Inspect evidence", () => dispatchContextAction(context, "inspect-evidence"));
+    add("Copy evidence metadata", () => dispatchContextAction(context, "copy-evidence"));
+    add("Export evidence metadata", () => dispatchContextAction(context, "export-evidence"));
+    add("Download artifact", () => {
+      if (!clickRowButton(context, /download/i)) announce("This evidence record has no available download action.");
+      close();
+    });
+    return items;
+  }
+
+  if (kind === "session") {
+    separator();
+    add("Inspect session details", () => dispatchContextAction(context, "inspect-session"));
+    add("Open interactive shell", () => {
+      if (!clickRowButton(context, /interact/i)) announce("This session is no longer available.");
+      close();
+    });
+    add("Copy session ID", copyValue(value, "Session ID copied."));
+    add("Terminate session", () => {
+      if (!clickRowButton(context, /terminate/i)) announce("This session is no longer available.");
+      close();
+    });
+    return items;
+  }
+
+  if (kind === "job") {
+    separator();
+    add("Inspect job", () => {
+      if (!clickRowButton(context, /inspect|hide details/i)) announce("Job details are no longer available.");
+      close();
+    });
+    add("Copy job ID", copyValue(value, "Job ID copied."));
+    add("Stop job", () => {
+      if (!clickRowButton(context, /^stop$/i)) announce("This job is no longer available.");
+      close();
+    });
+    return items;
+  }
+
+  if (kind === "module") {
+    separator();
+    add("Open module details", () => {
+      context.scope?.click();
+      close();
+    });
+    add("Copy module path", copyValue(value || dataValue(context, "contextLabel"), "Module path copied."));
+    return items;
+  }
+
+  return items;
+}
+
 function buildItems(
   context: ContextSnapshot,
   announce: (message: string) => void,
@@ -297,11 +438,16 @@ function buildItems(
     });
   }
 
+  const specificItems = contextSpecificItems(context, announce, close);
+  if (specificItems.length) {
+    items.push(...specificItems);
+    return items;
+  }
+
   const actions = contextualButtons(context);
   if (context.scope instanceof HTMLButtonElement && context.scope.dataset.contextKind) {
-    const kind = context.scope.dataset.contextKind;
     items.push({
-      label: kind === "module" ? "Open module details" : "Activate item",
+      label: "Activate item",
       run: () => {
         context.scope?.click();
         close();
@@ -336,7 +482,6 @@ function buildItems(
       });
     }
   }
-
   return items;
 }
 
