@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.msf_rpc import rpc, MsfRpcError
 from app.reporting import build_assessment_report
+from app.pdf_reporting import build_assessment_report_pdf
 
 router = APIRouter(prefix="/api/db", tags=["database"])
 
@@ -219,9 +220,8 @@ def download_loot(download_id: str):
     )
 
 
-@router.get("/report")
-def download_assessment_report():
-    """Download an HTML snapshot of the active workspace with secrets omitted."""
+def _assessment_snapshot() -> tuple[str, dict[str, list[dict[str, Any]]]]:
+    """Collect one active-workspace snapshot for either HTML or PDF exports."""
     try:
         workspace_result = rpc.call("db.current_workspace")
         workspace = (
@@ -257,21 +257,48 @@ def download_assessment_report():
             else:
                 records[section] = valid_rows
     except MsfRpcError as exc:
-        raise HTTPException(502, str(exc))
+        raise HTTPException(502, str(exc)) from exc
+    return workspace, records
 
+
+def _assessment_filename(workspace: str, extension: str) -> str:
+    from datetime import datetime, timezone
+
+    safe_workspace = re.sub(r"[^A-Za-z0-9_-]+", "_", workspace or "default").strip("_")[:80]
+    safe_workspace = safe_workspace or "default"
+    date = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return f"msf-assessment-{safe_workspace}-{date}.{extension}"
+
+
+def _assessment_download_headers(filename: str) -> dict[str, str]:
+    return {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store",
+    }
+
+
+@router.get("/report")
+def download_assessment_report():
+    """Download a sanitized HTML snapshot of the active workspace."""
+    workspace, records = _assessment_snapshot()
     report = build_assessment_report(workspace, records)
-    safe_workspace = _safe_loot_filename(workspace).replace(".", "_") or "default"
-    from datetime import datetime
-
-    filename = f"msf-assessment-{safe_workspace}-{datetime.now().strftime('%Y%m%d')}.html"
     return Response(
         content=report,
         media_type="text/html",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "X-Content-Type-Options": "nosniff",
-            "Cache-Control": "no-store",
-        },
+        headers=_assessment_download_headers(_assessment_filename(workspace, "html")),
+    )
+
+
+@router.get("/report.pdf")
+def download_assessment_report_pdf():
+    """Download a sanitized native PDF snapshot of the active workspace."""
+    workspace, records = _assessment_snapshot()
+    report = build_assessment_report_pdf(workspace, records)
+    return Response(
+        content=report,
+        media_type="application/pdf",
+        headers=_assessment_download_headers(_assessment_filename(workspace, "pdf")),
     )
 
 
