@@ -819,7 +819,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                                     <button
                                       type="button"
                                       onClick={() => void chooseTarget(id)}
-                                      disabled={active || payloadsLoading}
+                                      disabled={active || payloadsLoading || payloadOptionsLoading}
                                       className="shrink-0 rounded border border-border px-2.5 py-1.5 text-[10px] text-gray-300 hover:border-accent hover:text-accent disabled:opacity-50"
                                     >
                                       {active ? "Selected" : "Use target"}
