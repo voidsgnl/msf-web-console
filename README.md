@@ -38,14 +38,18 @@ typed it into `msfconsole`.
 - Jobs list + stop
 - Database browser: hosts, services, vulns, loot, creds
 - Loot evidence browser: search records, inspect all returned metadata, copy a record, and export one or filtered records as JSON
+- Loot artifact download: retrieve the artifact bytes exposed by the Framework `db.loots` RPC response; raw data stays on the backend during listing, download names/content types are validated, and no user-supplied filesystem paths are read
 - Database workspace switcher: list workspaces, switch active workspace,
   create a workspace and switch to it; database views refresh after switching
 
 Still planned: workspace deletion/renaming, auth/login screen (currently
-single-user, local-only), original loot-file retrieval, report generation. The
-standard Metasploit Framework `db.loots` RPC response exposes record metadata
-but not a stable loot ID, a retrievable file path, or the original file bytes;
-JSON export therefore contains metadata only, not the original artifact.
+single-user, local-only), report generation. Metasploit's `db.loots` RPC
+returns a `data` field for loot content, but some records may have no content
+in that field. The console can download content returned by RPC; records without
+data remain metadata-only. The RPC does not expose a stable loot ID or a
+retrievable filesystem path, so the download endpoint never accepts or reads an
+arbitrary path from the browser. JSON exports contain sanitized metadata, not
+the original artifact bytes.
 
 ## Setup
 
