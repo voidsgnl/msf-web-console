@@ -1,8 +1,12 @@
 import unittest
+from unittest.mock import patch
+
+from fastapi import HTTPException, Response
 
 from app.routes.db import (
     _loot_bytes,
     _loot_download_id,
+    download_loot,
     _public_loot_record,
     _safe_content_type,
     _safe_loot_filename,
@@ -27,6 +31,35 @@ class LootHelperTests(unittest.TestCase):
         self.assertEqual(_loot_download_id(record), _loot_download_id(dict(record)))
         changed = dict(record, data=b"different content")
         self.assertNotEqual(_loot_download_id(record), _loot_download_id(changed))
+
+    def test_download_reference_changes_with_offset(self):
+        record = {"name": "capture.bin", "data": b"evidence"}
+        self.assertNotEqual(_loot_download_id(record, 0), _loot_download_id(record, 1))
+
+    def test_download_endpoint_returns_binary_content_with_safe_filename(self):
+        record = {
+            "name": "../capture file.bin",
+            "ltype": "capture",
+            "ctype": "application/octet-stream",
+            "data": bytes([0, 255, 10]),
+            "created_at": 100,
+        }
+        reference = _loot_download_id(record, 0)
+        with patch("app.routes.db.rpc.call", return_value={"loots": [record]}) as rpc_call:
+            response = download_loot(reference)
+
+        self.assertIsInstance(response, Response)
+        self.assertEqual(response.body, bytes([0, 255, 10]))
+        self.assertEqual(response.headers["content-disposition"], 'attachment; filename="capture_file.bin"')
+        self.assertEqual(response.headers["x-content-type-options"], "nosniff")
+        rpc_call.assert_called_once_with("db.loots", {"limit": 1, "offset": 0})
+
+    def test_download_endpoint_rejects_invalid_reference_without_rpc_call(self):
+        with patch("app.routes.db.rpc.call") as rpc_call:
+            with self.assertRaises(HTTPException) as raised:
+                download_loot("../../etc/passwd")
+        self.assertEqual(raised.exception.status_code, 400)
+        rpc_call.assert_not_called()
 
     def test_public_record_omits_artifact_bytes_and_server_paths(self):
         record = {
