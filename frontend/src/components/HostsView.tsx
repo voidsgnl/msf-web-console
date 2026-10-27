@@ -719,13 +719,20 @@ export function HostsView() {
                 <tbody>
                   {filteredDatabaseRows.map(({ record, index }) => {
                     const host = relatedHostValue(record);
+                    const contextValue = tab === "hosts"
+                      ? stringifyValue(record.address ?? record.name)
+                      : tab === "services"
+                        ? `${host}${record.port ? `:${record.port}` : ""}${record.proto ? `/${record.proto}` : ""}`
+                        : tab === "creds"
+                          ? stringifyValue(record.username)
+                          : stringifyValue(record.name ?? record.host ?? index + 1);
                     return (
                       <tr
                         key={`${tab}-${index}`}
                         data-context-kind={tab}
                         data-context-label={`${tab} · ${stringifyValue(record.address ?? record.name ?? record.host ?? index + 1)}`}
                         data-context-index={index}
-                        data-context-value={stringifyValue(tab === "hosts" ? record.address ?? record.name : tab === "creds" ? record.username : record.id ?? record.address ?? record.host ?? record.name)}
+                        data-context-value={contextValue}
                         data-context-host={host}
                         data-context-cves={tab === "vulns" ? extractCveIds(record).join(",") : ""}
                         data-context-references={tab === "vulns" ? JSON.stringify(extractHttpReferences(record)) : "[]"}
