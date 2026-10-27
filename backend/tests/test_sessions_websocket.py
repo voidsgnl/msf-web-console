@@ -8,6 +8,7 @@ from app.routes.sessions import session_ws
 
 class FakeWebSocket:
     def __init__(self, incoming=None):
+        self.headers = {}
         self.messages = []
         self.incoming = list(incoming or [])
         self.waiting_cancelled = False
