@@ -27,6 +27,12 @@ export function ConsoleTab() {
         cursor: "#3fb950",
       },
       cursorBlink: true,
+      // msfconsole runs outside a real TTY and emits bare \n line endings
+      // (no \r). xterm.js doesn't return the cursor to column 0 on a bare
+      // \n by default, so each line picks up where the last one's cursor
+      // stopped - producing a scattered/staircase render of the banner.
+      // convertEol treats \n as \r\n, which fixes that.
+      convertEol: true,
       // Generous default so a mis-timed first fit doesn't wrap the banner
       // into a narrow column before the real size is known.
       cols: 120,
