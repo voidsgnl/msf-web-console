@@ -196,6 +196,7 @@ export function HostsView() {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
   const [lootQuery, setLootQuery] = useState("");
   const [recordQuery, setRecordQuery] = useState("");
   const [recordFilterField, setRecordFilterField] = useState("");
@@ -215,6 +216,8 @@ export function HostsView() {
     setSelectedLoot(null);
     setSelectedRecord(null);
     setShowSensitiveFields(false);
+    setRecordFilterField("");
+    setRecordFilterValue("");
 
     const loaders: Record<Tab, () => Promise<any[]>> = {
       hosts: () => api.db.hosts().then((r) => r.hosts),
@@ -242,7 +245,7 @@ export function HostsView() {
     return () => {
       active = false;
     };
-  }, [tab]);
+  }, [tab, reloadToken]);
 
   const filteredLoot = useMemo(() => {
     const query = lootQuery.trim().toLowerCase();
@@ -517,6 +520,13 @@ export function HostsView() {
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <button
+                onClick={() => setReloadToken((current) => current + 1)}
+                disabled={loading}
+                className="h-8 rounded border border-border px-3 text-xs text-gray-300 hover:bg-bg-tertiary disabled:opacity-40"
+              >
+                {loading ? "Loading…" : "Refresh"}
+              </button>
               <input
                 aria-label={`Search ${tab} records`}
                 value={recordQuery}
@@ -562,11 +572,10 @@ export function HostsView() {
             <div role="alert" className="rounded border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-300">
               Could not load {tab} records: {error}
               <button
-                onClick={() => setTab((current) => current)}
+                onClick={() => setReloadToken((current) => current + 1)}
                 className="ml-2 underline"
-                title="Switch away and back to reload"
               >
-                dismiss
+                Try again
               </button>
             </div>
           )}
