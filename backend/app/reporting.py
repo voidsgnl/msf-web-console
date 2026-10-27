@@ -10,7 +10,7 @@ SECTIONS = [
     ("hosts", "Hosts", ("address", "host", "name", "mac", "os_name", "os_flavor", "purpose", "info")),
     ("services", "Services", ("host", "port", "proto", "name", "state", "info")),
     ("vulns", "Vulnerabilities", ("host", "port", "name", "info", "refs")),
-    ("creds", "Credentials (secrets omitted)", ("host", "port", "service_name", "user", "username", "realm", "type", "private_type", "proof")),
+    ("creds", "Credentials (secrets omitted)", ("host", "port", "service_name", "user", "username", "realm", "type", "private_type")),
     ("loot", "Loot & Evidence", ("host", "service", "name", "ltype", "ctype", "info", "created_at", "has_data", "size")),
 ]
 
