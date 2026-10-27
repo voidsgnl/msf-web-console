@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { SessionShell } from "./SessionShell";
 
 export function SessionsView() {
   const [sessions, setSessions] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
+  const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
 
   const refresh = () => {
     setLoading(true);
@@ -15,9 +17,25 @@ export function SessionsView() {
 
   useEffect(() => {
     refresh();
+    // Pause the list poll while actively interacting with a session - no
+    // need to keep hammering session.list in the background, and it avoids
+    // any chance of a refresh re-render disturbing the open terminal.
+    if (activeSessionId !== null) return;
     const t = setInterval(refresh, 5000);
     return () => clearInterval(t);
-  }, []);
+  }, [activeSessionId]);
+
+  if (activeSessionId !== null) {
+    return (
+      <SessionShell
+        sessionId={activeSessionId}
+        onClose={() => {
+          setActiveSessionId(null);
+          refresh();
+        }}
+      />
+    );
+  }
 
   const entries = Object.entries(sessions);
 
@@ -57,7 +75,13 @@ export function SessionsView() {
                 </td>
                 <td className="py-1.5 pr-4">{s.via_exploit}</td>
                 <td className="py-1.5 pr-4 truncate max-w-xs">{s.info}</td>
-                <td className="py-1.5">
+                <td className="py-1.5 flex gap-3">
+                  <button
+                    onClick={() => setActiveSessionId(Number(id))}
+                    className="text-accent hover:underline"
+                  >
+                    interact
+                  </button>
                   <button
                     onClick={() => api.sessions.stop(Number(id)).then(refresh)}
                     className="text-danger hover:underline"
