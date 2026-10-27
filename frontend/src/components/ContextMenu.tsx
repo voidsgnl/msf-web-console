@@ -213,6 +213,7 @@ function contextSpecificItems(
   const items: MenuItem[] = [];
   const add = (label: string, run: MenuItem["run"], hint?: string) => items.push({ label, run, hint });
   const separator = () => items.push({ label: "", disabled: true, run: () => {} });
+  const dispatch = (action: string) => () => { dispatchContextAction(context, action); close(); };
   const copyValue = (text: string, message: string) => async () => {
     const ok = await writeClipboard(text);
     announce(ok ? message : "Clipboard access was blocked.");
@@ -222,18 +223,18 @@ function contextSpecificItems(
   if (["hosts", "services", "vulns", "creds"].includes(kind)) {
     separator();
     add(kind === "vulns" ? "Inspect vulnerability" : kind === "hosts" ? "Inspect host" : kind === "services" ? "Inspect service" : "Inspect credential",
-      () => dispatchContextAction(context, "inspect-record"));
-    add("Export record JSON", () => dispatchContextAction(context, "export-record"));
+      dispatch("inspect-record"));
+    add("Export record JSON", dispatch("export-record"));
     if (kind === "hosts") {
       add("Copy host address", copyValue(value, "Host address copied."), "Ctrl+C");
-      add("View related services", () => dispatchContextAction(context, "view-services"));
-      add("View vulnerabilities", () => dispatchContextAction(context, "view-vulns"));
+      add("View related services", dispatch("view-services"));
+      add("View vulnerabilities", dispatch("view-vulns"));
     } else if (kind === "services") {
       add("Copy service endpoint", copyValue(value, "Service value copied."));
-      add("View host", () => dispatchContextAction(context, "view-host"));
+      add("View host", dispatch("view-host"));
       add("View vulnerabilities", () => dispatchContextAction(context, "view-vulns"));
     } else if (kind === "vulns") {
-      add("Enrich via NVD", () => dispatchContextAction(context, "enrich-vuln"));
+      add("Enrich via NVD", dispatch("enrich-vuln"));
       if (cves.length) {
         add(cves.length === 1 ? "Copy CVE identifier" : "Copy CVE identifiers", copyValue(cves.join("\n"), "CVE identifier(s) copied."));
         cves.forEach((id) => add(`Open ${id} advisory`, () => {
@@ -253,9 +254,9 @@ function contextSpecificItems(
 
   if (kind === "loot") {
     separator();
-    add("Inspect evidence", () => dispatchContextAction(context, "inspect-evidence"));
-    add("Copy evidence metadata", () => dispatchContextAction(context, "copy-evidence"));
-    add("Export evidence metadata", () => dispatchContextAction(context, "export-evidence"));
+    add("Inspect evidence", dispatch("inspect-evidence"));
+    add("Copy evidence metadata", dispatch("copy-evidence"));
+    add("Export evidence metadata", dispatch("export-evidence"));
     add("Download artifact", () => {
       if (!clickRowButton(context, /download/i)) announce("This evidence record has no available download action.");
       close();
@@ -265,7 +266,7 @@ function contextSpecificItems(
 
   if (kind === "session") {
     separator();
-    add("Inspect session details", () => dispatchContextAction(context, "inspect-session"));
+    add("Inspect session details", dispatch("inspect-session"));
     add("Open interactive shell", () => {
       if (!clickRowButton(context, /interact/i)) announce("This session is no longer available.");
       close();
