@@ -43,13 +43,16 @@ typed it into `msfconsole`.
   create a workspace and switch to it; database views refresh after switching
 
 Still planned: workspace deletion/renaming, auth/login screen (currently
-single-user, local-only), report generation. Metasploit's `db.loots` RPC
-returns a `data` field for loot content, but some records may have no content
-in that field. The console can download content returned by RPC; records without
-data remain metadata-only. The RPC does not expose a stable loot ID or a
-retrievable filesystem path, so the download endpoint never accepts or reads an
-arbitrary path from the browser. JSON exports contain sanitized metadata, not
-the original artifact bytes.
+single-user, local-only), report generation. Metasploit's `db.loots` RPC may
+return a registered artifact path without inline content. Inline content can be
+downloaded directly. For file-backed records, the backend reads only files under
+`MSF_LOOT_ALLOWED_DIRS` (default: `~/.msf4/loot`) or exact files listed in
+`MSF_LOOT_ALLOWED_FILES`; client requests cannot choose a filesystem path. To
+permit the synthetic test artifact, add
+`MSF_LOOT_ALLOWED_FILES=/tmp/msf-web-console-loot-test.txt` to `backend/.env`
+and restart the backend. Keep the list narrow because loot can contain sensitive
+evidence. JSON exports contain sanitized metadata, not the original artifact
+bytes.
 
 ## Setup
 
