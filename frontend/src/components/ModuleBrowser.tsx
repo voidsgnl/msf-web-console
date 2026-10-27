@@ -8,6 +8,9 @@ type ExecutionProgress = {
   phase: "submitting" | "running" | "completed" | "timeout" | "error";
   message: string;
   jobId?: string;
+  runUuid?: string;
+  resultText?: string;
+  artifact?: { filename: string; size: number; payloadBase64: string; format: string };
   sessions: SessionSummary[];
 };
 type ModuleTab = "overview" | "options" | "targets" | "payloads" | "references" | "advanced" | "raw";
@@ -42,6 +45,46 @@ function prettyValue(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function runResultText(value: unknown): string {
+  if (value === null || value === undefined || value === "") {
+    return "Metasploit marked the run complete but returned no additional result payload.";
+  }
+  const rendered = prettyValue(value);
+  return rendered.length > 12000
+    ? rendered.slice(0, 12000) + "\\n… output truncated in the UI …"
+    : rendered;
+}
+
+function formatArtifactSize(value: number): string {
+  if (!Number.isFinite(value) || value < 0) return "size unavailable";
+  if (value < 1024) return `${value} B`;
+  const units = ["KB", "MB", "GB"];
+  let size = value / 1024;
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
+  }
+  return `${size.toFixed(size < 10 ? 1 : 0)} ${units[index]}`;
+}
+
+function downloadGeneratedPayload(artifact: NonNullable<ExecutionProgress["artifact"]>) {
+  const binary = window.atob(artifact.payloadBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = artifact.filename;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function listEntries(value: unknown): [string, unknown][] {
@@ -118,6 +161,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
   const mounted = useRef(true);
   const selectionGeneration = useRef(0);
   const payloadRequestGeneration = useRef(0);
+  const executionGeneration = useRef(0);
 
   useEffect(() => {
     mounted.current = true;
@@ -169,6 +213,8 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
 
   const select = async (mod: ModuleRef) => {
     const generation = ++selectionGeneration.current;
+    executionGeneration.current += 1;
+    setExecuting(false);
     payloadRequestGeneration.current += 1;
     setSelected(mod);
     setActiveTab("overview");
@@ -291,6 +337,18 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
 
   const execute = async () => {
     if (!selected || executing || payloadOptionsLoading) return;
+    const executableTypes = new Set(["exploit", "auxiliary", "post", "payload"]);
+    if (!executableTypes.has(selected.type)) {
+      setProgress({
+        phase: "error",
+        message: `${selected.type} modules need a dedicated generation/encoding workflow and cannot be run with module.execute.`,
+        sessions: [],
+      });
+      return;
+    }
+
+    const runGeneration = ++executionGeneration.current;
+    const isCurrentRun = () => mounted.current && executionGeneration.current === runGeneration;
     const options = info?.options ?? {};
     const missing: Record<string, string> = {};
     for (const [key, option] of Object.entries<any>(options)) {
@@ -325,97 +383,196 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     });
 
     try {
-      const before = await api.sessions.list();
-      const previousSessionIds = new Set(Object.keys(before ?? {}));
+      // Session inventory helps identify new sessions, but a temporary
+      // failure to list sessions must not prevent a module from executing.
+      let previousSessionIds = new Set<string>();
+      try {
+        const before = await api.sessions.list();
+        previousSessionIds = new Set(Object.keys(before ?? {}).map(String));
+      } catch {
+        previousSessionIds = new Set<string>();
+      }
+      if (!isCurrentRun()) return;
+
       const runOptions: Record<string, unknown> = { ...optionValues };
       if (selectedPayload) {
         runOptions.PAYLOAD = selectedPayload;
         Object.assign(runOptions, payloadOptionValues);
       }
       const result = await api.modules.execute(selected.type, selected.name, runOptions);
+      if (!isCurrentRun()) return;
+
+      // Payload generation is synchronous and returns the artifact itself,
+      // rather than a background job.
+      if (selected.type === "payload") {
+        const payloadBase64 = typeof result?.payload_base64 === "string" ? result.payload_base64 : "";
+        if (result?.kind !== "payload" || !payloadBase64) {
+          throw new Error("Metasploit did not return a generated payload artifact.");
+        }
+        const rawSize = Number(result.size);
+        const artifact = {
+          filename: String(result.filename || "generated-payload.bin"),
+          size: Number.isFinite(rawSize) && rawSize >= 0 ? rawSize : 0,
+          payloadBase64,
+          format: String(result.format || "raw"),
+        };
+        setProgress({
+          phase: "completed",
+          message: `Payload generated successfully (${formatArtifactSize(artifact.size)}).`,
+          resultText: `File: ${artifact.filename}\nFormat: ${artifact.format}\nSize: ${artifact.size} bytes`,
+          artifact,
+          sessions: [],
+        });
+        return;
+      }
+
       const rawJobId = result?.job_id ?? result?.jobId;
       const jobId = rawJobId === undefined || rawJobId === null ? undefined : String(rawJobId);
+      const rawUuid = result?.uuid ?? result?.run_uuid;
+      const runUuid = typeof rawUuid === "string" && /^[A-Za-z0-9]{12,64}$/.test(rawUuid)
+        ? rawUuid
+        : undefined;
 
-      if (!mounted.current) return;
       setProgress({
         phase: "running",
-        message: jobId
-          ? "Module accepted. Waiting for the job to finish or a session to open…"
-          : "Module submitted. Watching for new sessions…",
+        message: runUuid
+          ? "Module accepted. Tracking Metasploit run status and results…"
+          : jobId
+            ? "Module accepted. Waiting for the background job to finish or open a session…"
+            : "Module submitted. Watching for new sessions…",
         jobId,
+        runUuid,
         sessions: [],
       });
 
       const startedAt = Date.now();
       let jobObserved = false;
+      let latestSessions: SessionSummary[] = [];
 
-      while (mounted.current && Date.now() - startedAt < EXECUTION_TIMEOUT_MS) {
+      while (isCurrentRun() && Date.now() - startedAt < EXECUTION_TIMEOUT_MS) {
         await sleep(POLL_INTERVAL_MS);
-        if (!mounted.current) return;
+        if (!isCurrentRun()) return;
 
-        const [jobsResult, sessionsResult] = await Promise.allSettled([
+        const [jobsResult, sessionsResult, statsResult] = await Promise.allSettled([
           api.jobs.list(),
           api.sessions.list(),
+          api.modules.runningStats(),
         ]);
         const jobs = jobsResult.status === "fulfilled" ? jobsResult.value ?? {} : {};
         const sessions = sessionsResult.status === "fulfilled" ? sessionsResult.value ?? {} : {};
         const activeJobIds = Object.keys(jobs).map(String);
         if (jobId && activeJobIds.includes(jobId)) jobObserved = true;
 
-        const newSessions = Object.entries(sessions)
+        latestSessions = Object.entries(sessions)
           .filter(([id]) => !previousSessionIds.has(String(id)))
           .map(([id, session]) => ({ id: String(id), session: session as Record<string, any> }));
 
-        if (newSessions.length > 0) {
+        const stats = statsResult.status === "fulfilled" ? statsResult.value : null;
+        const asIds = (value: unknown) => Array.isArray(value) ? value.map(String) : [];
+        const waitingIds = asIds(stats?.waiting);
+        const runningIds = asIds(stats?.running);
+        const resultIds = asIds(stats?.results);
+        const runIsWaiting = Boolean(runUuid && waitingIds.includes(runUuid));
+        const runIsActive = Boolean(runUuid && runningIds.includes(runUuid));
+        const runHasResult = Boolean(runUuid && resultIds.includes(runUuid));
+
+        if (runUuid && runHasResult) {
+          try {
+            const outcome = await api.modules.results(runUuid);
+            if (!isCurrentRun()) return;
+            const outcomeStatus = String(outcome.status ?? "").toLowerCase();
+            if (["completed", "complete", "success"].includes(outcomeStatus)) {
+              setProgress({
+                phase: "completed",
+                message: latestSessions.length
+                  ? "Module run completed and new session(s) were detected."
+                  : "Metasploit reports that the module run completed.",
+                jobId,
+                runUuid,
+                resultText: runResultText(outcome.result),
+                sessions: latestSessions,
+              });
+              return;
+            }
+            if (["errored", "error", "failed"].includes(outcomeStatus)) {
+              setProgress({
+                phase: "error",
+                message: String(outcome.error || "Metasploit reports that the module run failed."),
+                jobId,
+                runUuid,
+                resultText: runResultText(outcome.result ?? outcome.error),
+                sessions: latestSessions,
+              });
+              return;
+            }
+          } catch {
+            // Some older Framework versions lack result retrieval. Continue
+            // using job/session state instead of treating this as fatal.
+          }
+        }
+
+        if (runUuid && (runIsWaiting || runIsActive)) {
           setProgress({
             phase: "running",
-            message: `${newSessions.length} new session${newSessions.length === 1 ? "" : "s"} detected. Open Sessions to interact with ${newSessions.length === 1 ? "it" : "them"}.`,
+            message: runIsWaiting
+              ? "Module run is queued in Metasploit…"
+              : "Module run is still executing in Metasploit…",
             jobId,
-            sessions: newSessions,
+            runUuid,
+            sessions: latestSessions,
+          });
+        } else if (latestSessions.length > 0) {
+          setProgress({
+            phase: "running",
+            message: `${latestSessions.length} new session${latestSessions.length === 1 ? "" : "s"} detected. The module result is still being checked.`,
+            jobId,
+            runUuid,
+            sessions: latestSessions,
           });
         }
 
-        if (jobId && jobObserved && !activeJobIds.includes(jobId)) {
+        if (jobId && jobObserved && !activeJobIds.includes(jobId) && !runIsWaiting && !runIsActive && !runHasResult) {
           setProgress({
             phase: "completed",
-            message: newSessions.length
-              ? "Job finished and a new session was detected."
-              : "Job finished. No new session was detected during this run.",
+            message: latestSessions.length
+              ? "The background job ended and new session(s) were detected. No detailed module result was available from this Framework API."
+              : "The background job is no longer active. This Framework API did not provide a detailed result for the run.",
             jobId,
-            sessions: newSessions,
+            runUuid,
+            sessions: latestSessions,
           });
           return;
         }
 
-        if (!jobId && newSessions.length > 0) {
+        if (!jobId && !runUuid && latestSessions.length > 0) {
           setProgress({
             phase: "completed",
-            message: "A new session was detected.",
-            sessions: newSessions,
+            message: "A new session was detected. The Framework did not return a job or run UUID for result tracking.",
+            sessions: latestSessions,
           });
           return;
         }
       }
 
-      if (mounted.current) {
+      if (isCurrentRun()) {
         setProgress((current) => current ? {
           ...current,
           phase: "timeout",
           message: current.sessions.length
-            ? "Still waiting for the job to settle. New session(s) are available below."
-            : "No completion signal or new session was detected within 90 seconds. Check Jobs for the current job status.",
+            ? "The run is still unresolved. New session(s) are available below; check Jobs and the Metasploit console for further status."
+            : "No completion signal or new session was detected within 90 seconds. Check Jobs and the Metasploit console; the module may still be running.",
         } : null);
       }
-    } catch (e: any) {
-      if (mounted.current) {
+    } catch (e: unknown) {
+      if (isCurrentRun()) {
         setProgress({
           phase: "error",
-          message: e.message ?? String(e),
+          message: e instanceof Error ? e.message : String(e),
           sessions: [],
         });
       }
     } finally {
-      if (mounted.current) setExecuting(false);
+      if (isCurrentRun()) setExecuting(false);
     }
   };
 
@@ -630,10 +787,13 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                 </div>
                 <button
                   onClick={() => void execute()}
-                  disabled={executing || loadingInfo || payloadOptionsLoading || !info}
+                  disabled={executing || loadingInfo || payloadOptionsLoading || !info || !["exploit", "auxiliary", "post", "payload"].includes(selected.type)}
+                  title={!["exploit", "auxiliary", "post", "payload"].includes(selected.type)
+                    ? "Encoder and NOP modules need a dedicated generation workflow."
+                    : undefined}
                   className="shrink-0 rounded bg-accent hover:bg-emerald-400 text-gray-950 font-semibold text-xs px-4 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {executing ? "Executing…" : "Execute module"}
+                  {executing ? "Executing…" : selected.type === "payload" ? "Generate payload" : "Execute module"}
                 </button>
               </div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4">
@@ -1003,12 +1163,47 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                     </div>
                     <p className="text-xs text-gray-300 mt-1">{progress.message}</p>
                     {progress.jobId && <p className="text-[10px] text-gray-500 mt-1 font-mono">Job ID: {progress.jobId}</p>}
+                    {progress.runUuid && <p className="text-[10px] text-gray-500 mt-1 font-mono">Run UUID: {progress.runUuid}</p>}
                   </div>
-                  {progress.sessions.length > 0 && (
-                    <button onClick={onViewSessions} className="shrink-0 rounded bg-accent-dim hover:bg-accent text-black text-xs font-medium px-3 py-2">
-                      Open Sessions ({progress.sessions.length})
-                    </button>
-                  )}
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    {progress.artifact && (
+                      <button
+                        onClick={() => downloadGeneratedPayload(progress.artifact!)}
+                        className="rounded bg-accent-dim hover:bg-accent px-3 py-2 text-xs font-medium text-black"
+                      >
+                        Download {progress.artifact.filename}
+                      </button>
+                    )}
+                    {progress.sessions.length > 0 && (
+                      <button onClick={onViewSessions} className="rounded bg-accent-dim hover:bg-accent px-3 py-2 text-xs font-medium text-black">
+                        Open Sessions ({progress.sessions.length})
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {progress.resultText && (
+                  <div className="mt-3 rounded border border-border bg-bg-primary p-3">
+                    <div className="mb-2 text-[10px] uppercase tracking-widest text-gray-500">Run result</div>
+                    <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs text-gray-300">{progress.resultText}</pre>
+                  </div>
+                )}
+                {progress.sessions.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {progress.sessions.map(({ id, session }) => (
+                      <button
+                        key={id}
+                        onClick={onViewSessions}
+                        className="rounded border border-accent/30 bg-accent/5 px-2.5 py-2 text-left hover:bg-accent/10"
+                        title="Open the Sessions view to interact with this session"
+                      >
+                        <span className="block font-mono text-[10px] text-accent">Session {id} · {textValue(session.type) || "session"}</span>
+                        <span className="mt-1 block text-[10px] text-gray-400">{textValue(session.target_host ?? session.session_host ?? session.info) || "Target details unavailable"}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
                 </div>
                 {progress.sessions.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-3">
