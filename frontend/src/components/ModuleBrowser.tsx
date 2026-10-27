@@ -212,6 +212,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     setPayloadOptions({});
     setPayloadOptionValues({});
     setPayloadOptionsError(null);
+    setValidationErrors({});
     setPayloadError(null);
     setCompatiblePayloads([]);
     setPayloadsLoading(true);
@@ -262,6 +263,9 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     setPayloadOptions({});
     setPayloadOptionValues({});
     setPayloadOptionsError(null);
+    setValidationErrors((current) => Object.fromEntries(
+      Object.entries(current).filter(([key]) => !key.startsWith("PAYLOAD."))
+    ));
     setOptionValues((current) => {
       const next = { ...current };
       delete next.PAYLOAD;
@@ -270,7 +274,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
   };
 
   const execute = async () => {
-    if (!selected || executing) return;
+    if (!selected || executing || payloadOptionsLoading) return;
     const options = info?.options ?? {};
     const missing: Record<string, string> = {};
     for (const [key, option] of Object.entries<any>(options)) {
@@ -610,7 +614,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                 </div>
                 <button
                   onClick={() => void execute()}
-                  disabled={executing || loadingInfo || !info}
+                  disabled={executing || loadingInfo || payloadOptionsLoading || !info}
                   className="shrink-0 rounded bg-accent hover:bg-emerald-400 text-gray-950 font-semibold text-xs px-4 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {executing ? "Executing…" : "Execute module"}
