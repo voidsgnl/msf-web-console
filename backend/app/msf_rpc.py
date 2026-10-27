@@ -23,6 +23,28 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _decode_bytes(obj: Any) -> Any:
+    """
+    Ruby's msgpack gem encodes strings in a way that Python's msgpack
+    (even with raw=False) sometimes still hands back as raw bytes rather
+    than str, depending on how the key/value was packed on the Metasploit
+    side. We recursively decode everything that looks like UTF-8 text so
+    the rest of the client can compare against plain Python strings
+    ("result" == "success") instead of silently failing on a bytes/str
+    mismatch (b"result" != "result").
+    """
+    if isinstance(obj, bytes):
+        try:
+            return obj.decode("utf-8")
+        except UnicodeDecodeError:
+            return obj  # genuinely binary payload (e.g. screenshot/loot data) - leave as-is
+    if isinstance(obj, dict):
+        return {_decode_bytes(k): _decode_bytes(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_decode_bytes(v) for v in obj]
+    return obj
+
+
 class MsfRpcError(Exception):
     def __init__(self, message: str, error_code: Any = None, error_message: Any = None):
         super().__init__(message)
@@ -71,7 +93,7 @@ class MsfRpcClient:
         if resp.status_code != 200:
             raise MsfRpcError(f"msfrpcd HTTP {resp.status_code}: {resp.text[:300]}")
 
-        decoded = msgpack.unpackb(resp.content, raw=False)
+        decoded = _decode_bytes(msgpack.unpackb(resp.content, raw=False))
         if isinstance(decoded, dict) and "error" in decoded and decoded.get("error"):
             raise MsfRpcError(
                 decoded.get("error_message", "Unknown RPC error"),
