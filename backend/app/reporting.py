@@ -18,12 +18,12 @@ SECTIONS = [
 SEVERITY_ORDER = ("Critical", "High", "Medium", "Low", "Informational", "Unrated")
 SEVERITY_POINTS = {"Critical": 10, "High": 7, "Medium": 4, "Low": 1, "Informational": 0, "Unrated": 0}
 FREEFORM_SECRET_RE = re.compile(
-    r"(?i)\\b(password|passwd|secret|token|api[_-]?key|authorization)\\s*[:=]\\s*([^\\s,;]+)"
+    r"(?i)\b(password|passwd|secret|token|api[_-]?key|authorization)\s*[:=]\s*([^\s,;]+)"
 )
 UNIX_PATH_RE = re.compile(
-    r"(?<![A-Za-z0-9])/(?:home|tmp|root|var|opt|etc|srv|mnt|run|usr|private|Users)/[^\\s\"'<>),;]+"
+    r"(?<![A-Za-z0-9])/(?:home|tmp|root|var|opt|etc|srv|mnt|run|usr|private|Users)/[^\s"'<>),;]+"
 )
-WINDOWS_PATH_RE = re.compile(r"(?i)\\b[A-Z]:\\\\(?:[^\\\\\\s]+\\\\)*[^\\\\\\s]+")
+WINDOWS_PATH_RE = re.compile(r"(?i)\b[A-Z]:\\(?:[^\\\s]+\\)*[^\\\s]+")
 SENSITIVE_KEY_PARTS = (
     "password", "passwd", "secret", "token", "private_data", "private_value",
     "private_key", "hash", "path", "download_id", "session_key",
@@ -120,12 +120,12 @@ def _vulnerability_findings(vulns: list[dict[str, Any]]) -> list[dict[str, str]]
         evidence = _first_value(record, ("info", "description", "details"))
         cvss = _first_value(record, ("cvss_score", "cvss_v3", "cvss", "score"))
         findings.append({
-            "title": str(title),
-            "host": str(host),
+            "title": _safe_value("title", title),
+            "host": _safe_value("host", host),
             "port": str(port) if port not in (None, "") else "—",
             "severity": severity,
-            "severity_source": source,
-            "score": str(cvss) if cvss not in (None, "") else "—",
+            "severity_source": _safe_value("severity_source", source),
+            "score": _safe_value("cvss_score", cvss) if cvss not in (None, "") else "—",
             "evidence": _safe_value("evidence", evidence) if evidence not in (None, "") else "No additional evidence was included in the database record.",
             "remediation": _remediation(record),
         })
@@ -144,10 +144,10 @@ def _exposure_observations(services: list[dict[str, Any]]) -> list[dict[str, str
         proto = _first_value(record, ("proto", "protocol")) or "tcp"
         name = _first_value(record, ("name", "service_name")) or "Unidentified service"
         observations.append({
-            "title": f"{name} exposed on {proto}/{port}",
-            "host": str(host),
-            "port": f"{proto}/{port}",
-            "evidence": str(_first_value(record, ("info", "banner", "version")) or f"Database state: {state}"),
+            "title": _safe_value("title", f"{name} exposed on {proto}/{port}"),
+            "host": _safe_value("host", host),
+            "port": _safe_value("port", f"{proto}/{port}"),
+            "evidence": _safe_value("evidence", _first_value(record, ("info", "banner", "version")) or f"Database state: {state}"),
             "remediation": (
                 "Confirm this service is required and reachable only from intended networks. "
                 "Review authentication and encryption, keep the service patched, and restrict "
@@ -210,7 +210,7 @@ def _observations_html(observations: list[dict[str, str]]) -> str:
 def build_assessment_report(workspace: str, records: dict[str, list[dict[str, Any]]]) -> str:
     """Build a self-contained HTML assessment report with explicit risk provenance."""
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    workspace_text = html.escape(workspace or "default", quote=True)
+    workspace_text = html.escape(_safe_value("workspace", workspace or "default"), quote=True)
     hosts = records.get("hosts", [])
     services = records.get("services", [])
     vulns = records.get("vulns", [])
