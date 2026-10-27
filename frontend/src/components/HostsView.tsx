@@ -47,12 +47,26 @@ function safeFilename(value: unknown): string {
   return (base || "loot-record").slice(0, 100);
 }
 
+function formatBytes(value: unknown): string {
+  const bytes = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes < 1024) return \`\${bytes} B\`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let size = bytes / 1024;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return \`\${size.toFixed(size < 10 ? 1 : 0)} \${units[unit]}\`;
+}
+
 function omitServerPaths(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(omitServerPaths);
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
-        .filter(([key]) => !/path/i.test(key))
+        .filter(([key]) => !/path/i.test(key) && key !== "download_id" && key !== "data")
         .map(([key, nested]) => [key, omitServerPaths(nested)])
     );
   }
@@ -76,6 +90,18 @@ function downloadJson(value: unknown, filename: string) {
 
 function lootName(record: LootRecord): string {
   return stringifyValue(record.name || record.filename || record.info) || "Untitled loot";
+}
+
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = safeFilename(filename);
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export function HostsView() {
@@ -140,6 +166,22 @@ export function HostsView() {
     }
   }
 
+  async function downloadLootArtifact(record: LootRecord) {
+    const downloadId = stringifyValue(record.download_id);
+    if (!/^[a-f0-9]{64}$/.test(downloadId)) {
+      setNotice("This record has no valid download reference. Refresh the loot list.");
+      return;
+    }
+    setNotice("Preparing artifact download…");
+    try {
+      const result = await api.db.downloadLoot(downloadId);
+      saveBlob(result.blob, result.filename);
+      setNotice("Artifact download started.");
+    } catch (cause: unknown) {
+      setNotice(cause instanceof Error ? `Download failed: ${cause.message}` : "Artifact download failed.");
+    }
+  }
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="flex gap-1 h-10 shrink-0 items-center px-3 border-b border-border">
@@ -162,7 +204,7 @@ export function HostsView() {
             <div>
               <h2 className="text-sm font-semibold text-gray-200">Loot &amp; Evidence</h2>
               <p className="mt-1 text-xs text-gray-500">
-                Inspect records returned by the active Metasploit workspace and export evidence metadata.
+                Inspect evidence records, export metadata, and download artifact data when Metasploit makes it available.
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-2">
@@ -214,7 +256,8 @@ export function HostsView() {
                     <th className="py-2 px-3 font-medium">Host</th>
                     <th className="py-2 px-3 font-medium">Service</th>
                     <th className="py-2 px-3 font-medium">Captured</th>
-                    <th className="py-2 px-3 font-medium text-right">Record</th>
+                    <th className="py-2 px-3 font-medium">Size</th>
+                    <th className="py-2 px-3 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -231,21 +274,32 @@ export function HostsView() {
                       <td className="py-2 px-3 whitespace-nowrap">{stringifyValue(record.host) || "—"}</td>
                       <td className="py-2 px-3 whitespace-nowrap">{stringifyValue(record.service) || "—"}</td>
                       <td className="py-2 px-3 whitespace-nowrap">{formatLootDate(record.created_at)}</td>
-                      <td className="py-2 px-3 text-right">
-                        <button
-                          onClick={() => { setSelectedLoot({ record, index }); setNotice(""); }}
-                          className="rounded border border-border px-2 py-1 text-accent hover:bg-bg-secondary"
-                          aria-label={`Inspect ${lootName(record)}`}
-                        >
-                          Inspect
-                        </button>
+                      <td className="py-2 px-3 whitespace-nowrap">{formatBytes(record.size)}</td>
+                      <td className="py-2 px-3">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => { setSelectedLoot({ record, index }); setNotice(""); }}
+                            className="rounded border border-border px-2 py-1 text-accent hover:bg-bg-secondary"
+                            aria-label={\`Inspect \${lootName(record)}\`}
+                          >
+                            Inspect
+                          </button>
+                          <button
+                            disabled={record.has_data !== true}
+                            title={record.has_data === true ? "Download artifact data" : "No artifact data is available in the RPC response"}
+                            onClick={() => void downloadLootArtifact(record)}
+                            className="rounded border border-border px-2 py-1 text-gray-300 hover:bg-bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Download
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               <div className="border-t border-border bg-bg-secondary/60 px-3 py-2 text-[11px] text-gray-600">
-                {filteredLoot.length} of {rows.length} records · File bytes are not provided by the standard Framework loot-list RPC call.
+                {filteredLoot.length} of {rows.length} records · Downloads are available for records whose RPC response includes artifact data.
               </div>
             </div>
           )}
@@ -323,10 +377,18 @@ export function HostsView() {
               >
                 Export record JSON
               </button>
+              <button
+                disabled={selectedLoot.record.has_data !== true}
+                title={selectedLoot.record.has_data === true ? "Download artifact data" : "No artifact data is available in the RPC response"}
+                onClick={() => void downloadLootArtifact(selectedLoot.record)}
+                className="rounded border border-border px-3 py-1.5 text-xs text-gray-300 hover:bg-bg-tertiary disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Download original
+              </button>
             </div>
             <div className="flex-1 overflow-auto p-4">
               <dl className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                {Object.entries(selectedLoot.record).map(([key, value]) => (
+                {Object.entries(selectedLoot.record).filter(([key]) => key !== "download_id").map(([key, value]) => (
                   <div key={key} className="min-w-0 rounded border border-border/70 p-3">
                     <dt className="mb-1 text-[11px] uppercase tracking-wide text-gray-500">{key.replace(/_/g, " ")}</dt>
                     <dd className="whitespace-pre-wrap break-words text-xs text-gray-200">
@@ -336,7 +398,7 @@ export function HostsView() {
                 ))}
               </dl>
               <p className="mt-4 text-[11px] leading-relaxed text-gray-600">
-                This view exports the metadata returned by Metasploit. The standard Framework RPC response does not include a stable loot ID, a retrievable file path, or the file bytes, so this interface does not pretend that a metadata export is the original artifact.
+                This view exports metadata separately from the artifact. Downloads transfer the data supplied by Metasploit's db.loots RPC response. If that response has no data for a record, the metadata remains inspectable but the original artifact cannot be downloaded through this route.
               </p>
               {notice && <div role="status" className="mt-3 text-xs text-accent">{notice}</div>}
             </div>
