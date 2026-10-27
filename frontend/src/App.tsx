@@ -7,6 +7,7 @@ import { HostsView } from "./components/HostsView";
 import { JobsView } from "./components/JobsView";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
 import { LoginView } from "./components/LoginView";
+import { ContextMenu } from "./components/ContextMenu";
 import { api } from "./lib/api";
 
 type AuthStatus = "checking" | "authenticated" | "unauthenticated";
@@ -107,6 +108,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
+      <ContextMenu />
       <Sidebar active={view} onSelect={setView} connected={connected} />
 
       <div className="flex min-w-0 flex-1 flex-col">
