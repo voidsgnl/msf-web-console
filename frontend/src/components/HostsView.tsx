@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
+import type { CveEnrichment } from "../lib/api";
 
 type Tab = "hosts" | "services" | "vulns" | "loot" | "creds";
 type LootRecord = Record<string, unknown>;
@@ -22,9 +23,21 @@ const DATABASE_COLUMN_PREFERENCES: Partial<Record<Tab, string[]>> = {
 };
 
 const SENSITIVE_FIELD = /password|passwd|private_data|private_key|secret|token|api[_-]?key|credential|(^|_)hash($|_)/i;
+const CVE_ID_PATTERN = /CVE-\d{4}-\d{4,7}/gi;
 
 function isSensitiveField(key: string): boolean {
   return SENSITIVE_FIELD.test(key);
+}
+
+function extractCveIds(record: Record<string, unknown>): string[] {
+  let text: string;
+  try {
+    text = JSON.stringify(record);
+  } catch {
+    return [];
+  }
+  const matches = text.match(CVE_ID_PATTERN) ?? [];
+  return Array.from(new Set(matches.map((match) => match.toUpperCase()))).sort();
 }
 
 function redactSensitiveFields(value: unknown, revealSensitive = false, key = ""): unknown {
@@ -207,6 +220,9 @@ export function HostsView() {
   const [notice, setNotice] = useState("");
   const [reportBusy, setReportBusy] = useState(false);
   const [reportNotice, setReportNotice] = useState("");
+  const [cveResults, setCveResults] = useState<Record<string, CveEnrichment | { error: string } | null>>({});
+  const [cveBusy, setCveBusy] = useState(false);
+  const [cveNotice, setCveNotice] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -368,6 +384,27 @@ export function HostsView() {
     } finally {
       setReportBusy(false);
     }
+  }
+
+  async function enrichVulnCves(record: Record<string, unknown>) {
+    const cveIds = extractCveIds(record);
+    if (cveIds.length === 0) {
+      setCveResults({});
+      setCveNotice("No CVE identifiers were found in this record's fields.");
+      return;
+    }
+    setCveBusy(true);
+    setCveNotice("");
+    const results: Record<string, CveEnrichment | { error: string } | null> = {};
+    for (const cveId of cveIds) {
+      try {
+        results[cveId] = await api.cve.lookup(cveId);
+      } catch (cause: unknown) {
+        results[cveId] = { error: cause instanceof Error ? cause.message : "Lookup failed." };
+      }
+    }
+    setCveResults(results);
+    setCveBusy(false);
   }
 
   return (
@@ -629,7 +666,13 @@ export function HostsView() {
                               </button>
                             )}
                             <button
-                              onClick={() => { setSelectedRecord({ record, index }); setShowSensitiveFields(false); setNotice(""); }}
+                              onClick={() => {
+                                setSelectedRecord({ record, index });
+                                setShowSensitiveFields(false);
+                                setNotice("");
+                                setCveResults({});
+                                setCveNotice("");
+                              }}
                               className="rounded border border-border px-2 py-1 text-accent hover:bg-bg-secondary"
                             >
                               Inspect
@@ -696,6 +739,15 @@ export function HostsView() {
                   {showSensitiveFields ? "Hide sensitive fields" : "Reveal sensitive fields"}
                 </button>
               )}
+              {tab === "vulns" && (
+                <button
+                  onClick={() => void enrichVulnCves(selectedRecord.record)}
+                  disabled={cveBusy}
+                  className="rounded border border-border px-3 py-1.5 text-xs text-accent hover:bg-bg-tertiary disabled:cursor-wait disabled:opacity-50"
+                >
+                  {cveBusy ? "Looking up NVD…" : "Enrich via NVD"}
+                </button>
+              )}
             </div>
             <div className="flex-1 overflow-auto p-4">
               <dl className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -710,6 +762,49 @@ export function HostsView() {
                     </div>
                   ))}
               </dl>
+
+              {tab === "vulns" && (
+                <div className="mt-4 rounded border border-border bg-bg-secondary/50 p-3">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">NVD enrichment</h3>
+                  {cveNotice && <p className="mt-2 text-xs text-gray-500">{cveNotice}</p>}
+                  {!cveNotice && Object.keys(cveResults).length === 0 && !cveBusy && (
+                    <p className="mt-2 text-xs text-gray-500">
+                      Look up CVE identifiers referenced by this record against the National Vulnerability Database.
+                    </p>
+                  )}
+                  {Object.keys(cveResults).length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {Object.entries(cveResults).map(([cveId, info]) => {
+                        const errorInfo = info && "error" in info ? info.error : null;
+                        const enrichment = info && !("error" in info) ? (info as CveEnrichment) : null;
+                        return (
+                          <div key={cveId} className="rounded border border-border/70 p-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="font-mono text-xs text-gray-200">{cveId}</span>
+                              {enrichment?.cvss?.base_score != null && (
+                                <span className="rounded bg-bg-tertiary px-2 py-0.5 text-[10px] text-gray-300">
+                                  CVSS {enrichment.cvss.base_score} ({enrichment.cvss.base_severity ?? "—"})
+                                </span>
+                              )}
+                            </div>
+                            {errorInfo && <p className="mt-1 text-xs text-red-300">{errorInfo}</p>}
+                            {!errorInfo && enrichment?.description && (
+                              <p className="mt-1 text-xs text-gray-400">{enrichment.description}</p>
+                            )}
+                            {!errorInfo && enrichment === null && (
+                              <p className="mt-1 text-xs text-gray-500">Not found in the NVD.</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <p className="mt-2 text-[10px] text-gray-600">
+                    Requires network access from the backend to services.nvd.nist.gov. Results are cached server-side.
+                  </p>
+                </div>
+              )}
+
               {relatedHostValue(selectedRecord.record) && (
                 <div className="mt-4 rounded border border-border bg-bg-secondary/50 p-3">
                   <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Related records</h3>

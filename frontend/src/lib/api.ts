@@ -12,6 +12,32 @@ export type CurrentWorkspace = {
   workspace_id: number;
 };
 
+export type CveCvss = {
+  version?: string | null;
+  vector?: string | null;
+  base_score?: number | null;
+  base_severity?: string | null;
+  source_metric?: string | null;
+};
+
+export type CveEnrichment = {
+  cve_id: string;
+  published?: string | null;
+  last_modified?: string | null;
+  vuln_status?: string | null;
+  description?: string | null;
+  cvss?: CveCvss | null;
+  references?: string[];
+};
+
+export type WorkspaceCveEnrichment = {
+  total_cves_found: number;
+  enriched: Record<string, CveEnrichment | null>;
+  errors: Record<string, string>;
+  matched_records: Record<string, { host?: string; name?: string }[]>;
+  remaining_cves: string[];
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     credentials: "same-origin",
@@ -132,6 +158,12 @@ export const api = {
         `/db/workspaces/${encodeURIComponent(name)}`,
         { method: "DELETE" }
       ),
+  },
+
+  cve: {
+    lookup: (cveId: string) => request<CveEnrichment>(`/cve/${encodeURIComponent(cveId)}`),
+    workspaceEnrichment: (limit = 25) =>
+      request<WorkspaceCveEnrichment>(`/cve/workspace-enrichment?limit=${limit}`),
   },
 
   jobs: {

@@ -40,12 +40,13 @@ typed it into `msfconsole`.
 - Session list + kill + interactive session shell/meterpreter terminal
 - Jobs list + stop
 - Database explorer: hosts, services, vulnerabilities, loot, and credentials, with cross-record search, field/value filtering, record inspection, host-to-service/vulnerability navigation, and JSON metadata export; sensitive fields are redacted by default
+- CVE/NVD enrichment: vulnerability records are scanned for CVE identifiers (in `refs` or elsewhere in the record), which can be looked up against the National Vulnerability Database for CVSS score, severity, description, and reference links. Lookups are self-throttled to stay under NVD's public rate limit and cached server-side; set `NVD_API_KEY` in `backend/.env` for a higher limit. Requires outbound network access from the backend to `services.nvd.nist.gov`.
 - Assessment report for the active workspace: executive summary, severity counts, database-record-based vulnerability findings, remediation guidance, open-service exposure observations, inventory tables, and print-to-PDF styling. Credential values, common filesystem paths, artifact bytes, and download references are filtered.
 - Loot evidence browser: search records, inspect all returned metadata, copy a record, and export one or filtered records as JSON
 - Loot artifact download: retrieve inline artifact data from the Framework `db.loots` RPC response or, when RPC returns metadata only, read the associated file only when its exact path or containing directory is allowlisted in backend configuration; browser-supplied filesystem paths are never accepted
 - Workspace management: list, switch, create and delete workspaces; deleting the active workspace switches back to the default workspace, and the default workspace itself is protected
 
-Still planned: workspace renaming (the standard Metasploit database RPC does not expose a rename operation), multi-user accounts/roles, a dedicated PDF export endpoint, and trusted external CVE/advisory enrichment beyond the metadata already stored in Metasploit.
+Still planned: workspace renaming (the standard Metasploit database RPC does not expose a rename operation), multi-user accounts/roles, and a dedicated PDF export endpoint (the assessment report currently relies on browser print-to-PDF).
 
 ## Security boundary
 
@@ -69,6 +70,8 @@ Replace the example password with a strong, unique password. The application ref
 The optional `MSF_WEB_ALLOWED_HOSTS` and `MSF_WEB_CORS_ORIGINS` settings customize the local development allowlists. Adding an origin or host does not enable remote access. A multi-user account and permission system has not been implemented.
 
 Metasploit's `db.loots` RPC may return a registered artifact path without inline content. Inline content can be downloaded directly. For file-backed records, the backend reads only files under `MSF_LOOT_ALLOWED_DIRS` (default: `~/.msf4/loot`) or exact files listed in `MSF_LOOT_ALLOWED_FILES`; client requests cannot choose a filesystem path. To permit the synthetic test artifact, add `MSF_LOOT_ALLOWED_FILES=/tmp/msf-web-console-loot-test.txt` to `backend/.env` and restart the backend. Keep the list narrow because loot can contain sensitive evidence. JSON exports contain sanitized metadata, not the original artifact bytes.
+
+CVE/NVD enrichment sends CVE identifiers found in your own vulnerability records to the public NVD API (`services.nvd.nist.gov`) over HTTPS; no other workspace data is sent. This is outbound-only lookup traffic, not exploitation activity, but it does mean the backend process needs internet access for that one endpoint if you use it. There is no `NVD_API_KEY` by default, so lookups run unauthenticated at a low, self-imposed rate.
 
 ## Setup
 
@@ -131,6 +134,9 @@ npm run build
 - **Console shows nothing** — check the backend terminal for the actual
   `msfrpcd` error; the WebSocket relays it into the terminal as a red
   `[error]` line too.
+- **"NVD rejected the request" when enriching a CVE** — you've hit NVD's
+  public rate limit (5 requests/30s); wait a moment and retry, or set
+  `NVD_API_KEY` in `backend/.env` for a higher limit.
 
 ## Project layout
 
@@ -139,11 +145,13 @@ backend/
   app/
     main.py          FastAPI app + router wiring
     msf_rpc.py        msgpack-rpc client for msfrpcd
+    nvd_client.py      NVD CVE REST API client (CVE enrichment)
     routes/
       system.py        health/status
       modules.py        search, info, execute
       sessions.py        list, read/write, stop
       db.py               database views + workspace management + reports
+      cve.py               CVE/NVD enrichment
       reporting.py           safe HTML assessment report generator
       jobs.py               list/info/stop
       console.py             WebSocket console bridge
