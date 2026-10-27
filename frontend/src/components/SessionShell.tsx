@@ -55,7 +55,15 @@ export function SessionShell({ sessionId, onClose }: { sessionId: number; onClos
         socket = new WebSocket(sessionSocketUrl(sessionId));
 
         socket.onmessage = (event) => {
-          const msg = JSON.parse(event.data);
+          if (cancelled) return;
+          let msg: any;
+          try {
+            msg = JSON.parse(event.data);
+          } catch {
+            setFatalError("Received an invalid response from the session bridge.");
+            term.write("\\r\\n\\x1b[31m[error] Invalid response from the session bridge.\\x1b[0m\\r\\n");
+            return;
+          }
           if (msg.type === "ready") {
             setSessionType(msg.session_type ?? null);
           } else if (msg.type === "output") {
