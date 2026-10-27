@@ -51,6 +51,12 @@ function listEntries(value: unknown): [string, unknown][] {
   return [["0", value]];
 }
 
+function targetNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
+  if (typeof value === "string" && /^\\d+$/.test(value)) return Number(value);
+  return undefined;
+}
+
 function MetaCard({ label, value }: { label: string; value: unknown }) {
   const text = textValue(value);
   if (!text) return null;
@@ -87,14 +93,17 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
   const [type, setType] = useState<string>("exploit");
   const [results, setResults] = useState<ModuleRef[]>([]);
   const [selected, setSelected] = useState<ModuleRef | null>(null);
-  const [info, setInfo] = useState<{
-    info: any;
-    options: any;
-    compatible_payloads?: string[] | null;
-    payloads_error?: string | null;
-  } | null>(null);
+  const [info, setInfo] = useState<{ info: any; options: any } | null>(null);
   const [compatiblePayloads, setCompatiblePayloads] = useState<string[]>([]);
   const [payloadError, setPayloadError] = useState<string | null>(null);
+  const [payloadsLoading, setPayloadsLoading] = useState(false);
+  const [payloadSearch, setPayloadSearch] = useState("");
+  const [selectedTargetId, setSelectedTargetId] = useState("");
+  const [selectedPayload, setSelectedPayload] = useState("");
+  const [payloadOptions, setPayloadOptions] = useState<Record<string, any>>({});
+  const [payloadOptionValues, setPayloadOptionValues] = useState<Record<string, string>>({});
+  const [payloadOptionsLoading, setPayloadOptionsLoading] = useState(false);
+  const [payloadOptionsError, setPayloadOptionsError] = useState<string | null>(null);
   const [optionValues, setOptionValues] = useState<Record<string, string>>({});
   const [optionSearch, setOptionSearch] = useState("");
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
@@ -141,6 +150,14 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     setInfo(null);
     setCompatiblePayloads([]);
     setPayloadError(null);
+    setPayloadsLoading(mod.type === "exploit");
+    setPayloadSearch("");
+    setSelectedTargetId("");
+    setSelectedPayload("");
+    setPayloadOptions({});
+    setPayloadOptionValues({});
+    setPayloadOptionsLoading(false);
+    setPayloadOptionsError(null);
     setInfoError(null);
     setValidationErrors({});
     setOptionSearch("");
@@ -150,15 +167,30 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
       const data = await api.modules.info(mod.type, mod.name);
       if (!mounted.current) return;
       setInfo(data);
-      setCompatiblePayloads(
-        Array.isArray(data.compatible_payloads) ? data.compatible_payloads : []
-      );
-      setPayloadError(data.payloads_error ?? null);
       const defaults: Record<string, string> = {};
       for (const [key, opt] of Object.entries<any>(data.options || {})) {
         if (opt.default !== undefined && opt.default !== null) defaults[key] = String(opt.default);
       }
+
+      const defaultTarget = targetNumber(data.info?.default_target);
+      if (defaultTarget !== undefined) {
+        defaults.TARGET = String(defaultTarget);
+        setSelectedTargetId(String(defaultTarget));
+      }
       setOptionValues(defaults);
+
+      if (mod.type === "exploit") {
+        try {
+          const payloadResult = await api.modules.compatiblePayloads(mod.name, defaultTarget);
+          if (mounted.current) setCompatiblePayloads(payloadResult.payloads ?? []);
+        } catch (payloadLookupError: any) {
+          if (mounted.current) setPayloadError(payloadLookupError.message ?? String(payloadLookupError));
+        } finally {
+          if (mounted.current) setPayloadsLoading(false);
+        }
+      } else {
+        setPayloadsLoading(false);
+      }
     } catch (e: any) {
       console.error("module info failed:", e);
       if (mounted.current) setInfoError(e.message ?? String(e));
@@ -174,6 +206,13 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     for (const [key, option] of Object.entries<any>(options)) {
       if (option.required && !String(optionValues[key] ?? "").trim()) {
         missing[key] = "This option is required.";
+      }
+    }
+    if (selectedPayload) {
+      for (const [key, option] of Object.entries<any>(payloadOptions)) {
+        if (option.required && !String(payloadOptionValues[key] ?? "").trim()) {
+          missing[`PAYLOAD.${key}`] = "This payload option is required.";
+        }
       }
     }
     if (Object.keys(missing).length) {
@@ -198,7 +237,12 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     try {
       const before = await api.sessions.list();
       const previousSessionIds = new Set(Object.keys(before ?? {}));
-      const result = await api.modules.execute(selected.type, selected.name, optionValues);
+      const runOptions: Record<string, unknown> = { ...optionValues };
+      if (selectedPayload) {
+        runOptions.PAYLOAD = selectedPayload;
+        Object.assign(runOptions, payloadOptionValues);
+      }
+      const result = await api.modules.execute(selected.type, selected.name, runOptions);
       const rawJobId = result?.job_id ?? result?.jobId;
       const jobId = rawJobId === undefined || rawJobId === null ? undefined : String(rawJobId);
 
@@ -310,6 +354,9 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
   const payloads = selected?.type === "exploit"
     ? listEntries(compatiblePayloads)
     : listEntries(moduleInfo.compatible_payloads ?? moduleInfo.payloads ?? moduleInfo.payload);
+  const filteredPayloads = payloads.filter(([, payload]) =>
+    textValue(payload).toLowerCase().includes(payloadSearch.toLowerCase().trim())
+  );
   const advancedEntries = Object.entries(moduleInfo).filter(([key, value]) =>
     !CORE_INFO_KEYS.has(key) && value !== null && value !== undefined && value !== ""
   );
