@@ -98,7 +98,7 @@ class LocalOnlyMiddleware:
             content={
                 "detail": (
                     "MSF Web Console accepts local connections only. "
-                    "Remote access is not supported because this application has no user authentication."
+                    "Remote access is not supported by this local-only application."
                 )
             },
             headers={"Cache-Control": "no-store"},
