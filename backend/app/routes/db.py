@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from app.msf_rpc import rpc, MsfRpcError
+from app.reporting import build_assessment_report
 
 router = APIRouter(prefix="/api/db", tags=["database"])
 
@@ -210,6 +211,47 @@ def download_loot(download_id: str):
     return Response(
         content=payload,
         media_type=_safe_content_type(selected.get("ctype")),
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get("/report")
+def download_assessment_report():
+    """Download an HTML snapshot of the active workspace with secrets omitted."""
+    try:
+        workspace_result = rpc.call("db.current_workspace")
+        workspace = (
+            str(workspace_result.get("workspace") or "default")
+            if isinstance(workspace_result, dict)
+            else "default"
+        )
+        datasets = (
+            ("hosts", "db.hosts", "hosts"),
+            ("services", "db.services", "services"),
+            ("vulns", "db.vulns", "vulns"),
+            ("creds", "db.creds", "creds"),
+            ("loot", "db.loots", "loots"),
+        )
+        records: dict[str, list[dict[str, Any]]] = {}
+        for section, method, result_key in datasets:
+            result = rpc.call(method, {})
+            rows = result.get(result_key, []) if isinstance(result, dict) else []
+            records[section] = [row for row in rows if isinstance(row, dict)]
+    except MsfRpcError as exc:
+        raise HTTPException(502, str(exc))
+
+    report = build_assessment_report(workspace, records)
+    safe_workspace = _safe_loot_filename(workspace).replace(".", "_") or "default"
+    from datetime import datetime
+
+    filename = f"msf-assessment-{safe_workspace}-{datetime.now().strftime('%Y%m%d')}.html"
+    return Response(
+        content=report,
+        media_type="text/html",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "X-Content-Type-Options": "nosniff",
