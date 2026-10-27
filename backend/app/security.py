@@ -1,3 +1,4 @@
+import asyncio
 import ipaddress
 import os
 from urllib.parse import urlsplit
@@ -5,7 +6,7 @@ from urllib.parse import urlsplit
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
-from app.authentication import authentication_configured, cookie_token_from_scope, sessions
+from app.authentication import authentication_configured, cookie_token_from_scope, session_ttl_seconds, sessions
 
 
 DEFAULT_WEB_ORIGINS = (
@@ -171,7 +172,8 @@ class AuthenticationMiddleware:
             await response(scope, receive, send)
             return
 
-        username = sessions.username_for(cookie_token_from_scope(scope))
+        token = cookie_token_from_scope(scope)
+        username = sessions.username_for(token)
         if username is None:
             if scope_type == "websocket":
                 await send({
@@ -189,4 +191,45 @@ class AuthenticationMiddleware:
             return
 
         scope.setdefault("state", {})["authenticated_user"] = username
-        await self.app(scope, receive, send)
+        if scope_type != "websocket":
+            await self.app(scope, receive, send)
+            return
+
+        # Revalidate long-lived console/session sockets too. Logout from another
+        # tab or natural session expiry must eventually close existing sockets.
+        closed = asyncio.Event()
+        send_lock = asyncio.Lock()
+        send_closed = False
+
+        async def guarded_send(message):
+            nonlocal send_closed
+            async with send_lock:
+                if send_closed:
+                    return
+                if message.get("type") == "websocket.close":
+                    send_closed = True
+                    closed.set()
+                await send(message)
+
+        async def monitor_expiry():
+            interval = max(1, min(15, session_ttl_seconds() // 4))
+            while not closed.is_set():
+                try:
+                    await asyncio.wait_for(closed.wait(), timeout=interval)
+                    return
+                except asyncio.TimeoutError:
+                    if sessions.username_for(token) is None:
+                        await guarded_send({
+                            "type": "websocket.close",
+                            "code": 4401,
+                            "reason": "Login session expired or was revoked.",
+                        })
+                        return
+
+        watcher = asyncio.create_task(monitor_expiry())
+        try:
+            await self.app(scope, receive, guarded_send)
+        finally:
+            closed.set()
+            watcher.cancel()
+            await asyncio.gather(watcher, return_exceptions=True)
