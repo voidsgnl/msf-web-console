@@ -17,6 +17,13 @@ SECTIONS = [
 
 SEVERITY_ORDER = ("Critical", "High", "Medium", "Low", "Informational", "Unrated")
 SEVERITY_POINTS = {"Critical": 10, "High": 7, "Medium": 4, "Low": 1, "Informational": 0, "Unrated": 0}
+FREEFORM_SECRET_RE = re.compile(
+    r"(?i)\\b(password|passwd|secret|token|api[_-]?key|authorization)\\s*[:=]\\s*([^\\s,;]+)"
+)
+UNIX_PATH_RE = re.compile(
+    r"(?<![A-Za-z0-9])/(?:home|tmp|root|var|opt|etc|srv|mnt|run|usr|private|Users)/[^\\s\"'<>),;]+"
+)
+WINDOWS_PATH_RE = re.compile(r"(?i)\\b[A-Z]:\\\\(?:[^\\\\\\s]+\\\\)*[^\\\\\\s]+")
 SENSITIVE_KEY_PARTS = (
     "password", "passwd", "secret", "token", "private_data", "private_value",
     "private_key", "hash", "path", "download_id", "session_key",
@@ -25,7 +32,7 @@ SENSITIVE_KEY_PARTS = (
 
 def _safe_value(key: str, value: Any) -> str:
     lowered = key.lower()
-    if any(part in lowered for part in SENSITIVE_KEY_PARTS):
+    if (lowered != "has_data" and any(part in lowered for part in SENSITIVE_KEY_PARTS)):
         return "[redacted]" if value not in (None, "") else "—"
     if value is None or value == "":
         return "—"
@@ -36,7 +43,11 @@ def _safe_value(key: str, value: Any) -> str:
             value = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
         except (TypeError, ValueError):
             value = str(value)
-    return str(value)[:1200]
+    text = str(value)
+    text = FREEFORM_SECRET_RE.sub(lambda match: f"{match.group(1)}=[redacted]", text)
+    text = UNIX_PATH_RE.sub("[path omitted]", text)
+    text = WINDOWS_PATH_RE.sub("[path omitted]", text)
+    return text[:1200]
 
 
 def _cell(key: str, value: Any) -> str:
@@ -106,7 +117,7 @@ def _vulnerability_findings(vulns: list[dict[str, Any]]) -> list[dict[str, str]]
         title = _first_value(record, ("name", "title", "vulnerability", "refs")) or f"Vulnerability record {index}"
         host = _first_value(record, ("host", "address", "host_address", "rhost")) or "Unknown host"
         port = _first_value(record, ("port", "service_port"))
-        evidence = _first_value(record, ("info", "description", "details", "proof"))
+        evidence = _first_value(record, ("info", "description", "details"))
         cvss = _first_value(record, ("cvss_score", "cvss_v3", "cvss", "score"))
         findings.append({
             "title": str(title),
@@ -115,7 +126,7 @@ def _vulnerability_findings(vulns: list[dict[str, Any]]) -> list[dict[str, str]]
             "severity": severity,
             "severity_source": source,
             "score": str(cvss) if cvss not in (None, "") else "—",
-            "evidence": str(evidence) if evidence not in (None, "") else "No additional evidence was included in the database record.",
+            "evidence": _safe_value("evidence", evidence) if evidence not in (None, "") else "No additional evidence was included in the database record.",
             "remediation": _remediation(record),
         })
     return findings
@@ -126,7 +137,7 @@ def _exposure_observations(services: list[dict[str, Any]]) -> list[dict[str, str
     observations: list[dict[str, str]] = []
     for record in services:
         state = str(record.get("state") or "").strip().lower()
-        if state not in {"open", "up"}:
+        if state != "open":
             continue
         host = _first_value(record, ("host", "address", "host_address")) or "Unknown host"
         port = _first_value(record, ("port", "service_port")) or "Unknown port"
