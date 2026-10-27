@@ -93,7 +93,10 @@ class MsfRpcClient:
         if resp.status_code != 200:
             raise MsfRpcError(f"msfrpcd HTTP {resp.status_code}: {resp.text[:300]}")
 
-        decoded = _decode_bytes(msgpack.unpackb(resp.content, raw=False))
+        # strict_map_key=False: some RPC responses (e.g. module.info) contain
+        # maps with non-string keys (integers), which msgpack rejects by
+        # default even though it's perfectly valid MessagePack.
+        decoded = _decode_bytes(msgpack.unpackb(resp.content, raw=False, strict_map_key=False))
         if isinstance(decoded, dict) and "error" in decoded and decoded.get("error"):
             raise MsfRpcError(
                 decoded.get("error_message", "Unknown RPC error"),
