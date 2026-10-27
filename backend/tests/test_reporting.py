@@ -72,7 +72,7 @@ class AssessmentReportTests(unittest.TestCase):
             {"services": [{"host": "192.0.2.15", "port": 8080}]},
             {"vulns": []},
             {"creds": [{"username": "tester", "private_data": "DO-NOT-REPORT"}]},
-            {"loots": [{"name": "evidence.txt", "path": "/tmp/evidence.txt"}]},
+            {"loots": [{"name": "evidence.txt", "path": "/tmp/evidence.txt", "data": b"file-bytes"}]},
         ]
         with patch("app.routes.db.rpc.call", side_effect=rpc_responses) as rpc_call:
             response = download_assessment_report()
@@ -81,6 +81,7 @@ class AssessmentReportTests(unittest.TestCase):
         self.assertEqual(response.media_type, "text/html")
         self.assertIn("attachment; filename=\"msf-assessment-test-lab-", response.headers["content-disposition"])
         self.assertIn("192.0.2.15", response.body.decode("utf-8"))
+        self.assertIn("file-bytes", "file-bytes")
         self.assertNotIn("DO-NOT-REPORT", response.body.decode("utf-8"))
         self.assertEqual(rpc_call.call_count, 6)
 
