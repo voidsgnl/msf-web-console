@@ -74,6 +74,19 @@ export const api = {
         filename: match?.[1] ?? "loot-artifact.bin",
       };
     },
+    downloadReport: async (): Promise<{ blob: Blob; filename: string }> => {
+      const response = await fetch(`${BASE}/db/report`);
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(`${response.status}: ${message}`);
+      }
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const match = /filename="([^"]+)"/i.exec(disposition);
+      return {
+        blob: await response.blob(),
+        filename: match?.[1] ?? "msf-assessment.html",
+      };
+    },
     creds: () => request<{ creds: any[] }>("/db/creds"),
     workspaces: () => request<{ workspaces: Workspace[] }>("/db/workspaces"),
     currentWorkspace: () => request<CurrentWorkspace>("/db/workspace"),
