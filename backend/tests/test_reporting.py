@@ -20,7 +20,7 @@ class AssessmentReportTests(unittest.TestCase):
             },
         )
 
-        self.assertIn("Workspace Assessment", report)
+        self.assertIn("Executive Summary", report)
         self.assertIn("Workspace:</strong> default", report)
         self.assertIn("Hosts", report)
         self.assertIn("Services", report)
