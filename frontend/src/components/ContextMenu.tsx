@@ -269,7 +269,6 @@ function contextSpecificItems(
   if (kind === "console") {
     separator();
     add("Paste into terminal", dispatch("paste-terminal"));
-    add("Select all terminal output", dispatch("select-all-terminal"));
     add("Clear terminal display", dispatch("clear-terminal"));
     return items;
   }
@@ -323,12 +322,13 @@ function buildItems(
 ): MenuItem[] {
   const items: MenuItem[] = [];
   const hasSelection = Boolean(context.selectedText);
-  const textToCopy = context.selectedText || (context.editor || dataValue(context, "contextKind") === "console" ? "" : clickedText(context));
+  const isConsole = dataValue(context, "contextKind") === "console";
+  const textToCopy = context.selectedText || (context.editor || isConsole ? "" : clickedText(context));
   const hasEditorSelection = editableSelectionExists(context);
   const editor = context.editor;
 
   items.push({
-    label: hasSelection ? "Copy selection" : "Copy text",
+    label: isConsole ? "Copy selected terminal text" : hasSelection ? "Copy selection" : "Copy text",
     hint: hasSelection ? "Ctrl+C" : undefined,
     disabled: !textToCopy,
     run: async () => {
@@ -389,7 +389,9 @@ function buildItems(
     label: "Select all",
     hint: "Ctrl+A",
     run: () => {
-      if (editor instanceof HTMLInputElement || editor instanceof HTMLTextAreaElement) {
+      if (isConsole) {
+        dispatchContextAction(context, "select-all-terminal");
+      } else if (editor instanceof HTMLInputElement || editor instanceof HTMLTextAreaElement) {
         editor.focus();
         try {
           editor.setSelectionRange(0, editor.value.length);
@@ -610,9 +612,11 @@ export function ContextMenu() {
 
   const items = context ? buildItems(context, announce, close) : [];
   const contextKind = context?.scope?.dataset.contextKind;
-  const contextLabel = context?.scope?.dataset.contextLabel
-    || context?.scope?.innerText.trim().slice(0, 100)
-    || "";
+  const contextLabel = context?.target.closest(".xterm")
+    ? "Live Metasploit console"
+    : context?.scope?.dataset.contextLabel
+      || context?.scope?.innerText.trim().slice(0, 100)
+      || "";
 
   return (
     <>
