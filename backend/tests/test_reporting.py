@@ -117,7 +117,7 @@ class AssessmentReportTests(unittest.TestCase):
             },
         )
 
-        self.assertIn("1 service(s) were explicitly marked open", report)
+        self.assertIn("1 service was explicitly marked open", report)
         self.assertIn("https exposed on tcp/443", report)
         self.assertIn("These are attack-surface observations", report)
         self.assertNotIn("http exposed on tcp/80", report)
