@@ -43,12 +43,17 @@ typed it into `msfconsole`.
 - Assessment report for the active workspace: executive summary, severity counts, database-record-based vulnerability findings, remediation guidance, open-service exposure observations, inventory tables, and print-to-PDF styling. Credential values, common filesystem paths, artifact bytes, and download references are filtered.
 - Loot evidence browser: search records, inspect all returned metadata, copy a record, and export one or filtered records as JSON
 - Loot artifact download: retrieve inline artifact data from the Framework `db.loots` RPC response or, when RPC returns metadata only, read the associated file only when its exact path or containing directory is allowlisted in backend configuration; browser-supplied filesystem paths are never accepted
-- Database workspace switcher: list workspaces, switch active workspace,
-  create a workspace and switch to it; database views refresh after switching
+- Workspace management: list, switch, create and delete workspaces; deleting the active workspace switches back to the default workspace, and the default workspace itself is protected
 
-Still planned: workspace deletion/renaming, an auth/login screen (currently
-single-user, local-only), a dedicated PDF export endpoint, and trusted external
-CVE/advisory enrichment beyond the metadata already stored in Metasploit. Metasploit's `db.loots` RPC may
+Still planned: workspace renaming (the standard Metasploit database RPC does not expose a rename operation), a real auth/login and user-permission system, a dedicated PDF export endpoint, and trusted external CVE/advisory enrichment beyond the metadata already stored in Metasploit.
+
+## Security boundary
+
+**This application is local-only and does not currently authenticate users. Do not expose it to a LAN, the public internet, or an unauthenticated reverse proxy.** The backend adds defense-in-depth protections: requests must originate from a loopback client address, HTTP Host headers are checked against an explicit allowlist, browser CORS origins are restricted, and the console/session WebSockets reject untrusted browser origins. These protections are not a replacement for login/authentication and are not a supported remote-access configuration.
+
+The development server and backend should bind only to loopback addresses. Start the backend as shown below; do not change its host to `0.0.0.0`.
+
+The optional `MSF_WEB_ALLOWED_HOSTS` and `MSF_WEB_CORS_ORIGINS` values in `backend/.env` customize the allowlists for local development setups. Adding an origin or host does not enable authentication. Do not add externally reachable hosts/origins until a dedicated authentication layer and remote deployment model are implemented. Metasploit's `db.loots` RPC may
 return a registered artifact path without inline content. Inline content can be
 downloaded directly. For file-backed records, the backend reads only files under
 `MSF_LOOT_ALLOWED_DIRS` (default: `~/.msf4/loot`) or exact files listed in
@@ -80,7 +85,7 @@ python3 -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env            # edit MSF_RPC_USER / MSF_RPC_PASS to match step 1
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ### 3. Frontend
