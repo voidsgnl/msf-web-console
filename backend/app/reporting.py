@@ -224,8 +224,9 @@ def build_assessment_report(workspace: str, records: dict[str, list[dict[str, An
     priority_points = sum(SEVERITY_POINTS[item["severity"]] for item in findings)
     summary_sentences = []
     if findings:
+        record_word = "record" if len(findings) == 1 else "records"
         summary_sentences.append(
-            f"The workspace contains {len(findings)} vulnerability record(s): "
+            f"The workspace contains {len(findings)} vulnerability {record_word}: "
             + ", ".join(f"{severity_counts[level]} {level.lower()}" for level in SEVERITY_ORDER if severity_counts[level])
             + "."
         )
@@ -238,8 +239,9 @@ def build_assessment_report(workspace: str, records: dict[str, list[dict[str, An
             "No vulnerability records were present in the database snapshot; this is not evidence that no vulnerabilities exist."
         )
     if observations:
+        service_word = "service was" if len(observations) == 1 else "services were"
         summary_sentences.append(
-            f"{len(observations)} service(s) were explicitly marked open. Review exposure and access controls; open state alone is not a vulnerability."
+            f"{len(observations)} {service_word} explicitly marked open. Review exposure and access controls; open state alone is not a vulnerability."
         )
     else:
         summary_sentences.append("No service records were explicitly marked open in this snapshot.")
