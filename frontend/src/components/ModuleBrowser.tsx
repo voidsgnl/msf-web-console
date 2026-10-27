@@ -227,7 +227,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
 
     setSelectedTargetId(targetId);
     setOptionValues((current) => {
-      const next = { ...current, TARGET: targetId };
+      const next: Record<string, string> = { ...current, TARGET: targetId };
       delete next.PAYLOAD;
       return next;
     });
