@@ -85,6 +85,61 @@ class AssessmentReportTests(unittest.TestCase):
         self.assertNotIn("DO-NOT-REPORT", response.body.decode("utf-8"))
         self.assertEqual(rpc_call.call_count, 6)
 
+    def test_report_severity_summary_uses_metadata_and_cvss_like_scores(self):
+        report = build_assessment_report(
+            "triage",
+            {
+                "vulns": [
+                    {"name": "Critical issue", "severity": "critical", "host": "host-a"},
+                    {"name": "Scored issue", "cvss_score": 8.1, "host": "host-b"},
+                    {"name": "Unrated issue", "host": "host-c"},
+                ]
+            },
+        )
+
+        self.assertIn("severity-critical", report)
+        self.assertIn("severity-high", report)
+        self.assertIn("severity-unrated", report)
+        self.assertIn("1 Critical", report)
+        self.assertIn("1 High", report)
+        self.assertIn("1 Unrated", report)
+        self.assertIn("Recommended action", report)
+        self.assertIn("manually triage", report.lower())
+
+    def test_open_services_are_labelled_as_observations_not_vulnerabilities(self):
+        report = build_assessment_report(
+            "open-service-lab",
+            {
+                "services": [
+                    {"host": "192.0.2.20", "port": 443, "proto": "tcp", "name": "https", "state": "open"},
+                    {"host": "192.0.2.21", "port": 80, "proto": "tcp", "name": "http", "state": "closed"},
+                ]
+            },
+        )
+
+        self.assertIn("1 service(s) were explicitly marked open", report)
+        self.assertIn("https exposed on tcp/443", report)
+        self.assertIn("These are attack-surface observations", report)
+        self.assertNotIn("http exposed on tcp/80", report)
+        self.assertIn("not a vulnerability", report.lower())
+
+    def test_freeform_evidence_redacts_inline_secrets_and_common_paths(self):
+        report = build_assessment_report(
+            "safe-report",
+            {
+                "vulns": [{
+                    "name": "Evidence example",
+                    "severity": "high",
+                    "info": "password=hunter2 found at /tmp/private/evidence.txt",
+                }]
+            },
+        )
+
+        self.assertNotIn("hunter2", report)
+        self.assertNotIn("/tmp/private/evidence.txt", report)
+        self.assertIn("password=[redacted]", report)
+        self.assertIn("[path omitted]", report)
+
     def test_empty_report_has_empty_state_for_each_section(self):
         report = build_assessment_report("empty-workspace", {})
 
