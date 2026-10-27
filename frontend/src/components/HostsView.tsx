@@ -9,6 +9,80 @@ type SelectedLoot = {
   index: number;
 };
 
+type SelectedRecord = {
+  record: Record<string, unknown>;
+  index: number;
+};
+
+const DATABASE_COLUMN_PREFERENCES: Partial<Record<Tab, string[]>> = {
+  hosts: ["address", "name", "mac", "os_name", "os_flavor", "state", "purpose", "created_at"],
+  services: ["host", "port", "proto", "name", "state", "info"],
+  vulns: ["host", "name", "severity", "port", "service", "refs", "info", "created_at"],
+  creds: ["username", "private_type", "service", "host", "port", "proof", "created_at"],
+};
+
+const SENSITIVE_FIELD = /password|passwd|private_data|private_key|secret|token|api[_-]?key|credential|(^|_)hash($|_)/i;
+
+function isSensitiveField(key: string): boolean {
+  return SENSITIVE_FIELD.test(key);
+}
+
+function redactSensitiveFields(value: unknown, revealSensitive = false, key = ""): unknown {
+  if (key && isSensitiveField(key) && !revealSensitive) return "[redacted]";
+  if (Array.isArray(value)) return value.map((item) => redactSensitiveFields(item, revealSensitive));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([field]) => !/path/i.test(field) && field !== "data" && field !== "download_id")
+        .map(([field, nested]) => [field, redactSensitiveFields(nested, revealSensitive, field)])
+    );
+  }
+  return value;
+}
+
+function hasSensitiveFields(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasSensitiveFields);
+  if (!value || typeof value !== "object") return false;
+  return Object.entries(value as Record<string, unknown>).some(
+    ([key, nested]) => isSensitiveField(key) || hasSensitiveFields(nested)
+  );
+}
+
+function relatedHostValue(record: Record<string, unknown>): string {
+  for (const key of ["address", "host_address", "target_host", "host", "host_ip"]) {
+    const value = record[key];
+    if (typeof value === "string" || typeof value === "number") {
+      const rendered = String(value).trim();
+      if (rendered) return rendered;
+    }
+    if (value && typeof value === "object") {
+      const host = value as Record<string, unknown>;
+      const nested = host.address ?? host.name ?? host.host;
+      if (typeof nested === "string" || typeof nested === "number") {
+        const rendered = String(nested).trim();
+        if (rendered) return rendered;
+      }
+    }
+  }
+  return "";
+}
+
+function recordValue(key: string, value: unknown, revealSensitive = false): string {
+  if (isSensitiveField(key) && !revealSensitive) return "[redacted]";
+  if (key === "created_at" || key === "updated_at" || key === "opened_at") {
+    return formatLootDate(value);
+  }
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(redactSensitiveFields(value, revealSensitive), null, 2);
+    } catch {
+      return "[unavailable]";
+    }
+  }
+  return String(value);
+}
+
 function stringifyValue(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
@@ -123,6 +197,11 @@ export function HostsView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lootQuery, setLootQuery] = useState("");
+  const [recordQuery, setRecordQuery] = useState("");
+  const [recordFilterField, setRecordFilterField] = useState("");
+  const [recordFilterValue, setRecordFilterValue] = useState("");
+  const [selectedRecord, setSelectedRecord] = useState<SelectedRecord | null>(null);
+  const [showSensitiveFields, setShowSensitiveFields] = useState(false);
   const [selectedLoot, setSelectedLoot] = useState<SelectedLoot | null>(null);
   const [notice, setNotice] = useState("");
   const [reportBusy, setReportBusy] = useState(false);
@@ -134,6 +213,8 @@ export function HostsView() {
     setError("");
     setNotice("");
     setSelectedLoot(null);
+    setSelectedRecord(null);
+    setShowSensitiveFields(false);
 
     const loaders: Record<Tab, () => Promise<any[]>> = {
       hosts: () => api.db.hosts().then((r) => r.hosts),
@@ -170,7 +251,82 @@ export function HostsView() {
       .filter(({ record }) => !query || stringifyValue(metadataForExport(record)).toLowerCase().includes(query));
   }, [rows, lootQuery]);
 
-  const columns = rows.length > 0 ? Object.keys(rows[0]).slice(0, 6) : [];
+  const databaseRows = rows as Record<string, unknown>[];
+
+  const databaseFilterFields = useMemo(() => {
+    const keys = new Set<string>();
+    for (const row of databaseRows) {
+      for (const key of Object.keys(row)) {
+        if (!isSensitiveField(key) && !/path/i.test(key) && key !== "data" && key !== "download_id") {
+          keys.add(key);
+        }
+      }
+    }
+    return Array.from(keys).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
+  const databaseFilterValues = useMemo(() => {
+    if (!recordFilterField) return [];
+    const values = new Set<string>();
+    for (const row of databaseRows) {
+      const value = stringifyValue(row[recordFilterField]).trim();
+      if (value) values.add(value);
+    }
+    return Array.from(values).sort((a, b) => a.localeCompare(b)).slice(0, 250);
+  }, [rows, recordFilterField]);
+
+  const filteredDatabaseRows = useMemo(() => {
+    const query = recordQuery.trim().toLowerCase();
+    return databaseRows
+      .map((record, index) => ({ record, index }))
+      .filter(({ record }) => {
+        if (query && !stringifyValue(redactSensitiveFields(record)).toLowerCase().includes(query)) {
+          return false;
+        }
+        if (recordFilterField && recordFilterValue &&
+            stringifyValue(record[recordFilterField]) !== recordFilterValue) {
+          return false;
+        }
+        return true;
+      });
+  }, [rows, recordQuery, recordFilterField, recordFilterValue]);
+
+  const databaseColumns = useMemo(() => {
+    const allKeys = Array.from(new Set(databaseRows.flatMap((row) => Object.keys(row))))
+      .filter((key) => !isSensitiveField(key) && !/path/i.test(key) && key !== "data" && key !== "download_id");
+    const preferred = DATABASE_COLUMN_PREFERENCES[tab] ?? [];
+    const selected = preferred.filter((key) => allKeys.includes(key));
+    for (const key of allKeys) {
+      if (!selected.includes(key) && selected.length < 6) selected.push(key);
+    }
+    return selected.slice(0, 6);
+  }, [rows, tab]);
+
+  function navigateToDatabaseTab(nextTab: Tab, query: string) {
+    const nextQuery = query.trim();
+    setRecordQuery(nextQuery);
+    setRecordFilterField("");
+    setRecordFilterValue("");
+    setSelectedRecord(null);
+    setTab(nextTab);
+  }
+
+  async function copyDatabaseRecord(record: Record<string, unknown>) {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(redactSensitiveFields(record), null, 2));
+      setNotice("Record metadata copied. Sensitive fields and server paths were omitted.");
+    } catch {
+      setNotice("Clipboard access was blocked. Select Export JSON instead.");
+    }
+  }
+
+  function exportDatabaseRecords() {
+    downloadJson(
+      filteredDatabaseRows.map(({ record }) => redactSensitiveFields(record)),
+      `msf-${tab}-export-${new Date().toISOString().slice(0, 10)}.json`
+    );
+    setNotice(`Exported ${filteredDatabaseRows.length} ${tab} record(s); sensitive fields and server paths were omitted.`);
+  }
 
   async function copyLootRecord(record: LootRecord) {
     try {
@@ -350,32 +506,235 @@ export function HostsView() {
           )}
         </div>
       ) : (
-        <div className="flex-1 overflow-auto p-3">
-          {loading && <div className="text-xs text-gray-600">Loading…</div>}
-          {!loading && error && <div role="alert" className="text-xs text-red-300">{error}</div>}
-          {!loading && !error && rows.length === 0 && <div className="text-xs text-gray-600">No data.</div>}
-          {!loading && !error && rows.length > 0 && (
-            <table className="w-full text-xs font-mono">
-              <thead>
-                <tr className="text-left text-gray-500 border-b border-border">
-                  {columns.map((c) => (
-                    <th key={c} className="py-1.5 pr-4">{c}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, i) => (
-                  <tr key={i} className="border-b border-border/50 text-gray-300">
-                    {columns.map((c) => (
-                      <td key={c} className="py-1.5 pr-4 truncate max-w-xs">
-                        {String(row[c] ?? "")}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="flex-1 min-h-0 flex flex-col gap-3 overflow-auto p-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold capitalize text-gray-200">
+                {tab === "vulns" ? "Vulnerabilities" : tab === "creds" ? "Credential Records" : tab}
+              </h2>
+              <p className="mt-1 text-xs text-gray-500">
+                Search across record metadata, filter by a field, inspect full records, and follow host relationships.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <input
+                aria-label={`Search ${tab} records`}
+                value={recordQuery}
+                onChange={(event) => setRecordQuery(event.target.value)}
+                placeholder="Search host, port, service, OS, info…"
+                className="h-8 w-full rounded border border-border bg-bg-secondary px-2 text-xs text-gray-200 outline-none focus:border-accent sm:w-64"
+              />
+              <select
+                aria-label="Filter records by field"
+                value={recordFilterField}
+                onChange={(event) => {
+                  setRecordFilterField(event.target.value);
+                  setRecordFilterValue("");
+                }}
+                className="h-8 rounded border border-border bg-bg-secondary px-2 text-xs text-gray-200 outline-none focus:border-accent"
+              >
+                <option value="">All fields</option>
+                {databaseFilterFields.map((field) => <option key={field} value={field}>{field}</option>)}
+              </select>
+              <select
+                aria-label="Filter records by value"
+                value={recordFilterValue}
+                disabled={!recordFilterField}
+                onChange={(event) => setRecordFilterValue(event.target.value)}
+                className="h-8 max-w-48 rounded border border-border bg-bg-secondary px-2 text-xs text-gray-200 outline-none focus:border-accent disabled:opacity-40"
+              >
+                <option value="">Any value</option>
+                {databaseFilterValues.map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+              <button
+                onClick={exportDatabaseRecords}
+                disabled={filteredDatabaseRows.length === 0}
+                className="h-8 rounded border border-border px-3 text-xs text-gray-300 hover:bg-bg-tertiary disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Export JSON
+              </button>
+            </div>
+          </div>
+
+          {notice && <div role="status" className="text-xs text-accent">{notice}</div>}
+          {loading && <div className="text-xs text-gray-600">Loading {tab} records…</div>}
+          {!loading && error && (
+            <div role="alert" className="rounded border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-300">
+              Could not load {tab} records: {error}
+              <button
+                onClick={() => setTab((current) => current)}
+                className="ml-2 underline"
+                title="Switch away and back to reload"
+              >
+                dismiss
+              </button>
+            </div>
           )}
+          {!loading && !error && rows.length === 0 && (
+            <div className="rounded border border-border p-5 text-xs text-gray-500">
+              No {tab === "vulns" ? "vulnerability" : tab === "creds" ? "credential" : tab} records in this workspace.
+            </div>
+          )}
+          {!loading && !error && rows.length > 0 && filteredDatabaseRows.length === 0 && (
+            <div className="rounded border border-border p-5 text-xs text-gray-500">
+              No records match the current search and filters.
+              <button
+                onClick={() => { setRecordQuery(""); setRecordFilterField(""); setRecordFilterValue(""); }}
+                className="ml-2 text-accent hover:underline"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
+
+          {!loading && !error && filteredDatabaseRows.length > 0 && (
+            <div className="flex-1 min-h-0 overflow-auto rounded border border-border">
+              <table className="w-full text-xs font-mono">
+                <thead className="sticky top-0 z-10 bg-bg-secondary">
+                  <tr className="border-b border-border text-left text-gray-500">
+                    {databaseColumns.map((column) => (
+                      <th key={column} className="px-3 py-2 font-medium">{column}</th>
+                    ))}
+                    <th className="px-3 py-2 text-right font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredDatabaseRows.map(({ record, index }) => {
+                    const host = relatedHostValue(record);
+                    return (
+                      <tr key={`${tab}-${index}`} className="border-b border-border/50 text-gray-300 hover:bg-bg-tertiary/50">
+                        {databaseColumns.map((column) => (
+                          <td key={column} className="max-w-xs truncate px-3 py-2" title={recordValue(column, record[column])}>
+                            {recordValue(column, record[column])}
+                          </td>
+                        ))}
+                        <td className="whitespace-nowrap px-3 py-2 text-right">
+                          <div className="flex justify-end gap-2">
+                            {host && tab !== "hosts" && (
+                              <button
+                                onClick={() => navigateToDatabaseTab("hosts", host)}
+                                className="rounded border border-border px-2 py-1 text-gray-400 hover:text-accent"
+                                title={`Find host ${host}`}
+                              >
+                                Host
+                              </button>
+                            )}
+                            <button
+                              onClick={() => { setSelectedRecord({ record, index }); setShowSensitiveFields(false); setNotice(""); }}
+                              className="rounded border border-border px-2 py-1 text-accent hover:bg-bg-secondary"
+                            >
+                              Inspect
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-bg-secondary/60 px-3 py-2 text-[11px] text-gray-500">
+                <span>{filteredDatabaseRows.length} of {rows.length} records</span>
+                <span>Sensitive fields are redacted from table, search and export.</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {selectedRecord && tab !== "loot" && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSelectedRecord(null);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="database-record-title"
+            className="flex max-h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded border border-border bg-bg-primary shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-border p-4">
+              <div className="min-w-0">
+                <h2 id="database-record-title" className="text-sm font-semibold capitalize text-gray-100">
+                  {tab === "vulns" ? "Vulnerability" : tab === "creds" ? "Credential" : tab.slice(0, -1)} record
+                </h2>
+                <p className="mt-1 text-xs text-gray-500">Record {selectedRecord.index + 1} · active workspace · {tab}</p>
+              </div>
+              <button onClick={() => setSelectedRecord(null)} className="rounded px-2 py-1 text-xs text-gray-400 hover:bg-bg-tertiary">
+                Close
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 border-b border-border p-3">
+              <button
+                onClick={() => void copyDatabaseRecord(selectedRecord.record)}
+                className="rounded border border-border px-3 py-1.5 text-xs text-gray-300 hover:bg-bg-tertiary"
+              >
+                Copy sanitized metadata
+              </button>
+              <button
+                onClick={() => downloadJson(redactSensitiveFields(selectedRecord.record), `msf-${tab}-record-${selectedRecord.index + 1}.json`)}
+                className="rounded border border-border px-3 py-1.5 text-xs text-gray-300 hover:bg-bg-tertiary"
+              >
+                Export record JSON
+              </button>
+              {hasSensitiveFields(selectedRecord.record) && (
+                <button
+                  onClick={() => setShowSensitiveFields((visible) => !visible)}
+                  className="rounded border border-warning/30 px-3 py-1.5 text-xs text-warning hover:bg-warning/5"
+                >
+                  {showSensitiveFields ? "Hide sensitive fields" : "Reveal sensitive fields"}
+                </button>
+              )}
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <dl className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {Object.entries(selectedRecord.record)
+                  .filter(([key]) => !/path/i.test(key) && key !== "data" && key !== "download_id")
+                  .map(([key, value]) => (
+                    <div key={key} className="min-w-0 rounded border border-border/70 p-3">
+                      <dt className="mb-1 text-[11px] uppercase tracking-wide text-gray-500">{key.replace(/_/g, " ")}</dt>
+                      <dd className="whitespace-pre-wrap break-words text-xs text-gray-200">
+                        {recordValue(key, value, showSensitiveFields)}
+                      </dd>
+                    </div>
+                  ))}
+              </dl>
+              {relatedHostValue(selectedRecord.record) && (
+                <div className="mt-4 rounded border border-border bg-bg-secondary/50 p-3">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Related records</h3>
+                  <p className="mt-1 text-xs text-gray-500">Host reference: {relatedHostValue(selectedRecord.record)}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {tab !== "hosts" && (
+                      <button
+                        onClick={() => navigateToDatabaseTab("hosts", relatedHostValue(selectedRecord.record))}
+                        className="rounded border border-border px-3 py-1.5 text-xs text-accent hover:bg-bg-tertiary"
+                      >
+                        Find host
+                      </button>
+                    )}
+                    {tab !== "services" && (
+                      <button
+                        onClick={() => navigateToDatabaseTab("services", relatedHostValue(selectedRecord.record))}
+                        className="rounded border border-border px-3 py-1.5 text-xs text-accent hover:bg-bg-tertiary"
+                      >
+                        Services on host
+                      </button>
+                    )}
+                    {tab !== "vulns" && (
+                      <button
+                        onClick={() => navigateToDatabaseTab("vulns", relatedHostValue(selectedRecord.record))}
+                        className="rounded border border-border px-3 py-1.5 text-xs text-accent hover:bg-bg-tertiary"
+                      >
+                        Vulnerabilities on host
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
         </div>
       )}
 
