@@ -86,6 +86,21 @@ npm run dev
 Open **http://localhost:5173**. The dev server proxies `/api` to the
 backend on port 8000, including WebSocket upgrades for the console.
 
+## Development checks
+
+Run the backend loot helper tests from the `backend` directory:
+
+```bash
+python -m unittest discover -s tests
+```
+
+Run the frontend TypeScript check and production build from the `frontend`
+directory:
+
+```bash
+npm run build
+```
+
 ### Troubleshooting
 
 - **"Cannot reach msfrpcd" banner** — confirm `msfrpcd` is running and the
