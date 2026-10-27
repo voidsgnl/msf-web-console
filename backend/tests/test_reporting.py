@@ -81,7 +81,7 @@ class AssessmentReportTests(unittest.TestCase):
         self.assertEqual(response.media_type, "text/html")
         self.assertIn("attachment; filename=\"msf-assessment-test-lab-", response.headers["content-disposition"])
         self.assertIn("192.0.2.15", response.body.decode("utf-8"))
-        self.assertIn("file-bytes", "file-bytes")
+        self.assertIn("<td>True</td><td>10</td>", response.body.decode("utf-8"))
         self.assertNotIn("DO-NOT-REPORT", response.body.decode("utf-8"))
         self.assertEqual(rpc_call.call_count, 6)
 
