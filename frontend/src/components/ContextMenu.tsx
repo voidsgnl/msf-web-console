@@ -165,7 +165,9 @@ function contextualButtons(context: ContextSnapshot): HTMLButtonElement[] {
 }
 
 function dataValue(context: ContextSnapshot, key: string): string {
-  return context.scope?.dataset[key] ?? context.row?.dataset[key] ?? "";
+  const value = context.scope?.dataset[key] ?? context.row?.dataset[key] ?? "";
+  if (key === "contextKind" && !value && context.target.closest(".xterm")) return "console";
+  return value;
 }
 
 function dispatchContextAction(context: ContextSnapshot, action: string): void {
@@ -264,6 +266,14 @@ function contextSpecificItems(
     return items;
   }
 
+  if (kind === "console") {
+    separator();
+    add("Paste into terminal", dispatch("paste-terminal"));
+    add("Select all terminal output", dispatch("select-all-terminal"));
+    add("Clear terminal display", dispatch("clear-terminal"));
+    return items;
+  }
+
   if (kind === "session") {
     separator();
     add("Inspect session details", dispatch("inspect-session"));
@@ -313,7 +323,7 @@ function buildItems(
 ): MenuItem[] {
   const items: MenuItem[] = [];
   const hasSelection = Boolean(context.selectedText);
-  const textToCopy = context.selectedText || (context.editor ? "" : clickedText(context));
+  const textToCopy = context.selectedText || (context.editor || dataValue(context, "contextKind") === "console" ? "" : clickedText(context));
   const hasEditorSelection = editableSelectionExists(context);
   const editor = context.editor;
 
@@ -504,18 +514,22 @@ export function ContextMenu() {
     const handleContextMenu = (event: MouseEvent) => {
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (!target) return;
-      // xterm.js implements its own right-click paste behavior and should retain it.
-      if (target.closest(".xterm, [data-native-context-menu], [data-context-menu-ignore], [data-app-context-menu]")) return;
+      if (target.closest("[data-native-context-menu], [data-context-menu-ignore], [data-app-context-menu]")) return;
 
       event.preventDefault();
+      const terminal = target.closest<HTMLElement>(".xterm");
       const editor = closestEditor(target);
       const input = inputSelection(editor);
       const range = editor && !(editor instanceof HTMLInputElement) && !(editor instanceof HTMLTextAreaElement)
         ? selectedRange()
         : null;
-      const selection = input.text || window.getSelection()?.toString() || "";
+      const terminalSelection = { text: "" };
+      if (terminal) window.dispatchEvent(new CustomEvent("msf-terminal-selection-query", { detail: terminalSelection }));
+      const selection = terminal
+        ? terminalSelection.text || window.getSelection()?.toString() || ""
+        : input.text || window.getSelection()?.toString() || "";
       const row = target.closest<HTMLTableRowElement>("tr");
-      const scope = target.closest<HTMLElement>("[data-context-kind]") ?? row;
+      const scope = target.closest<HTMLElement>("[data-context-kind]") ?? row ?? terminal;
       const link = target.closest<HTMLAnchorElement>("a[href]");
 
       setContext({
@@ -555,15 +569,22 @@ export function ContextMenu() {
       buttons[next]?.focus();
     };
 
+    const handleContextNotice = (event: Event) => {
+      const message = (event as CustomEvent<string>).detail;
+      if (typeof message === "string" && message) announce(message);
+    };
+
     document.addEventListener("contextmenu", handleContextMenu);
     document.addEventListener("click", handleOutsideClick);
     document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("msf-context-notice", handleContextNotice);
     window.addEventListener("resize", close);
     window.addEventListener("scroll", close, true);
     return () => {
       document.removeEventListener("contextmenu", handleContextMenu);
       document.removeEventListener("click", handleOutsideClick);
       document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("msf-context-notice", handleContextNotice);
       window.removeEventListener("resize", close);
       window.removeEventListener("scroll", close, true);
       if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
