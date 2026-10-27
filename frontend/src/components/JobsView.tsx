@@ -72,8 +72,8 @@ export function JobsView() {
     };
   }, [refresh]);
 
-  const showJobInfo = async (id: string) => {
-    if (selectedJobId === id) {
+  const showJobInfo = async (id: string, toggle = true) => {
+    if (toggle && selectedJobId === id) {
       detailRequest.current += 1;
       setSelectedJobId(null);
       setJobInfo(null);
@@ -218,7 +218,7 @@ export function JobsView() {
           <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
             <h3 className="text-xs font-semibold text-gray-300">Job {selectedJobId} details</h3>
             <button
-              onClick={() => void showJobInfo(selectedJobId)}
+              onClick={() => void showJobInfo(selectedJobId, false)}
               disabled={detailLoading}
               className="text-[10px] text-gray-500 hover:text-gray-300 disabled:opacity-50"
             >
