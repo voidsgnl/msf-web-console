@@ -128,11 +128,16 @@ function clickedText(context: ContextSnapshot): string {
   if (scopeText) return scopeText;
   const label = context.scope?.dataset.contextLabel?.trim();
   const scopeBody = context.scope?.innerText?.trim();
-  if (scopeBody) return label ? `${label}\n${scopeBody}` : scopeBody;
+  if (scopeBody) return label && label !== scopeBody ? `${label}\n${scopeBody}` : scopeBody;
   if (context.target instanceof HTMLInputElement || context.target instanceof HTMLTextAreaElement) {
     return context.target.value;
   }
-  return context.target.innerText?.trim() || context.target.textContent?.trim() || "";
+  // Don't turn a right-click on empty layout space into "copy the entire app".
+  // Without a selection, only copy a small text element or an explicit control/link.
+  if (context.target.matches("a, button, code, pre, [data-copy-value]") || context.target.children.length === 0) {
+    return context.target.innerText?.trim() || context.target.textContent?.trim() || "";
+  }
+  return "";
 }
 
 function labelForButton(button: HTMLButtonElement): string {
