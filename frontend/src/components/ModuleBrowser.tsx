@@ -87,7 +87,14 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
   const [type, setType] = useState<string>("exploit");
   const [results, setResults] = useState<ModuleRef[]>([]);
   const [selected, setSelected] = useState<ModuleRef | null>(null);
-  const [info, setInfo] = useState<{ info: any; options: any } | null>(null);
+  const [info, setInfo] = useState<{
+    info: any;
+    options: any;
+    compatible_payloads?: string[] | null;
+    payloads_error?: string | null;
+  } | null>(null);
+  const [compatiblePayloads, setCompatiblePayloads] = useState<string[]>([]);
+  const [payloadError, setPayloadError] = useState<string | null>(null);
   const [optionValues, setOptionValues] = useState<Record<string, string>>({});
   const [optionSearch, setOptionSearch] = useState("");
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
@@ -132,6 +139,8 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     setActiveTab("overview");
     setProgress(null);
     setInfo(null);
+    setCompatiblePayloads([]);
+    setPayloadError(null);
     setInfoError(null);
     setValidationErrors({});
     setOptionSearch("");
@@ -141,6 +150,10 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
       const data = await api.modules.info(mod.type, mod.name);
       if (!mounted.current) return;
       setInfo(data);
+      setCompatiblePayloads(
+        Array.isArray(data.compatible_payloads) ? data.compatible_payloads : []
+      );
+      setPayloadError(data.payloads_error ?? null);
       const defaults: Record<string, string> = {};
       for (const [key, opt] of Object.entries<any>(data.options || {})) {
         if (opt.default !== undefined && opt.default !== null) defaults[key] = String(opt.default);
@@ -292,9 +305,11 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
   const requiredCount = Object.values<any>(moduleOptions).filter((option) => option.required).length;
   const references = listEntries(moduleInfo.references ?? moduleInfo.refs);
   const targets = listEntries(moduleInfo.targets);
-  const payloads = listEntries(
-    moduleInfo.compatible_payloads ?? moduleInfo.payloads ?? moduleInfo.payload
-  );
+  // Exploit payload compatibility is fetched by the backend through
+  // module.compatible_payloads, rather than inferred from module.info.
+  const payloads = selected?.type === "exploit"
+    ? listEntries(compatiblePayloads)
+    : listEntries(moduleInfo.compatible_payloads ?? moduleInfo.payloads ?? moduleInfo.payload);
   const advancedEntries = Object.entries(moduleInfo).filter(([key, value]) =>
     !CORE_INFO_KEYS.has(key) && value !== null && value !== undefined && value !== ""
   );
@@ -302,7 +317,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     { id: "overview", label: "Overview" },
     { id: "options", label: "Options", count: Object.keys(moduleOptions).length },
     { id: "targets", label: "Targets", count: targets.length },
-    { id: "payloads", label: "Payloads", count: payloads.length },
+    { id: "payloads", label: selected?.type === "exploit" ? "Compatible payloads" : "Payloads", count: payloads.length },
     { id: "references", label: "References", count: references.length },
     { id: "advanced", label: "Advanced", count: advancedEntries.length },
     { id: "raw", label: "Raw metadata" },
@@ -609,8 +624,22 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                     )}
 
                     {activeTab === "payloads" && (
-                      <DetailSection title="Payload information" description="Only payload information supplied by this module is shown here.">
-                        {payloads.length ? (
+                      <DetailSection
+                        title={selected.type === "exploit" ? "Compatible payloads" : "Payload information"}
+                        description={selected.type === "exploit"
+                          ? "Compatibility is queried directly from Metasploit's module.compatible_payloads RPC."
+                          : "Payload compatibility lookup is available for exploit modules; other module types may not use payloads."}
+                      >
+                        {selected.type !== "exploit" ? (
+                          <p className="text-xs text-gray-500">
+                            This is a {selected.type} module. Metasploit's compatible-payload lookup applies to exploit modules.
+                          </p>
+                        ) : payloadError ? (
+                          <div className="rounded border border-warning/30 bg-warning/5 p-3">
+                            <p className="text-xs text-warning">Could not retrieve compatible payloads from Metasploit.</p>
+                            <p className="text-xs text-gray-400 mt-1 break-words">{payloadError}</p>
+                          </div>
+                        ) : payloads.length ? (
                           <div className="space-y-2">
                             {payloads.map(([id, payload]) => (
                               <div key={id} className="rounded border border-border bg-bg-secondary px-3 py-2.5">
@@ -619,8 +648,8 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                             ))}
                           </div>
                         ) : (
-                          <p className="text-xs text-gray-600">
-                            No payload list was exposed for this module. Payload selection and compatibility may depend on the module type.
+                          <p className="text-xs text-gray-500">
+                            Metasploit returned no compatible payloads for this exploit. This is different from a lookup error; the RPC response contained an empty payload list.
                           </p>
                         )}
                       </DetailSection>
@@ -665,7 +694,12 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
 
                     {activeTab === "raw" && (
                       <DetailSection title="Raw metadata" description="Unmodified JSON from the module information and options RPC responses. Useful for debugging and inspecting fields that the UI does not yet interpret.">
-                        <pre className="text-[11px] leading-5 text-gray-300 whitespace-pre-wrap break-words font-mono">{prettyValue({ info: info.info, options: info.options })}</pre>
+                        <pre className="text-[11px] leading-5 text-gray-300 whitespace-pre-wrap break-words font-mono">{prettyValue({
+                          info: info.info,
+                          options: info.options,
+                          compatible_payloads: info.compatible_payloads,
+                          payloads_error: info.payloads_error,
+                        })}</pre>
                       </DetailSection>
                     )}
                   </div>
