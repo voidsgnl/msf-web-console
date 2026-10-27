@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "../lib/api";
 import type { Workspace } from "../lib/api";
@@ -17,6 +17,9 @@ export function WorkspaceSwitcher({
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const knownWorkspace = useRef<string | null>(null);
+  const onWorkspaceChangedRef = useRef(onWorkspaceChanged);
+  onWorkspaceChangedRef.current = onWorkspaceChanged;
 
   useEffect(() => {
     let active = true;
@@ -26,8 +29,13 @@ export function WorkspaceSwitcher({
     Promise.all([api.db.workspaces(), api.db.currentWorkspace()])
       .then(([workspaceResult, currentResult]) => {
         if (!active) return;
+        const nextWorkspace = currentResult.workspace ?? "";
+        if (knownWorkspace.current !== null && knownWorkspace.current !== nextWorkspace) {
+          onWorkspaceChangedRef.current(nextWorkspace);
+        }
+        knownWorkspace.current = nextWorkspace;
         setWorkspaces(workspaceResult.workspaces ?? []);
-        setCurrentWorkspace(currentResult.workspace ?? "");
+        setCurrentWorkspace(nextWorkspace);
       })
       .catch((e: unknown) => {
         if (active) {
@@ -51,6 +59,7 @@ export function WorkspaceSwitcher({
     setMessage(null);
     try {
       const current = await api.db.setWorkspace(name);
+      knownWorkspace.current = current.workspace;
       setCurrentWorkspace(current.workspace);
       setMessage(`Switched to ${current.workspace}`);
       onWorkspaceChanged(current.workspace);
@@ -71,6 +80,7 @@ export function WorkspaceSwitcher({
     setMessage(null);
     try {
       const current = await api.db.createWorkspace(name);
+      knownWorkspace.current = current.workspace;
       setCurrentWorkspace(current.workspace);
       setWorkspaces((existing) => {
         const withoutDuplicate = existing.filter((workspace) => workspace.name !== current.workspace);
@@ -123,6 +133,19 @@ export function WorkspaceSwitcher({
       >
         + New
       </button>
+      <button
+        type="button"
+        aria-label="Refresh workspaces"
+        title={error ? "Retry workspace connection" : "Refresh workspace list"}
+        onClick={() => {
+          setMessage(null);
+          setReloadKey((key) => key + 1);
+        }}
+        disabled={loading || busy}
+        className="rounded border border-border px-2 py-1.5 text-xs text-gray-400 hover:text-gray-100 hover:bg-bg-tertiary disabled:opacity-50"
+      >
+        {loading ? "…" : error ? "Retry" : "↻"}
+      </button>
 
       {createOpen && (
         <form
@@ -169,19 +192,7 @@ export function WorkspaceSwitcher({
       <span className="sr-only" aria-live="polite">
         {message ?? error ?? ""}
       </span>
-      {error && (
-        <>
-          <span className="max-w-48 truncate text-xs text-danger" title={error}>{error}</span>
-          <button
-            type="button"
-            onClick={() => setReloadKey((key) => key + 1)}
-            disabled={loading || busy}
-            className="text-xs text-accent hover:underline disabled:opacity-50"
-          >
-            Retry
-          </button>
-        </>
-      )}
+      {error && <span className="max-w-48 truncate text-xs text-danger" title={error}>{error}</span>}
       {message && !error && <span className="max-w-48 truncate text-xs text-gray-500">{message}</span>}
     </div>
   );
