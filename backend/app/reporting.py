@@ -16,7 +16,7 @@ SECTIONS = [
 
 SENSITIVE_KEY_PARTS = (
     "password", "passwd", "secret", "token", "private_data", "private_value",
-    "private_key", "hash", "data", "path", "download_id", "session_key",
+    "private_key", "hash", "path", "download_id", "session_key",
 )
 
 
