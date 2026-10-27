@@ -104,6 +104,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ name }),
       }),
+    deleteWorkspace: (name: string) =>
+      request<{ deleted_workspace: string; current_workspace: CurrentWorkspace; workspaces: Workspace[] }>(
+        `/db/workspaces/${encodeURIComponent(name)}`,
+        { method: "DELETE" }
+      ),
   },
 
   jobs: {
