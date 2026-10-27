@@ -108,8 +108,8 @@ export const api = {
 
   jobs: {
     list: () => request<Record<string, any>>("/jobs"),
-    info: (id: string) => request<Record<string, any>>(`/jobs/${id}/info`),
-    stop: (id: string) => request(`/jobs/${id}/stop`, { method: "POST" }),
+    info: (id: string) => request<Record<string, any>>(`/jobs/${encodeURIComponent(id)}/info`),
+    stop: (id: string) => request(`/jobs/${encodeURIComponent(id)}/stop`, { method: "POST" }),
   },
 };
 
