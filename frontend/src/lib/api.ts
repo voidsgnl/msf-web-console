@@ -51,7 +51,15 @@ export const api = {
   },
 };
 
-export function consoleSocketUrl(): string {
+function wsBase(): string {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${window.location.host}/api/console/ws`;
+  return `${proto}://${window.location.host}`;
+}
+
+export function consoleSocketUrl(): string {
+  return `${wsBase()}/api/console/ws`;
+}
+
+export function sessionSocketUrl(sessionId: number): string {
+  return `${wsBase()}/api/sessions/ws/${sessionId}`;
 }
