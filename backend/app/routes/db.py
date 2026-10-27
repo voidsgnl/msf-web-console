@@ -1,4 +1,9 @@
-from fastapi import APIRouter, HTTPException
+import hashlib
+import json
+import re
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from app.msf_rpc import rpc, MsfRpcError
@@ -48,12 +53,114 @@ def vulns():
         raise HTTPException(502, str(exc))
 
 
-@router.get("/loot")
+def _loot_bytes(value: Any) -> bytes | None:
+    """Convert RPC loot data to bytes without touching server filesystem paths."""
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, bytearray):
+        return bytes(value)
+    if isinstance(value, str):
+        return value.encode("utf-8")
+    return None
+
+
+def _loot_download_id(record: dict[str, Any]) -> str:
+    """Build a content-and-metadata fingerprint because db.loots exposes no ID."""
+    payload = _loot_bytes(record.get("data"))
+    identity = {
+        key: record.get(key)
+        for key in ("name", "ltype", "ctype", "host", "service", "created_at", "updated_at", "info")
+    }
+    identity["data_sha256"] = hashlib.sha256(payload).hexdigest() if payload is not None else None
+    canonical = json.dumps(identity, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _public_loot_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Return safe metadata only; keep potentially large/sensitive artifact bytes server-side."""
+    public = {key: value for key, value in record.items() if key != "data" and "path" not in key.lower()}
+    payload = _loot_bytes(record.get("data"))
+    public["download_id"] = _loot_download_id(record)
+    public["has_data"] = payload is not None
+    public["size"] = len(payload) if payload is not None else None
+    return public
+
+
+def _safe_loot_filename(value: Any) -> str:
+    raw_name = str(value or "loot-artifact.bin").replace("\\\\", "/").split("/")[-1]
+    filename = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_name).lstrip(".")
+    return filename[:120] or "loot-artifact.bin"
+
+
+def _safe_content_type(value: Any) -> str:
+    candidate = str(value or "")
+    if re.fullmatch(r"[A-Za-z0-9!#@router.get("/loot")
 def loot():
     try:
         return rpc.call("db.loots", {})
     except MsfRpcError as exc:
         raise HTTPException(502, str(exc))
+^_.+-]+/[A-Za-z0-9!#@router.get("/loot")
+def loot():
+    try:
+        return rpc.call("db.loots", {})
+    except MsfRpcError as exc:
+        raise HTTPException(502, str(exc))
+^_.+-]+", candidate):
+        return candidate
+    return "application/octet-stream"
+
+
+@router.get("/loot")
+def loot():
+    """List loot metadata without transferring the raw artifact data to the browser."""
+    try:
+        result = rpc.call("db.loots", {})
+        records = result.get("loots", []) if isinstance(result, dict) else []
+        return {"loot": [_public_loot_record(record) for record in records if isinstance(record, dict)]}
+    except MsfRpcError as exc:
+        raise HTTPException(502, str(exc))
+
+
+@router.get("/loot/{download_id}/download")
+def download_loot(download_id: str):
+    """Download artifact bytes returned by db.loots, never a user-supplied path."""
+    if not re.fullmatch(r"[a-f0-9]{64}", download_id):
+        raise HTTPException(400, "Invalid loot download reference.")
+
+    try:
+        result = rpc.call("db.loots", {})
+    except MsfRpcError as exc:
+        raise HTTPException(502, str(exc))
+
+    records = result.get("loots", []) if isinstance(result, dict) else []
+    selected = next(
+        (
+            record for record in records
+            if isinstance(record, dict) and _loot_download_id(record) == download_id
+        ),
+        None,
+    )
+    if selected is None:
+        raise HTTPException(404, "Loot record not found. Refresh the loot list and try again.")
+
+    payload = _loot_bytes(selected.get("data"))
+    if payload is None:
+        raise HTTPException(
+            404,
+            "This loot record has no artifact data available through the Metasploit RPC response.",
+        )
+
+    filename = _safe_loot_filename(selected.get("name"))
+    return Response(
+        content=payload,
+        media_type=_safe_content_type(selected.get("ctype")),
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.get("/creds")
