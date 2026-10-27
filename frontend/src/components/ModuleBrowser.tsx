@@ -53,7 +53,7 @@ function listEntries(value: unknown): [string, unknown][] {
 
 function targetNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
-  if (typeof value === "string" && /^\\d+$/.test(value)) return Number(value);
+  if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
   return undefined;
 }
 
