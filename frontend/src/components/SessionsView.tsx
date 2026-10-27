@@ -6,6 +6,13 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function sanitizedSessionValue(value: unknown, key = ""): unknown {
+  if (/password|passwd|secret|token|credential|private|api.?key/i.test(key)) return "[redacted]";
+  if (Array.isArray(value)) return value.map((item) => sanitizedSessionValue(item));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([field]) => !/path/i.test(field)).map(([field, nested]) => [field, sanitizedSessionValue(nested, field)]));
+  return value;
+}
+
 function display(value: unknown, fallback = "—"): string {
   if (value === null || value === undefined || value === "") return fallback;
   return typeof value === "string" || typeof value === "number" ? String(value) : JSON.stringify(value);
@@ -20,6 +27,7 @@ export function SessionsView() {
   const [notice, setNotice] = useState<string | null>(null);
   const [stoppingSessionId, setStoppingSessionId] = useState<number | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
+  const [inspectedSession, setInspectedSession] = useState<{ id: string; session: Record<string, unknown> } | null>(null);
   const activeSessionRef = useRef<number | null>(null);
   const mounted = useRef(true);
   const refreshInFlight = useRef(false);
@@ -81,6 +89,17 @@ export function SessionsView() {
       window.clearInterval(timer);
     };
   }, [activeSessionId, refresh]);
+
+  useEffect(() => {
+    const handleContextAction = (event: Event) => {
+      const detail = (event as CustomEvent<{ action: string; kind: string; value: string }>).detail;
+      if (detail?.kind !== "session" || detail.action !== "inspect-session") return;
+      const session = sessions[detail.value];
+      if (session && typeof session === "object") setInspectedSession({ id: detail.value, session });
+    };
+    window.addEventListener("msf-context-action", handleContextAction);
+    return () => window.removeEventListener("msf-context-action", handleContextAction);
+  }, [sessions]);
 
   const stopSession = async (id: number, info: string) => {
     if (!window.confirm(`Terminate session ${id}${info ? ` (${info})` : ""}? This will close the remote session.`)) return;
@@ -178,7 +197,7 @@ export function SessionsView() {
                 const info = display(session.info, "");
                 const numericId = Number(id);
                 return (
-                  <tr key={id} data-context-kind="session" data-context-label={`Session ${id} · ${display(session.type)}`} className="border-b border-border/50 text-gray-300">
+                  <tr key={id} data-context-kind="session" data-context-label={`Session ${id} · ${display(session.type)}`} data-context-index={id} data-context-value={id} className="border-b border-border/50 text-gray-300">
                     <td className="py-2 pr-4 align-top text-accent">{id}</td>
                     <td className="py-2 pr-4 align-top">{display(session.type)}</td>
                     <td className="py-2 pr-4 align-top">{target}</td>
@@ -206,6 +225,21 @@ export function SessionsView() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {inspectedSession && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setInspectedSession(null); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="session-inspector-title" className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded border border-border bg-bg-primary shadow-2xl">
+            <div className="flex items-start justify-between border-b border-border p-4">
+              <div><h2 id="session-inspector-title" className="text-sm font-semibold text-gray-100">Session {inspectedSession.id}</h2><p className="mt-1 text-xs text-gray-500">Read-only session metadata</p></div>
+              <button onClick={() => setInspectedSession(null)} className="rounded px-2 py-1 text-xs text-gray-400 hover:bg-bg-tertiary">Close</button>
+            </div>
+            <div className="min-h-0 overflow-auto p-4"><dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {Object.entries(inspectedSession.session).filter(([key]) => !/path/i.test(key)).map(([key, value]) => (
+                <div key={key} className="min-w-0 rounded border border-border/70 p-3"><dt className="mb-1 text-[10px] uppercase tracking-wide text-gray-500">{key.replace(/_/g, " ")}</dt><dd className="whitespace-pre-wrap break-words font-mono text-xs text-gray-200">{JSON.stringify(sanitizedSessionValue(value, key), null, 2) ?? "—"}</dd></div>
+              ))}
+            </dl></div>
+          </section>
         </div>
       )}
     </div>
