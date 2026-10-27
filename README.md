@@ -32,6 +32,8 @@ typed it into `msfconsole`.
   nop
 - Module info + option editing + execute, with job progress and new-session
   detection
+- Target-aware compatible payload browsing and selection, including payload
+  option editing before exploit execution
 - Session list + kill + interactive session shell/meterpreter terminal
 - Jobs list + stop
 - Database browser: hosts, services, vulns, loot, creds
