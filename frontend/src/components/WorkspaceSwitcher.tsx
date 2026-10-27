@@ -14,6 +14,7 @@ export function WorkspaceSwitcher({
   const [busy, setBusy] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -38,9 +39,7 @@ export function WorkspaceSwitcher({
         setCurrentWorkspace(nextWorkspace);
       })
       .catch((e: unknown) => {
-        if (active) {
-          setError(e instanceof Error ? e.message : String(e));
-        }
+        if (active) setError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -89,6 +88,7 @@ export function WorkspaceSwitcher({
       });
       setNewName("");
       setCreateOpen(false);
+      setManageOpen(false);
       setMessage(`Created and switched to ${current.workspace}`);
       onWorkspaceChanged(current.workspace);
     } catch (e: unknown) {
@@ -96,6 +96,54 @@ export function WorkspaceSwitcher({
     } finally {
       setBusy(false);
     }
+  };
+
+  const deleteWorkspace = async (workspace: Workspace) => {
+    if (busy || workspace.name.toLowerCase() === "default") return;
+    const entered = window.prompt(
+      `This permanently deletes the "${workspace.name}" workspace and its stored assessment records. Type the workspace name exactly to confirm:`
+    );
+    if (entered !== workspace.name) {
+      if (entered !== null) setMessage("Workspace deletion cancelled because the name did not match.");
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await api.db.deleteWorkspace(workspace.name);
+      const nextWorkspace = result.current_workspace?.workspace ?? "default";
+      setWorkspaces(result.workspaces ?? []);
+      setCurrentWorkspace(nextWorkspace);
+      knownWorkspace.current = nextWorkspace;
+      setManageOpen(false);
+      const switched = nextWorkspace !== currentWorkspace;
+      setMessage(
+        switched
+          ? `Deleted ${workspace.name} and switched to ${nextWorkspace}`
+          : `Deleted workspace ${workspace.name}`
+      );
+      if (switched) onWorkspaceChanged(nextWorkspace);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleCreate = () => {
+    setCreateOpen((open) => !open);
+    setManageOpen(false);
+    setError(null);
+    setMessage(null);
+  };
+
+  const toggleManage = () => {
+    setManageOpen((open) => !open);
+    setCreateOpen(false);
+    setError(null);
+    setMessage(null);
   };
 
   return (
@@ -106,11 +154,9 @@ export function WorkspaceSwitcher({
         value={currentWorkspace}
         onChange={(event) => void switchWorkspace(event.target.value)}
         disabled={loading || busy}
-        className="max-w-56 bg-bg-tertiary border border-border rounded px-2 py-1.5 text-xs text-gray-200 disabled:opacity-60"
+        className="max-w-56 rounded border border-border bg-bg-tertiary px-2 py-1.5 text-xs text-gray-200 disabled:opacity-60"
       >
-        {!currentWorkspace && (
-          <option value="">{loading ? "Loading…" : "Unavailable"}</option>
-        )}
+        {!currentWorkspace && <option value="">{loading ? "Loading…" : "Unavailable"}</option>}
         {currentWorkspace && !workspaces.some((workspace) => workspace.name === currentWorkspace) && (
           <option value={currentWorkspace}>{currentWorkspace}</option>
         )}
@@ -123,15 +169,20 @@ export function WorkspaceSwitcher({
 
       <button
         type="button"
-        onClick={() => {
-          setCreateOpen((open) => !open);
-          setError(null);
-          setMessage(null);
-        }}
+        onClick={toggleCreate}
         disabled={busy}
-        className="rounded border border-border px-2 py-1.5 text-xs text-gray-400 hover:text-gray-100 hover:bg-bg-tertiary disabled:opacity-50"
+        className="rounded border border-border px-2 py-1.5 text-xs text-gray-400 hover:bg-bg-tertiary hover:text-gray-100 disabled:opacity-50"
       >
         + New
+      </button>
+      <button
+        type="button"
+        onClick={toggleManage}
+        disabled={busy || loading}
+        aria-expanded={manageOpen}
+        className="rounded border border-border px-2 py-1.5 text-xs text-gray-400 hover:bg-bg-tertiary hover:text-gray-100 disabled:opacity-50"
+      >
+        Manage
       </button>
       <button
         type="button"
@@ -142,7 +193,7 @@ export function WorkspaceSwitcher({
           setReloadKey((key) => key + 1);
         }}
         disabled={loading || busy}
-        className="rounded border border-border px-2 py-1.5 text-xs text-gray-400 hover:text-gray-100 hover:bg-bg-tertiary disabled:opacity-50"
+        className="rounded border border-border px-2 py-1.5 text-xs text-gray-400 hover:bg-bg-tertiary hover:text-gray-100 disabled:opacity-50"
       >
         {loading ? "…" : error ? "Retry" : "↻"}
       </button>
@@ -150,7 +201,7 @@ export function WorkspaceSwitcher({
       {createOpen && (
         <form
           onSubmit={(event) => void createWorkspace(event)}
-          className="absolute right-0 top-full z-30 mt-2 w-72 rounded border border-border bg-bg-secondary p-3 shadow-xl space-y-2"
+          className="absolute right-0 top-full z-30 mt-2 w-72 space-y-2 rounded border border-border bg-bg-secondary p-3 shadow-xl"
         >
           <label htmlFor="new-workspace-name" className="block text-xs text-gray-300">
             Create a database workspace
@@ -162,7 +213,7 @@ export function WorkspaceSwitcher({
             value={newName}
             onChange={(event) => setNewName(event.target.value)}
             placeholder="e.g. client_assessment"
-            className="w-full bg-bg-tertiary border border-border rounded px-2 py-1.5 text-xs text-gray-100 font-mono placeholder:text-gray-600"
+            className="w-full rounded border border-border bg-bg-tertiary px-2 py-1.5 font-mono text-xs text-gray-100 placeholder:text-gray-600"
           />
           <p className="text-[10px] text-gray-500">
             Creates the workspace and switches to it. Existing workspace data is kept separate.
@@ -170,10 +221,7 @@ export function WorkspaceSwitcher({
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => {
-                setCreateOpen(false);
-                setNewName("");
-              }}
+              onClick={() => { setCreateOpen(false); setNewName(""); }}
               className="px-2 py-1 text-xs text-gray-500 hover:text-gray-200"
             >
               Cancel
@@ -189,9 +237,43 @@ export function WorkspaceSwitcher({
         </form>
       )}
 
-      <span className="sr-only" aria-live="polite">
-        {message ?? error ?? ""}
-      </span>
+      {manageOpen && (
+        <div className="absolute right-0 top-full z-30 mt-2 w-80 max-w-[90vw] rounded border border-border bg-bg-secondary p-3 shadow-xl">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h3 className="text-xs font-semibold text-gray-200">Manage workspaces</h3>
+            <button onClick={() => setManageOpen(false)} className="text-xs text-gray-500 hover:text-gray-200">
+              Close
+            </button>
+          </div>
+          <p className="mb-3 text-[10px] leading-4 text-gray-500">
+            Deleting a workspace permanently removes its stored assessment data. The default workspace is protected.
+            Standard Metasploit RPC does not expose a workspace rename operation.
+          </p>
+          <div className="max-h-64 space-y-1 overflow-auto">
+            {workspaces.map((workspace) => (
+              <div key={workspace.id ?? workspace.name} className="flex items-center justify-between gap-3 rounded border border-border/60 px-2 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-xs text-gray-200" title={workspace.name}>{workspace.name}</p>
+                  <p className="mt-0.5 text-[10px] text-gray-600">
+                    {workspace.name === currentWorkspace ? "Active workspace" : "Not active"}
+                    {workspace.name.toLowerCase() === "default" ? " · protected" : ""}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void deleteWorkspace(workspace)}
+                  disabled={busy || workspace.name.toLowerCase() === "default"}
+                  className="shrink-0 rounded border border-danger/30 px-2 py-1 text-[10px] text-danger hover:bg-danger/5 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {busy ? "working…" : "Delete"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <span className="sr-only" aria-live="polite">{message ?? error ?? ""}</span>
       {error && <span className="max-w-48 truncate text-xs text-danger" title={error}>{error}</span>}
       {message && !error && <span className="max-w-48 truncate text-xs text-gray-500">{message}</span>}
     </div>
