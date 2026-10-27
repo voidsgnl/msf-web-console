@@ -148,7 +148,7 @@ function clickedText(context: ContextSnapshot): string {
 
 function labelForButton(button: HTMLButtonElement): string {
   return (button.getAttribute("title") || button.getAttribute("aria-label") || button.innerText || button.textContent || "Action")
-    .replace(/\\s+/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
