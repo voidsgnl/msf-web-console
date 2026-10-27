@@ -46,11 +46,11 @@ class AuthenticationConfigurationTests(unittest.TestCase):
         with patch.dict(os.environ, {"MSF_WEB_SESSION_TTL_SECONDS": "300"}):
             with patch("app.authentication.time.time", return_value=1000):
                 token = sessions.create("admin")
-            self.assertNotIn(token, sessions._sessions)
-            self.assertEqual(sessions.username_for(token), "admin")
+                self.assertNotIn(token, sessions._sessions)
+                self.assertEqual(sessions.username_for(token), "admin")
             with patch("app.authentication.time.time", return_value=1301):
                 self.assertIsNone(sessions.username_for(token))
-            self.assertIsNone(sessions.username_for(token))
+                self.assertIsNone(sessions.username_for(token))
 
         token = sessions.create("admin")
         sessions.revoke(token)
