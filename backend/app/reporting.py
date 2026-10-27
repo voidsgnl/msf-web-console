@@ -21,7 +21,7 @@ FREEFORM_SECRET_RE = re.compile(
     r"(?i)\b(password|passwd|secret|token|api[_-]?key|authorization)\s*[:=]\s*([^\s,;]+)"
 )
 UNIX_PATH_RE = re.compile(
-    r"(?<![A-Za-z0-9])/(?:home|tmp|root|var|opt|etc|srv|mnt|run|usr|private|Users)/[^\s"'<>),;]+"
+    r"(?<![A-Za-z0-9])/(?:home|tmp|root|var|opt|etc|srv|mnt|run|usr|private|Users)/[^\s<>),;]+"
 )
 WINDOWS_PATH_RE = re.compile(r"(?i)\b[A-Z]:\\(?:[^\\\s]+\\)*[^\\\s]+")
 SENSITIVE_KEY_PARTS = (
