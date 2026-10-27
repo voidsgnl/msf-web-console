@@ -3,6 +3,9 @@ import os
 from urllib.parse import urlsplit
 
 from fastapi.responses import JSONResponse
+from starlette.responses import Response
+
+from app.authentication import authentication_configured, cookie_token_from_scope, sessions
 
 
 DEFAULT_WEB_ORIGINS = (
@@ -101,3 +104,89 @@ class LocalOnlyMiddleware:
             headers={"Cache-Control": "no-store"},
         )
         await response(scope, receive, send)
+
+
+class AuthenticationMiddleware:
+    """Require a valid server-side session for HTTP endpoints and WebSockets."""
+
+    OPEN_HTTP_PATHS = {
+        ("/api/auth/login", "POST"),
+        ("/api/auth/session", "GET"),
+    }
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        scope_type = scope.get("type")
+        if scope_type not in {"http", "websocket"}:
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        headers = {
+            key.decode("latin-1").lower(): value.decode("latin-1")
+            for key, value in scope.get("headers", [])
+        }
+        origin = headers.get("origin")
+        if origin and not origin_is_allowed(origin):
+            if scope_type == "websocket":
+                await send({
+                    "type": "websocket.close",
+                    "code": 4403,
+                    "reason": "Browser origin not allowed.",
+                })
+            else:
+                response = JSONResponse(
+                    status_code=403,
+                    content={"detail": "Browser origin not allowed."},
+                    headers={"Cache-Control": "no-store"},
+                )
+                await response(scope, receive, send)
+            return
+
+        if scope_type == "http":
+            method = scope.get("method", "GET").upper()
+            if method == "OPTIONS" or (path, method) in self.OPEN_HTTP_PATHS:
+                await self.app(scope, receive, send)
+                return
+
+        if not authentication_configured():
+            detail = (
+                "Web console login is not configured. Set MSF_WEB_USERNAME and a strong "
+                "MSF_WEB_PASSWORD (at least 12 characters) in backend/.env, then restart the backend."
+            )
+            if scope_type == "websocket":
+                await send({
+                    "type": "websocket.close",
+                    "code": 4403,
+                    "reason": "Web console authentication is not configured.",
+                })
+                return
+            response = JSONResponse(
+                status_code=503,
+                content={"detail": detail},
+                headers={"Cache-Control": "no-store"},
+            )
+            await response(scope, receive, send)
+            return
+
+        username = sessions.username_for(cookie_token_from_scope(scope))
+        if username is None:
+            if scope_type == "websocket":
+                await send({
+                    "type": "websocket.close",
+                    "code": 4401,
+                    "reason": "Login required or session expired.",
+                })
+                return
+            response = JSONResponse(
+                status_code=401,
+                content={"detail": "Login required or session expired."},
+                headers={"Cache-Control": "no-store"},
+            )
+            await response(scope, receive, send)
+            return
+
+        scope.setdefault("state", {})["authenticated_user"] = username
+        await self.app(scope, receive, send)
