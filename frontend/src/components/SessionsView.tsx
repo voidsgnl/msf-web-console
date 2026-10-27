@@ -178,7 +178,7 @@ export function SessionsView() {
                 const info = display(session.info, "");
                 const numericId = Number(id);
                 return (
-                  <tr key={id} className="border-b border-border/50 text-gray-300">
+                  <tr key={id} data-context-kind="session" data-context-label={`Session ${id} · ${display(session.type)}`} className="border-b border-border/50 text-gray-300">
                     <td className="py-2 pr-4 align-top text-accent">{id}</td>
                     <td className="py-2 pr-4 align-top">{display(session.type)}</td>
                     <td className="py-2 pr-4 align-top">{target}</td>
