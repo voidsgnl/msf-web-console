@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import html
 import io
-import re
 import unicodedata
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
@@ -392,7 +391,7 @@ def build_assessment_report_pdf(workspace: str, records: dict[str, list[dict[str
     page_width, _ = A4
     left_margin = 16 * mm
     right_margin = 16 * mm
-    top_margin = 43 * mm
+    top_margin = 30 * mm
     bottom_margin = 16 * mm
     available_width = page_width - left_margin - right_margin
 
