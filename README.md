@@ -24,20 +24,22 @@ typed it into `msfconsole`.
 
 ## Status
 
-**v0.1 — vertical slice.** Implemented and working end-to-end:
+**v0.1 — vertical slice.** Implemented:
 
 - Live console (xterm.js) bridged to a real `msfconsole` instance, tabbed
   for multiple concurrent consoles
 - Module search/browse across exploit, auxiliary, post, payload, encoder,
   nop
-- Module info + option editing + execute (runs as an MSF job)
-- Session list + kill
+- Module info + option editing + execute, with job progress and new-session
+  detection
+- Session list + kill + interactive session shell/meterpreter terminal
 - Jobs list + stop
 - Database browser: hosts, services, vulns, loot, creds
+- Database workspace switcher: list workspaces, switch active workspace,
+  create a workspace and switch to it; database views refresh after switching
 
-Not yet built (planned next): per-session interactive shell/meterpreter UI
-beyond the raw read/write endpoints, workspace switcher, auth/login screen
-(currently single-user, local-only), loot/file download, report generation.
+Still planned: workspace deletion/renaming, auth/login screen (currently
+single-user, local-only), loot/file download, report generation.
 
 ## Setup
 
@@ -57,7 +59,7 @@ backend `.env` accordingly.
 ```bash
 cd backend
 python3 -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
+source venv/bin/activate        # Windows: venv\\Scripts\\activate
 pip install -r requirements.txt
 cp .env.example .env            # edit MSF_RPC_USER / MSF_RPC_PASS to match step 1
 uvicorn app.main:app --reload --port 8000
@@ -78,6 +80,8 @@ backend on port 8000, including WebSocket upgrades for the console.
 
 - **"Cannot reach msfrpcd" banner** — confirm `msfrpcd` is running and the
   host/port/user/pass in `backend/.env` match what you started it with.
+- **Workspace selector fails to load** — confirm the Metasploit database is
+  connected and initialized; the workspace APIs require an available database.
 - **401 / auth errors** — `MSF_RPC_USER`/`MSF_RPC_PASS` mismatch, or the
   token expired (the client re-authenticates automatically on the next
   call, so this should self-heal).
@@ -96,13 +100,13 @@ backend/
       system.py        health/status
       modules.py        search, info, execute
       sessions.py        list, read/write, stop
-      db.py               hosts/services/vulns/loot/creds
+      db.py               database views + workspace management
       jobs.py               list/info/stop
       console.py             WebSocket console bridge
 frontend/
   src/
-    components/        Sidebar, ConsoleView/Tab, ModuleBrowser, SessionsView,
-                        HostsView, JobsView
+    components/        Sidebar, ConsoleView/Tab, ModuleBrowser, WorkspaceSwitcher,
+                        SessionsView, HostsView, JobsView
     lib/api.ts          typed fetch client for the backend
     App.tsx              layout + connection status
 ```
