@@ -34,9 +34,12 @@ export const api = {
         `/modules/search?q=${encodeURIComponent(q)}${type ? `&type=${type}` : ""}`
       ),
     info: (type: string, name: string) =>
-      request<{ info: Record<string, unknown>; options: Record<string, unknown> }>(
-        `/modules/${type}/${encodeURIComponent(name)}/info`
-      ),
+      request<{
+        info: Record<string, unknown>;
+        options: Record<string, unknown>;
+        compatible_payloads?: string[] | null;
+        payloads_error?: string | null;
+      }>(`/modules/${type}/${encodeURIComponent(name)}/info`),
     execute: (type: string, name: string, options: Record<string, unknown>) =>
       request<Record<string, unknown>>("/modules/execute", {
         method: "POST",
