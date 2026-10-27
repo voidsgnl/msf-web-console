@@ -186,7 +186,7 @@ export function HostsView() {
             </div>
           </div>
 
-          {notice && (
+          {notice && !selectedLoot && (
             <div role="status" className="text-xs text-accent">{notice}</div>
           )}
           {loading && <div className="text-xs text-gray-600">Loading loot records…</div>}
@@ -255,7 +255,7 @@ export function HostsView() {
           {loading && <div className="text-xs text-gray-600">Loading…</div>}
           {!loading && error && <div role="alert" className="text-xs text-red-300">{error}</div>}
           {!loading && !error && rows.length === 0 && <div className="text-xs text-gray-600">No data.</div>}
-          {rows.length > 0 && (
+          {!loading && !error && rows.length > 0 && (
             <table className="w-full text-xs font-mono">
               <thead>
                 <tr className="text-left text-gray-500 border-b border-border">
