@@ -231,7 +231,7 @@ export function HostsView() {
   const [showSensitiveFields, setShowSensitiveFields] = useState(false);
   const [selectedLoot, setSelectedLoot] = useState<SelectedLoot | null>(null);
   const [notice, setNotice] = useState("");
-  const [reportBusy, setReportBusy] = useState(false);
+  const [reportBusy, setReportBusy] = useState<"pdf" | "html" | null>(null);
   const [reportNotice, setReportNotice] = useState("");
   const [cveResults, setCveResults] = useState<Record<string, CveEnrichment | { error: string } | null>>({});
   const [cveBusy, setCveBusy] = useState(false);
@@ -385,17 +385,19 @@ export function HostsView() {
     }
   }
 
-  async function generateAssessmentReport() {
-    setReportBusy(true);
+  async function generateAssessmentReport(format: "pdf" | "html") {
+    setReportBusy(format);
     setReportNotice("");
     try {
-      const result = await api.db.downloadReport();
+      const result = format === "pdf"
+        ? await api.db.downloadReportPdf()
+        : await api.db.downloadReport();
       saveBlob(result.blob, result.filename);
-      setReportNotice("Report download started.");
+      setReportNotice(format === "pdf" ? "PDF export started." : "HTML report download started.");
     } catch (cause: unknown) {
       setReportNotice(cause instanceof Error ? `Report failed: ${cause.message}` : "Report generation failed.");
     } finally {
-      setReportBusy(false);
+      setReportBusy(null);
     }
   }
 
@@ -498,11 +500,18 @@ export function HostsView() {
             </span>
           )}
           <button
-            onClick={() => void generateAssessmentReport()}
-            disabled={reportBusy}
+            onClick={() => void generateAssessmentReport("pdf")}
+            disabled={reportBusy !== null}
+            className="h-7 shrink-0 rounded bg-accent-dim px-3 text-xs font-medium text-black hover:bg-accent disabled:cursor-wait disabled:opacity-50"
+          >
+            {reportBusy === "pdf" ? "Generating PDF…" : "Export PDF"}
+          </button>
+          <button
+            onClick={() => void generateAssessmentReport("html")}
+            disabled={reportBusy !== null}
             className="h-7 shrink-0 rounded border border-border px-3 text-xs text-gray-300 hover:bg-bg-tertiary disabled:cursor-wait disabled:opacity-50"
           >
-            {reportBusy ? "Generating…" : "Generate report"}
+            {reportBusy === "html" ? "Preparing HTML…" : "Download HTML"}
           </button>
         </div>
       </div>
