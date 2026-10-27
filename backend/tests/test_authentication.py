@@ -10,15 +10,39 @@ from app.authentication import (
     configured_credentials,
     sessions,
 )
+from fastapi import HTTPException, Response
+from starlette.requests import Request
+
+from app.routes.auth import LoginRequest, login, logout, session_status, _failed_logins
 from app.security import AuthenticationMiddleware
 
 
 class AuthenticationConfigurationTests(unittest.TestCase):
     def setUp(self):
         sessions.clear()
+        _failed_logins.clear()
 
     def tearDown(self):
         sessions.clear()
+        _failed_logins.clear()
+
+    def request(self, path, method="GET", cookie=None, client=("127.0.0.1", 43210)):
+        headers = []
+        if cookie:
+            headers.append((b"cookie", cookie.encode("latin-1")))
+        return Request({
+            "type": "http",
+            "http_version": "1.1",
+            "method": method,
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode(),
+            "query_string": b"",
+            "headers": headers,
+            "client": client,
+            "server": ("localhost", 5173),
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+        })
 
     def test_missing_credentials_fail_closed(self):
         with patch.dict(os.environ, {}, clear=False):
@@ -41,6 +65,79 @@ class AuthenticationConfigurationTests(unittest.TestCase):
             self.assertEqual(authenticate_credentials("admin", "a-long-unique-password"), "admin")
             self.assertIsNone(authenticate_credentials("admin", "wrong-password-123"))
             self.assertIsNone(authenticate_credentials("other", "a-long-unique-password"))
+
+    def test_login_sets_http_only_strict_session_cookie(self):
+        with patch.dict(os.environ, {
+            "MSF_WEB_USERNAME": "admin",
+            "MSF_WEB_PASSWORD": "a-long-unique-password",
+            "MSF_WEB_COOKIE_SECURE": "false",
+            "MSF_WEB_SESSION_TTL_SECONDS": "3600",
+        }):
+            response = Response()
+            result = login(
+                LoginRequest(username="admin", password="a-long-unique-password"),
+                self.request("/api/auth/login", "POST"),
+                response,
+            )
+        self.assertEqual(result, {"authenticated": True, "username": "admin"})
+        cookie = response.headers["set-cookie"].lower()
+        self.assertIn("httponly", cookie)
+        self.assertIn("samesite=strict", cookie)
+        self.assertIn("max-age=3600", cookie)
+        self.assertNotIn("secure", cookie)
+        self.assertEqual(response.headers["cache-control"], "no-store")
+
+    def test_login_invalid_credentials_have_generic_error(self):
+        with patch.dict(os.environ, {
+            "MSF_WEB_USERNAME": "admin",
+            "MSF_WEB_PASSWORD": "a-long-unique-password",
+        }):
+            with self.assertRaises(HTTPException) as raised:
+                login(
+                    LoginRequest(username="wrong", password="wrong-password-123"),
+                    self.request("/api/auth/login", "POST"),
+                    Response(),
+                )
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertEqual(raised.exception.detail, "Invalid username or password.")
+
+    def test_login_is_blocked_until_credentials_are_configured(self):
+        with patch.dict(os.environ, {"MSF_WEB_USERNAME": "", "MSF_WEB_PASSWORD": ""}):
+            with self.assertRaises(HTTPException) as raised:
+                login(
+                    LoginRequest(username="admin", password="a-long-unique-password"),
+                    self.request("/api/auth/login", "POST"),
+                    Response(),
+                )
+        self.assertEqual(raised.exception.status_code, 503)
+
+    def test_logout_revokes_session_and_clears_cookie(self):
+        token = sessions.create("admin")
+        with patch.dict(os.environ, {"MSF_WEB_COOKIE_SECURE": "false"}):
+            response = Response()
+            result = logout(
+                self.request("/api/auth/logout", "POST", f"msf_web_session={token}"),
+                response,
+            )
+        self.assertEqual(result, {"authenticated": False})
+        self.assertIsNone(sessions.username_for(token))
+        self.assertIn("max-age=0", response.headers["set-cookie"].lower())
+
+    def test_session_status_is_not_cacheable(self):
+        token = sessions.create("admin")
+        with patch.dict(os.environ, {
+            "MSF_WEB_USERNAME": "admin",
+            "MSF_WEB_PASSWORD": "a-long-unique-password",
+        }):
+            response = Response()
+            result = session_status(
+                self.request("/api/auth/session", cookie=f"msf_web_session={token}"),
+                response,
+            )
+        self.assertTrue(result["configured"])
+        self.assertTrue(result["authenticated"])
+        self.assertEqual(result["username"], "admin")
+        self.assertEqual(response.headers["cache-control"], "no-store")
 
     def test_session_tokens_are_opaque_revocable_and_expire(self):
         with patch.dict(os.environ, {"MSF_WEB_SESSION_TTL_SECONDS": "300"}):
