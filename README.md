@@ -38,7 +38,7 @@ typed it into `msfconsole`.
 - Jobs list + stop
 - Database browser: hosts, services, vulns, loot, creds
 - Loot evidence browser: search records, inspect all returned metadata, copy a record, and export one or filtered records as JSON
-- Loot artifact download: retrieve the artifact bytes exposed by the Framework `db.loots` RPC response; raw data stays on the backend during listing, download names/content types are validated, and no user-supplied filesystem paths are read
+- Loot artifact download: retrieve inline artifact data from the Framework `db.loots` RPC response or, when RPC returns metadata only, read the associated file only when its exact path or containing directory is allowlisted in backend configuration; browser-supplied filesystem paths are never accepted
 - Database workspace switcher: list workspaces, switch active workspace,
   create a workspace and switch to it; database views refresh after switching
 
