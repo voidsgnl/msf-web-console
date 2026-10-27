@@ -1204,24 +1204,6 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                 )}
               </div>
             )}
-                </div>
-                {progress.sessions.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {progress.sessions.map(({ id, session }) => (
-                      <button
-                        key={id}
-                        onClick={onViewSessions}
-                        className="text-left rounded border border-accent/30 bg-accent/5 px-2.5 py-2 hover:bg-accent/10"
-                        title="Open the Sessions view to interact with this session"
-                      >
-                        <span className="block text-[10px] text-accent font-mono">Session {id} · {textValue(session.type) || "session"}</span>
-                        <span className="block mt-1 text-[10px] text-gray-400">{textValue(session.target_host ?? session.session_host ?? session.info) || "Target details unavailable"}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </>
         )}
       </div>
