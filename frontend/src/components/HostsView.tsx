@@ -40,6 +40,19 @@ function extractCveIds(record: Record<string, unknown>): string[] {
   return Array.from(new Set(matches.map((match) => match.toUpperCase()))).sort();
 }
 
+function extractHttpReferences(record: Record<string, unknown>): string[] {
+  let text = "";
+  try {
+    text = JSON.stringify(record);
+  } catch {
+    return [];
+  }
+  const matches = text.match(/https?:\\/\\/[^\\s"'<>]+/gi) ?? [];
+  return Array.from(new Set(matches.map((url) => url.replace(/[),.;]+$/, ""))))
+    .filter((url) => /^https?:\\/\\//i.test(url))
+    .slice(0, 8);
+}
+
 function redactSensitiveFields(value: unknown, revealSensitive = false, key = ""): unknown {
   if (key && isSensitiveField(key) && !revealSensitive) return "[redacted]";
   if (Array.isArray(value)) return value.map((item) => redactSensitiveFields(item, revealSensitive));
@@ -407,6 +420,61 @@ export function HostsView() {
     setCveBusy(false);
   }
 
+  useEffect(() => {
+    const handleContextAction = (event: Event) => {
+      const detail = (event as CustomEvent<{ action: string; kind: string; index: string; value?: string }>).detail;
+      if (!detail || detail.kind !== tab) return;
+      const index = Number(detail.index);
+      if (!Number.isInteger(index) || index < 0) return;
+
+      if (tab === "loot") {
+        const match = filteredLoot.find((item) => item.index === index);
+        if (!match) return;
+        if (detail.action === "inspect-evidence") {
+          setSelectedLoot(match);
+          setNotice("");
+        } else if (detail.action === "copy-evidence") {
+          void copyLootRecord(match.record);
+        } else if (detail.action === "export-evidence") {
+          downloadJson(metadataForExport(match.record), `msf-loot-record-${index + 1}.json`);
+          setNotice("Exported sanitized evidence metadata.");
+        }
+        return;
+      }
+
+      const match = filteredDatabaseRows.find((item) => item.index === index);
+      if (!match) return;
+      const record = match.record;
+      const relatedHost = relatedHostValue(record);
+      if (detail.action === "inspect-record") {
+        setSelectedRecord({ record, index });
+        setShowSensitiveFields(false);
+        setNotice("");
+        setCveResults({});
+        setCveNotice("");
+      } else if (detail.action === "export-record") {
+        downloadJson(redactSensitiveFields(record), `msf-${tab}-record-${index + 1}.json`);
+        setNotice("Exported sanitized record JSON.");
+      } else if (detail.action === "enrich-vuln" && tab === "vulns") {
+        setSelectedRecord({ record, index });
+        setShowSensitiveFields(false);
+        setNotice("");
+        setCveResults({});
+        setCveNotice("");
+        void enrichVulnCves(record);
+      } else if (detail.action === "view-services" && tab === "hosts" && relatedHost) {
+        navigateToDatabaseTab("services", relatedHost);
+      } else if (detail.action === "view-vulns" && relatedHost) {
+        navigateToDatabaseTab("vulns", relatedHost);
+      } else if (detail.action === "view-host" && relatedHost) {
+        navigateToDatabaseTab("hosts", relatedHost);
+      }
+    };
+
+    window.addEventListener("msf-context-action", handleContextAction);
+    return () => window.removeEventListener("msf-context-action", handleContextAction);
+  }, [tab, filteredDatabaseRows, filteredLoot]);
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="flex justify-between gap-3 h-10 shrink-0 items-center px-3 border-b border-border">
@@ -506,6 +574,8 @@ export function HostsView() {
                     <tr key={`${stringifyValue(record.name)}-${stringifyValue(record.ltype)}-${stringifyValue(record.host)}-${index}`}
                       data-context-kind="loot"
                       data-context-label={lootName(record)}
+                      data-context-index={index}
+                      data-context-value={lootName(record)}
                       className="border-b border-border/50 text-gray-300 hover:bg-bg-tertiary/60">
                       <td className="py-2 px-3 max-w-sm">
                         <div className="truncate text-gray-200">{lootName(record)}</div>
@@ -650,7 +720,16 @@ export function HostsView() {
                   {filteredDatabaseRows.map(({ record, index }) => {
                     const host = relatedHostValue(record);
                     return (
-                      <tr key={`${tab}-${index}`} data-context-kind={tab} data-context-label={`${tab} record ${index + 1}`} className="border-b border-border/50 text-gray-300 hover:bg-bg-tertiary/50">
+                      <tr
+                        key={`${tab}-${index}`}
+                        data-context-kind={tab}
+                        data-context-label={`${tab} · ${stringifyValue(record.address ?? record.name ?? record.host ?? index + 1)}`}
+                        data-context-index={index}
+                        data-context-value={stringifyValue(tab === "hosts" ? record.address ?? record.name : tab === "creds" ? record.username : record.id ?? record.address ?? record.host ?? record.name)}
+                        data-context-host={host}
+                        data-context-cves={tab === "vulns" ? extractCveIds(record).join(",") : ""}
+                        data-context-references={tab === "vulns" ? JSON.stringify(extractHttpReferences(record)) : "[]"}
+                        className="border-b border-border/50 text-gray-300 hover:bg-bg-tertiary/50">
                         {databaseColumns.map((column) => (
                           <td key={column} className="max-w-xs truncate px-3 py-2" title={recordValue(column, record[column])}>
                             {recordValue(column, record[column])}
