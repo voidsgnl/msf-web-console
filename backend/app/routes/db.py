@@ -87,33 +87,21 @@ def _public_loot_record(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def _safe_loot_filename(value: Any) -> str:
-    raw_name = str(value or "loot-artifact.bin").replace("\\\\", "/").split("/")[-1]
+    raw_name = str(value or "loot-artifact.bin").replace("\\", "/").split("/")[-1]
     filename = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_name).lstrip(".")
     return filename[:120] or "loot-artifact.bin"
 
 
 def _safe_content_type(value: Any) -> str:
     candidate = str(value or "")
-    if re.fullmatch(r"[A-Za-z0-9!#@router.get("/loot")
-def loot():
-    try:
-        return rpc.call("db.loots", {})
-    except MsfRpcError as exc:
-        raise HTTPException(502, str(exc))
-^_.+-]+/[A-Za-z0-9!#@router.get("/loot")
-def loot():
-    try:
-        return rpc.call("db.loots", {})
-    except MsfRpcError as exc:
-        raise HTTPException(502, str(exc))
-^_.+-]+", candidate):
+    if re.fullmatch(r"[A-Za-z0-9!#_.+-]+/[A-Za-z0-9!#_.+-]+", candidate):
         return candidate
     return "application/octet-stream"
 
 
 @router.get("/loot")
 def loot():
-    """List loot metadata without transferring the raw artifact data to the browser."""
+    """List loot metadata without transferring raw artifact data to the browser."""
     try:
         result = rpc.call("db.loots", {})
         records = result.get("loots", []) if isinstance(result, dict) else []
