@@ -37,11 +37,15 @@ typed it into `msfconsole`.
 - Session list + kill + interactive session shell/meterpreter terminal
 - Jobs list + stop
 - Database browser: hosts, services, vulns, loot, creds
+- Loot evidence browser: search records, inspect all returned metadata, copy a record, and export one or filtered records as JSON
 - Database workspace switcher: list workspaces, switch active workspace,
   create a workspace and switch to it; database views refresh after switching
 
 Still planned: workspace deletion/renaming, auth/login screen (currently
-single-user, local-only), loot/file download, report generation.
+single-user, local-only), original loot-file retrieval, report generation. The
+standard Metasploit Framework `db.loots` RPC response exposes record metadata
+but not a stable loot ID, a retrievable file path, or the original file bytes;
+JSON export therefore contains metadata only, not the original artifact.
 
 ## Setup
 
