@@ -45,24 +45,30 @@ typed it into `msfconsole`.
 - Loot artifact download: retrieve inline artifact data from the Framework `db.loots` RPC response or, when RPC returns metadata only, read the associated file only when its exact path or containing directory is allowlisted in backend configuration; browser-supplied filesystem paths are never accepted
 - Workspace management: list, switch, create and delete workspaces; deleting the active workspace switches back to the default workspace, and the default workspace itself is protected
 
-Still planned: workspace renaming (the standard Metasploit database RPC does not expose a rename operation), a real auth/login and user-permission system, a dedicated PDF export endpoint, and trusted external CVE/advisory enrichment beyond the metadata already stored in Metasploit.
+Still planned: workspace renaming (the standard Metasploit database RPC does not expose a rename operation), multi-user accounts/roles, a dedicated PDF export endpoint, and trusted external CVE/advisory enrichment beyond the metadata already stored in Metasploit.
 
 ## Security boundary
 
-**This application is local-only and does not currently authenticate users. Do not expose it to a LAN, the public internet, or an unauthenticated reverse proxy.** The backend adds defense-in-depth protections: requests must originate from a loopback client address, HTTP Host headers are checked against an explicit allowlist, browser CORS origins are restricted, and the console/session WebSockets reject untrusted browser origins. These protections are not a replacement for login/authentication and are not a supported remote-access configuration.
+**Login is required for the console API and WebSockets. The application remains local-only and does not support remote deployment.** HTTP requests and browser terminal WebSockets require an authenticated server-side session. Login uses credentials configured in `backend/.env`, session cookies are HTTP-only and SameSite strict, sessions expire, logout revokes the session, and repeated failed login attempts are rate-limited. Sessions are kept in memory and are invalidated when the backend restarts.
 
-The development server and backend should bind only to loopback addresses. Start the backend as shown below; do not change its host to `0.0.0.0`.
+The local-only client-address check, HTTP Host allowlist and browser-origin checks remain enabled in addition to login. These are defense-in-depth controls; do not expose this application to a LAN, the public internet, or an unauthenticated reverse proxy.
 
-The optional `MSF_WEB_ALLOWED_HOSTS` and `MSF_WEB_CORS_ORIGINS` values in `backend/.env` customize the allowlists for local development setups. Adding an origin or host does not enable authentication. Do not add externally reachable hosts/origins until a dedicated authentication layer and remote deployment model are implemented. Metasploit's `db.loots` RPC may
-return a registered artifact path without inline content. Inline content can be
-downloaded directly. For file-backed records, the backend reads only files under
-`MSF_LOOT_ALLOWED_DIRS` (default: `~/.msf4/loot`) or exact files listed in
-`MSF_LOOT_ALLOWED_FILES`; client requests cannot choose a filesystem path. To
-permit the synthetic test artifact, add
-`MSF_LOOT_ALLOWED_FILES=/tmp/msf-web-console-loot-test.txt` to `backend/.env`
-and restart the backend. Keep the list narrow because loot can contain sensitive
-evidence. JSON exports contain sanitized metadata, not the original artifact
-bytes.
+### Configure the web console login
+
+After copying `backend/.env.example` to `backend/.env`, set these values before starting the backend:
+
+```dotenv
+MSF_WEB_USERNAME=admin
+MSF_WEB_PASSWORD=use-a-unique-password-of-at-least-12-characters
+MSF_WEB_SESSION_TTL_SECONDS=28800
+MSF_WEB_COOKIE_SECURE=false
+```
+
+Replace the example password with a strong, unique password. The application refuses to unlock the API until a username and a password of at least 12 characters are configured; known placeholder passwords are rejected. Keep `MSF_WEB_COOKIE_SECURE=false` for the standard local HTTP development URL only. Set it to `true` when the browser-facing UI is served over HTTPS. Sessions are in-memory, so restarting the backend signs everyone out.
+
+The optional `MSF_WEB_ALLOWED_HOSTS` and `MSF_WEB_CORS_ORIGINS` settings customize the local development allowlists. Adding an origin or host does not enable remote access. A multi-user account and permission system has not been implemented.
+
+Metasploit's `db.loots` RPC may return a registered artifact path without inline content. Inline content can be downloaded directly. For file-backed records, the backend reads only files under `MSF_LOOT_ALLOWED_DIRS` (default: `~/.msf4/loot`) or exact files listed in `MSF_LOOT_ALLOWED_FILES`; client requests cannot choose a filesystem path. To permit the synthetic test artifact, add `MSF_LOOT_ALLOWED_FILES=/tmp/msf-web-console-loot-test.txt` to `backend/.env` and restart the backend. Keep the list narrow because loot can contain sensitive evidence. JSON exports contain sanitized metadata, not the original artifact bytes.
 
 ## Setup
 
@@ -84,7 +90,7 @@ cd backend
 python3 -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env            # edit MSF_RPC_USER / MSF_RPC_PASS to match step 1
+cp .env.example .env            # set MSF_RPC_* and MSF_WEB_USERNAME / MSF_WEB_PASSWORD before starting
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -96,8 +102,7 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173**. The dev server proxies `/api` to the
-backend on port 8000, including WebSocket upgrades for the console.
+Open **http://localhost:5173** and sign in with the web-console credentials from `backend/.env`. The dev server proxies `/api` to the backend on port 8000, including authenticated WebSocket upgrades for the console and interactive sessions.
 
 ## Development checks
 
