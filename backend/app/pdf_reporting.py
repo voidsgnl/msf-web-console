@@ -406,7 +406,6 @@ def build_assessment_report_pdf(workspace: str, records: dict[str, list[dict[str
         title=f"MSF Assessment - {_plain(_safe_value('workspace', workspace or 'default'))}",
         author="MSF Web Console",
         subject="Read-only Metasploit workspace assessment snapshot",
-        pageCompression=0,
     )
     styles = _styles()
     hosts = records.get("hosts", [])
