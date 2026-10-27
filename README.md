@@ -39,7 +39,7 @@ typed it into `msfconsole`.
   option editing before exploit execution
 - Session list + kill + interactive session shell/meterpreter terminal
 - Jobs list + stop
-- Database browser: hosts, services, vulns, loot, creds
+- Database explorer: hosts, services, vulnerabilities, loot, and credentials, with cross-record search, field/value filtering, record inspection, host-to-service/vulnerability navigation, and JSON metadata export; sensitive fields are redacted by default
 - Assessment report for the active workspace: executive summary, severity counts, database-record-based vulnerability findings, remediation guidance, open-service exposure observations, inventory tables, and print-to-PDF styling. Credential values, common filesystem paths, artifact bytes, and download references are filtered.
 - Loot evidence browser: search records, inspect all returned metadata, copy a record, and export one or filtered records as JSON
 - Loot artifact download: retrieve inline artifact data from the Framework `db.loots` RPC response or, when RPC returns metadata only, read the associated file only when its exact path or containing directory is allowlisted in backend configuration; browser-supplied filesystem paths are never accepted
