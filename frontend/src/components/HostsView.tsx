@@ -181,7 +181,7 @@ export function HostsView() {
 
   async function downloadLootArtifact(record: LootRecord) {
     const downloadId = stringifyValue(record.download_id);
-    if (!/^[a-f0-9]{64}$/.test(downloadId)) {
+    if (!/^\d{1,3}\.[a-f0-9]{64}$/.test(downloadId)) {
       setNotice("This record has no valid download reference. Refresh the loot list.");
       return;
     }
