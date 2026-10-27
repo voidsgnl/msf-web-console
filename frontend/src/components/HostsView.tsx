@@ -125,6 +125,8 @@ export function HostsView() {
   const [lootQuery, setLootQuery] = useState("");
   const [selectedLoot, setSelectedLoot] = useState<SelectedLoot | null>(null);
   const [notice, setNotice] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportNotice, setReportNotice] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -195,20 +197,50 @@ export function HostsView() {
     }
   }
 
+  async function generateAssessmentReport() {
+    setReportBusy(true);
+    setReportNotice("");
+    try {
+      const result = await api.db.downloadReport();
+      saveBlob(result.blob, result.filename);
+      setReportNotice("Report download started.");
+    } catch (cause: unknown) {
+      setReportNotice(cause instanceof Error ? `Report failed: ${cause.message}` : "Report generation failed.");
+    } finally {
+      setReportBusy(false);
+    }
+  }
+
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="flex gap-1 h-10 shrink-0 items-center px-3 border-b border-border">
-        {(["hosts", "services", "vulns", "loot", "creds"] as Tab[]).map((t) => (
+      <div className="flex justify-between gap-3 h-10 shrink-0 items-center px-3 border-b border-border">
+        <div className="flex min-w-0 gap-1 items-center">
+          {(["hosts", "services", "vulns", "loot", "creds"] as Tab[]).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-3 h-7 rounded text-xs font-mono ${
+                tab === t ? "bg-bg-tertiary text-accent" : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        <div className="flex min-w-0 items-center gap-2">
+          {reportNotice && (
+            <span role="status" className="hidden max-w-xs truncate text-[11px] text-accent md:inline">
+              {reportNotice}
+            </span>
+          )}
           <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-3 h-7 rounded text-xs font-mono ${
-              tab === t ? "bg-bg-tertiary text-accent" : "text-gray-500 hover:text-gray-300"
-            }`}
+            onClick={() => void generateAssessmentReport()}
+            disabled={reportBusy}
+            className="h-7 shrink-0 rounded border border-border px-3 text-xs text-gray-300 hover:bg-bg-tertiary disabled:cursor-wait disabled:opacity-50"
           >
-            {t}
+            {reportBusy ? "Generating…" : "Generate report"}
           </button>
-        ))}
+        </div>
       </div>
 
       {tab === "loot" ? (
