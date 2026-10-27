@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { api } from "../lib/api";
 
 type ModuleRef = { type: string; name: string };
@@ -9,11 +10,77 @@ type ExecutionProgress = {
   jobId?: string;
   sessions: SessionSummary[];
 };
+type ModuleTab = "overview" | "options" | "targets" | "payloads" | "references" | "advanced" | "raw";
 
 const POLL_INTERVAL_MS = 2000;
 const EXECUTION_TIMEOUT_MS = 90000;
-
+const CORE_INFO_KEYS = new Set([
+  "name", "fullname", "description", "rank", "platform", "arch", "privileged",
+  "license", "disclosure_date", "author", "authors", "references", "targets",
+  "default_target", "payload", "payloads", "compatible_payloads", "actions",
+  "notes", "options", "default_options",
+]);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function textValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) return value.map(textValue).filter(Boolean).join(", ");
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function prettyValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function listEntries(value: unknown): [string, unknown][] {
+  if (Array.isArray(value)) return value.map((entry, index) => [String(index), entry]);
+  if (value && typeof value === "object") return Object.entries(value as Record<string, unknown>);
+  if (value === null || value === undefined || value === "") return [];
+  return [["0", value]];
+}
+
+function MetaCard({ label, value }: { label: string; value: unknown }) {
+  const text = textValue(value);
+  if (!text) return null;
+  return (
+    <div className="rounded border border-border bg-bg-secondary px-3 py-2 min-w-0">
+      <div className="text-[10px] uppercase tracking-widest text-gray-500">{label}</div>
+      <div className="mt-1 text-xs text-gray-200 break-words">{text}</div>
+    </div>
+  );
+}
+
+function DetailSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border border-border bg-bg-secondary/60 overflow-hidden">
+      <div className="px-4 py-3 border-b border-border">
+        <h3 className="text-xs uppercase tracking-widest text-gray-300 font-semibold">{title}</h3>
+        {description && <p className="text-xs text-gray-500 mt-1">{description}</p>}
+      </div>
+      <div className="p-4">{children}</div>
+    </section>
+  );
+}
 
 export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }) {
   const [query, setQuery] = useState("");
@@ -22,6 +89,10 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
   const [selected, setSelected] = useState<ModuleRef | null>(null);
   const [info, setInfo] = useState<{ info: any; options: any } | null>(null);
   const [optionValues, setOptionValues] = useState<Record<string, string>>({});
+  const [optionSearch, setOptionSearch] = useState("");
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [activeTab, setActiveTab] = useState<ModuleTab>("overview");
   const [executing, setExecuting] = useState(false);
   const [progress, setProgress] = useState<ExecutionProgress | null>(null);
   const [loadingInfo, setLoadingInfo] = useState(false);
@@ -58,9 +129,13 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
 
   const select = async (mod: ModuleRef) => {
     setSelected(mod);
+    setActiveTab("overview");
     setProgress(null);
     setInfo(null);
     setInfoError(null);
+    setValidationErrors({});
+    setOptionSearch("");
+    setShowAdvancedOptions(false);
     setLoadingInfo(true);
     try {
       const data = await api.modules.info(mod.type, mod.name);
@@ -81,6 +156,25 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
 
   const execute = async () => {
     if (!selected || executing) return;
+    const options = info?.options ?? {};
+    const missing: Record<string, string> = {};
+    for (const [key, option] of Object.entries<any>(options)) {
+      if (option.required && !String(optionValues[key] ?? "").trim()) {
+        missing[key] = "This option is required.";
+      }
+    }
+    if (Object.keys(missing).length) {
+      setValidationErrors(missing);
+      setActiveTab("options");
+      setProgress({
+        phase: "error",
+        message: `Complete the ${Object.keys(missing).length} required option(s) before executing this module.`,
+        sessions: [],
+      });
+      return;
+    }
+
+    setValidationErrors({});
     setExecuting(true);
     setProgress({
       phase: "submitting",
@@ -89,8 +183,6 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     });
 
     try {
-      // Capture the current sessions before execution so only sessions created
-      // by this run are highlighted in the result panel.
       const before = await api.sessions.list();
       const previousSessionIds = new Set(Object.keys(before ?? {}));
       const result = await api.modules.execute(selected.type, selected.name, optionValues);
@@ -118,7 +210,6 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
           api.jobs.list(),
           api.sessions.list(),
         ]);
-
         const jobs = jobsResult.status === "fulfilled" ? jobsResult.value ?? {} : {};
         const sessions = sessionsResult.status === "fulfilled" ? sessionsResult.value ?? {} : {};
         const activeJobIds = Object.keys(jobs).map(String);
@@ -131,14 +222,12 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
         if (newSessions.length > 0) {
           setProgress({
             phase: "running",
-            message: `${newSessions.length} new session${newSessions.length === 1 ? "" : "s"} detected. You can open Sessions to interact with ${newSessions.length === 1 ? "it" : "them"}.`,
+            message: `${newSessions.length} new session${newSessions.length === 1 ? "" : "s"} detected. Open Sessions to interact with ${newSessions.length === 1 ? "it" : "them"}.`,
             jobId,
             sessions: newSessions,
           });
         }
 
-        // Only call a job finished after it has appeared in job.list and then
-        // disappeared; a newly submitted job may take a moment to be listed.
         if (jobId && jobObserved && !activeJobIds.includes(jobId)) {
           setProgress({
             phase: "completed",
@@ -190,145 +279,437 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     return "text-accent";
   };
 
+  const moduleInfo: Record<string, any> =
+    info?.info && typeof info.info === "object" ? info.info : {};
+  const moduleOptions: Record<string, any> =
+    info?.options && typeof info.options === "object" ? info.options : {};
+  const optionEntries = Object.entries<any>(moduleOptions).filter(([key, option]) => {
+    const term = optionSearch.toLowerCase().trim();
+    if (term && !key.toLowerCase().includes(term) &&
+      !String(option.desc ?? option.description ?? "").toLowerCase().includes(term)) return false;
+    return showAdvancedOptions || !(option.advanced || option.evasion);
+  });
+  const requiredCount = Object.values<any>(moduleOptions).filter((option) => option.required).length;
+  const references = listEntries(moduleInfo.references ?? moduleInfo.refs);
+  const targets = listEntries(moduleInfo.targets);
+  const payloads = listEntries(
+    moduleInfo.compatible_payloads ?? moduleInfo.payloads ?? moduleInfo.payload
+  );
+  const advancedEntries = Object.entries(moduleInfo).filter(([key, value]) =>
+    !CORE_INFO_KEYS.has(key) && value !== null && value !== undefined && value !== ""
+  );
+  const tabs: { id: ModuleTab; label: string; count?: number }[] = [
+    { id: "overview", label: "Overview" },
+    { id: "options", label: "Options", count: Object.keys(moduleOptions).length },
+    { id: "targets", label: "Targets", count: targets.length },
+    { id: "payloads", label: "Payloads", count: payloads.length },
+    { id: "references", label: "References", count: references.length },
+    { id: "advanced", label: "Advanced", count: advancedEntries.length },
+    { id: "raw", label: "Raw metadata" },
+  ];
+
+  const renderOption = (key: string, option: any) => {
+    const value = optionValues[key] ?? "";
+    const description = option.desc ?? option.description;
+    const choices = option.enums ?? option.enum ?? option.values;
+    const isBoolean = /^(bool|boolean)$/i.test(String(option.type ?? ""));
+    const isNumber = /^(int|integer|float|number|port)$/i.test(String(option.type ?? ""));
+    const isSecret = /(password|passwd|token|secret)$/i.test(key);
+    const hasChoices = Array.isArray(choices) && choices.length > 0;
+
+    return (
+      <div key={key} className="grid grid-cols-1 md:grid-cols-[minmax(130px,180px)_minmax(180px,1fr)] gap-2 md:gap-4 py-3 border-b border-border/60 last:border-b-0">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="font-mono text-xs text-gray-200 break-all">{key}</span>
+            {option.required && <span className="text-[10px] text-danger uppercase">Required</span>}
+            {(option.advanced || option.evasion) && <span className="text-[10px] text-gray-500 uppercase">Advanced</span>}
+          </div>
+          <p className="text-[10px] text-gray-500 mt-1">
+            {option.type ? String(option.type) : "Option"}
+            {option.default !== undefined && option.default !== null ? ` · default: ${String(option.default)}` : ""}
+          </p>
+        </div>
+        <div className="min-w-0 space-y-1.5">
+          {isBoolean ? (
+            <label className="flex items-center gap-2 text-xs text-gray-300 min-h-8">
+              <input
+                type="checkbox"
+                checked={value.toLowerCase() === "true"}
+                onChange={(event) => {
+                  setOptionValues((current) => ({ ...current, [key]: String(event.target.checked) }));
+                  setValidationErrors((current) => { const next = { ...current }; delete next[key]; return next; });
+                }}
+                className="accent-accent"
+              />
+              {value.toLowerCase() === "true" ? "Enabled" : "Disabled"}
+            </label>
+          ) : hasChoices ? (
+            <select
+              value={value}
+              onChange={(event) => {
+                setOptionValues((current) => ({ ...current, [key]: event.target.value }));
+                setValidationErrors((current) => { const next = { ...current }; delete next[key]; return next; });
+              }}
+              className="w-full min-w-0 bg-bg-tertiary border border-border rounded px-2.5 py-2 text-xs text-gray-100"
+            >
+              <option value="">Choose a value…</option>
+              {choices.map((choice: unknown) => (
+                <option key={String(choice)} value={String(choice)}>{String(choice)}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type={isSecret ? "password" : isNumber ? "number" : "text"}
+              value={value}
+              onChange={(event) => {
+                setOptionValues((current) => ({ ...current, [key]: event.target.value }));
+                setValidationErrors((current) => { const next = { ...current }; delete next[key]; return next; });
+              }}
+              aria-invalid={Boolean(validationErrors[key])}
+              className={`w-full min-w-0 bg-bg-tertiary border rounded px-2.5 py-2 text-xs text-gray-100 font-mono focus:outline-none focus:border-accent ${validationErrors[key] ? "border-danger" : "border-border"}`}
+            />
+          )}
+          {description && <p className="text-[11px] leading-relaxed text-gray-500">{String(description)}</p>}
+          {validationErrors[key] && <p className="text-[11px] text-danger">{validationErrors[key]}</p>}
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="flex h-full">
-      {/* Search + results column */}
-      <div className="w-80 border-r border-border flex flex-col">
-        <div className="p-3 border-b border-border space-y-2">
+    <div className="flex h-full min-w-0">
+      <aside className="w-64 md:w-72 shrink-0 border-r border-border flex flex-col bg-bg-secondary">
+        <div className="p-3 border-b border-border space-y-2.5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-[11px] uppercase tracking-widest text-gray-400 font-semibold">Module explorer</h2>
+            <span className="text-[10px] text-gray-600">{results.length} results</span>
+          </div>
           <select
             value={type}
-            onChange={(e) => {
-              const nextType = e.target.value;
+            onChange={(event) => {
+              const nextType = event.target.value;
               setType(nextType);
               if (query) void search(query, nextType);
             }}
-            className="w-full bg-bg-tertiary border border-border rounded px-2 py-1.5 text-sm text-gray-200"
+            className="w-full bg-bg-tertiary border border-border rounded px-2 py-2 text-xs text-gray-200"
+            aria-label="Module type"
           >
-            {["exploit", "auxiliary", "post", "payload", "encoder", "nop"].map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
+            {["exploit", "auxiliary", "post", "payload", "encoder", "nop"].map((moduleType) => (
+              <option key={moduleType} value={moduleType}>{moduleType}</option>
             ))}
           </select>
           <input
             value={query}
-            onChange={(e) => void search(e.target.value)}
-            placeholder="Search modules…"
-            className="w-full bg-bg-tertiary border border-border rounded px-2 py-1.5 text-sm text-gray-200 font-mono placeholder:text-gray-600"
+            onChange={(event) => void search(event.target.value)}
+            placeholder="Search module names…"
+            aria-label="Search modules"
+            className="w-full bg-bg-tertiary border border-border rounded px-2.5 py-2 text-xs text-gray-200 font-mono placeholder:text-gray-600 focus:outline-none focus:border-accent"
           />
+          <p className="text-[10px] text-gray-600">Enter at least two characters to search.</p>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {results.map((r) => (
+          {results.map((module) => (
             <button
-              key={r.name}
-              onClick={() => void select(r)}
-              className={`w-full text-left px-3 py-2 text-xs font-mono border-b border-border/50 hover:bg-bg-tertiary ${
-                selected?.name === r.name ? "bg-bg-tertiary text-accent" : "text-gray-300"
+              key={`${module.type}/${module.name}`}
+              onClick={() => void select(module)}
+              className={`w-full text-left px-3 py-2.5 border-b border-border/50 transition-colors ${
+                selected?.type === module.type && selected?.name === module.name
+                  ? "bg-bg-tertiary border-l-2 border-l-accent"
+                  : "border-l-2 border-l-transparent hover:bg-bg-tertiary/70"
               }`}
             >
-              {r.name}
+              <span className="block text-[10px] text-gray-600 uppercase mb-1">{module.type}</span>
+              <span className={`block text-xs font-mono break-all leading-relaxed ${
+                selected?.type === module.type && selected?.name === module.name ? "text-accent" : "text-gray-300"
+              }`}>{module.name}</span>
             </button>
           ))}
-          {searchError && (
-            <div className="p-3 text-xs text-danger">Search failed: {searchError}</div>
-          )}
+          {searchError && <div className="p-3 text-xs text-danger">Search failed: {searchError}</div>}
           {!searchError && query.length >= 2 && results.length === 0 && (
-            <div className="p-3 text-xs text-gray-600">No matches</div>
+            <div className="p-4 text-xs text-gray-600">No modules matched this search.</div>
+          )}
+          {query.length < 2 && !results.length && (
+            <div className="p-4 text-xs text-gray-600">Search by module name to explore available modules.</div>
           )}
         </div>
-      </div>
+      </aside>
 
-      {/* Detail / options column */}
-      <div className="flex-1 overflow-y-auto p-4">
-        {!selected && <div className="text-sm text-gray-600">Select a module to view details and options.</div>}
-
-        {selected && loadingInfo && <div className="text-sm text-gray-600">Loading {selected.name}…</div>}
-
-        {selected && infoError && (
-          <div className="text-sm text-danger">Failed to load module info: {infoError}</div>
+      <div className="flex-1 min-w-0 flex flex-col bg-bg-primary">
+        {!selected && (
+          <div className="flex-1 flex items-center justify-center p-8">
+            <div className="max-w-md text-center">
+              <div className="mx-auto mb-4 w-12 h-12 rounded-xl border border-border bg-bg-secondary flex items-center justify-center text-xl text-accent">▦</div>
+              <h2 className="text-base text-gray-200 font-medium">Module inspector</h2>
+              <p className="text-sm text-gray-500 mt-2 leading-relaxed">
+                Select a module to explore its purpose, configuration, targets, references and technical metadata.
+              </p>
+            </div>
+          </div>
         )}
 
-        {selected && info && (
-          <div className="space-y-4 max-w-2xl">
-            <div>
-              <h2 className="font-mono text-sm text-gray-100">{selected.name}</h2>
-              <p className="text-xs text-gray-500 mt-1">{String(info.info?.description ?? "").slice(0, 400)}</p>
-            </div>
-
-            <div>
-              <h3 className="text-xs uppercase tracking-wide text-gray-500 mb-2">Options</h3>
-              <div className="space-y-1.5">
-                {Object.entries<any>(info.options || {}).map(([key, opt]) => (
-                  <div key={key} className="grid grid-cols-[120px_1fr_auto] items-center gap-2 text-xs">
-                    <label className="font-mono text-gray-400">
-                      {key}
-                      {opt.required && <span className="text-danger">*</span>}
-                    </label>
-                    <input
-                      value={optionValues[key] ?? ""}
-                      onChange={(e) => setOptionValues((v) => ({ ...v, [key]: e.target.value }))}
-                      className="bg-bg-tertiary border border-border rounded px-2 py-1 text-gray-200 font-mono"
-                    />
-                    <span className="text-gray-600">{opt.type}</span>
+        {selected && (
+          <>
+            <div className="px-4 md:px-6 py-4 border-b border-border bg-bg-secondary/70">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <span className="rounded border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-accent">{selected.type}</span>
+                    {moduleInfo.rank !== undefined && moduleInfo.rank !== null && (
+                      <span className="rounded border border-border px-2 py-0.5 text-[10px] text-gray-400">Rank {textValue(moduleInfo.rank)}</span>
+                    )}
+                    {moduleInfo.privileged !== undefined && (
+                      <span className="rounded border border-border px-2 py-0.5 text-[10px] text-gray-400">{moduleInfo.privileged ? "Privileged" : "Unprivileged"}</span>
+                    )}
                   </div>
-                ))}
+                  <h1 className="text-sm md:text-base font-mono text-gray-100 break-all">{textValue(moduleInfo.fullname) || `${selected.type}/${selected.name}`}</h1>
+                  <p className="text-xs text-gray-500 mt-1">Metasploit module inspector</p>
+                </div>
+                <button
+                  onClick={() => void execute()}
+                  disabled={executing || loadingInfo || !info}
+                  className="shrink-0 rounded bg-accent hover:bg-emerald-400 text-gray-950 font-semibold text-xs px-4 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {executing ? "Executing…" : "Execute module"}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4">
+                <MetaCard label="Platform" value={moduleInfo.platform} />
+                <MetaCard label="Architecture" value={moduleInfo.arch} />
+                <MetaCard label="License" value={moduleInfo.license} />
+                <MetaCard label="Disclosure date" value={moduleInfo.disclosure_date} />
               </div>
             </div>
 
-            <button
-              onClick={() => void execute()}
-              disabled={executing}
-              className="bg-accent-dim hover:bg-accent text-black font-medium text-sm px-4 py-1.5 rounded disabled:opacity-50"
-            >
-              {executing ? "Running…" : "Execute"}
-            </button>
+            {loadingInfo && (
+              <div className="flex-1 p-6 text-sm text-gray-500">Loading module metadata…</div>
+            )}
+            {infoError && (
+              <div className="m-5 rounded border border-danger/30 bg-danger/5 p-4 text-sm text-danger">
+                <p className="font-medium">Failed to load module details</p>
+                <p className="text-xs mt-1">{infoError}</p>
+                <button onClick={() => void select(selected)} className="text-xs underline mt-3">Try again</button>
+              </div>
+            )}
+
+            {info && !loadingInfo && !infoError && (
+              <>
+                <div className="flex gap-1 overflow-x-auto px-3 md:px-5 border-b border-border bg-bg-secondary/30">
+                  {tabs.map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`shrink-0 px-3 py-3 border-b-2 text-xs transition-colors ${
+                        activeTab === tab.id
+                          ? "border-accent text-accent"
+                          : "border-transparent text-gray-500 hover:text-gray-200"
+                      }`}
+                    >
+                      {tab.label}
+                      {tab.count !== undefined && (
+                        <span className={`ml-1.5 text-[10px] ${activeTab === tab.id ? "text-accent" : "text-gray-600"}`}>{tab.count}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
+                  <div className="max-w-5xl space-y-4">
+                    {activeTab === "overview" && (
+                      <>
+                        <DetailSection title="Description">
+                          {moduleInfo.description ? (
+                            <p className="text-sm text-gray-300 leading-7 whitespace-pre-wrap break-words">{String(moduleInfo.description)}</p>
+                          ) : (
+                            <p className="text-xs text-gray-600">No description was provided by this module.</p>
+                          )}
+                        </DetailSection>
+
+                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                          <DetailSection title="Authors">
+                            {listEntries(moduleInfo.author ?? moduleInfo.authors).length ? (
+                              <div className="flex flex-wrap gap-2">
+                                {listEntries(moduleInfo.author ?? moduleInfo.authors).map(([key, author]) => (
+                                  <span key={key} className="rounded border border-border bg-bg-tertiary px-2.5 py-1.5 text-xs text-gray-300 break-words">{textValue(author)}</span>
+                                ))}
+                              </div>
+                            ) : <p className="text-xs text-gray-600">No author metadata available.</p>}
+                          </DetailSection>
+                          <DetailSection title="Module properties">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <MetaCard label="Full name" value={moduleInfo.fullname} />
+                              <MetaCard label="Default target" value={moduleInfo.default_target} />
+                              <MetaCard label="Actions" value={moduleInfo.actions} />
+                              <MetaCard label="File" value={moduleInfo.file ?? moduleInfo.path} />
+                            </div>
+                            {moduleInfo.notes && (
+                              <div className="mt-3">
+                                <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-1.5">Notes</p>
+                                <pre className="text-xs text-gray-400 whitespace-pre-wrap break-words font-mono">{prettyValue(moduleInfo.notes)}</pre>
+                              </div>
+                            )}
+                          </DetailSection>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button onClick={() => setActiveTab("options")} className="rounded border border-border px-3 py-2 text-xs text-gray-300 hover:bg-bg-tertiary">
+                            Configure options <span className="text-gray-500">({Object.keys(moduleOptions).length})</span>
+                          </button>
+                          {targets.length > 0 && <button onClick={() => setActiveTab("targets")} className="rounded border border-border px-3 py-2 text-xs text-gray-300 hover:bg-bg-tertiary">Inspect targets</button>}
+                          {references.length > 0 && <button onClick={() => setActiveTab("references")} className="rounded border border-border px-3 py-2 text-xs text-gray-300 hover:bg-bg-tertiary">View references</button>}
+                        </div>
+                      </>
+                    )}
+
+                    {activeTab === "options" && (
+                      <DetailSection
+                        title="Module configuration"
+                        description={`${Object.keys(moduleOptions).length} options · ${requiredCount} required. Values here are sent to Metasploit when you execute the module.`}
+                      >
+                        <div className="flex flex-col sm:flex-row gap-2 sm:items-center justify-between mb-2">
+                          <input
+                            value={optionSearch}
+                            onChange={(event) => setOptionSearch(event.target.value)}
+                            placeholder="Filter options by name or description…"
+                            className="w-full sm:max-w-sm bg-bg-tertiary border border-border rounded px-2.5 py-2 text-xs text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-accent"
+                          />
+                          <button
+                            onClick={() => setShowAdvancedOptions((show) => !show)}
+                            className="shrink-0 text-xs text-accent hover:underline text-left"
+                          >
+                            {showAdvancedOptions ? "Hide advanced options" : "Show advanced options"}
+                          </button>
+                        </div>
+                        {optionEntries.length ? (
+                          optionEntries.map(([key, option]) => renderOption(key, option))
+                        ) : (
+                          <p className="py-5 text-xs text-gray-600">No options match this filter.</p>
+                        )}
+                        {Object.keys(validationErrors).length > 0 && (
+                          <p className="mt-3 text-xs text-danger">Complete all required options before executing.</p>
+                        )}
+                      </DetailSection>
+                    )}
+
+                    {activeTab === "targets" && (
+                      <DetailSection title="Supported targets" description="Target names and identifiers returned by Metasploit.">
+                        {targets.length ? (
+                          <div className="space-y-2">
+                            {targets.map(([id, target]) => (
+                              <div key={id} className="rounded border border-border bg-bg-secondary px-3 py-3 flex items-start gap-3">
+                                <span className="shrink-0 font-mono text-xs text-accent rounded bg-accent/10 px-2 py-1">{id}</span>
+                                <div className="min-w-0">
+                                  <p className="text-xs text-gray-200 break-words">{textValue(target)}</p>
+                                  {String(moduleInfo.default_target) === id && <span className="inline-block mt-1 text-[10px] text-accent">Default target</span>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : <p className="text-xs text-gray-600">This module did not expose a targets list.</p>}
+                      </DetailSection>
+                    )}
+
+                    {activeTab === "payloads" && (
+                      <DetailSection title="Payload information" description="Only payload information supplied by this module is shown here.">
+                        {payloads.length ? (
+                          <div className="space-y-2">
+                            {payloads.map(([id, payload]) => (
+                              <div key={id} className="rounded border border-border bg-bg-secondary px-3 py-2.5">
+                                <p className="text-xs text-gray-200 font-mono break-all">{textValue(payload)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-600">
+                            No payload list was exposed for this module. Payload selection and compatibility may depend on the module type.
+                          </p>
+                        )}
+                      </DetailSection>
+                    )}
+
+                    {activeTab === "references" && (
+                      <DetailSection title="References" description="Identifiers and reference links returned by the module metadata.">
+                        {references.length ? (
+                          <div className="space-y-2">
+                            {references.map(([id, reference]) => {
+                              const values = Array.isArray(reference) ? reference : [reference];
+                              const label = values.map(textValue).filter(Boolean).join(" · ") || id;
+                              const url = values.find((value) => typeof value === "string" && /^https?:\/\//i.test(value));
+                              return (
+                                <div key={id} className="rounded border border-border bg-bg-secondary px-3 py-2.5 flex items-start justify-between gap-3">
+                                  <p className="text-xs text-gray-300 break-words">{label}</p>
+                                  {typeof url === "string" && (
+                                    <a href={url} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-accent hover:underline">Open ↗</a>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : <p className="text-xs text-gray-600">No references were returned for this module.</p>}
+                      </DetailSection>
+                    )}
+
+                    {activeTab === "advanced" && (
+                      <DetailSection title="Advanced metadata" description="Additional properties returned by Metasploit that do not fit the common overview fields.">
+                        {advancedEntries.length ? (
+                          <div className="divide-y divide-border/60">
+                            {advancedEntries.map(([key, value]) => (
+                              <div key={key} className="grid grid-cols-1 md:grid-cols-[180px_minmax(0,1fr)] gap-2 py-3 first:pt-0 last:pb-0">
+                                <span className="text-xs text-gray-400 font-mono break-all">{key}</span>
+                                <pre className="text-xs text-gray-300 whitespace-pre-wrap break-words font-mono">{prettyValue(value)}</pre>
+                              </div>
+                            ))}
+                          </div>
+                        ) : <p className="text-xs text-gray-600">No additional metadata was returned.</p>}
+                      </DetailSection>
+                    )}
+
+                    {activeTab === "raw" && (
+                      <DetailSection title="Raw metadata" description="Unmodified JSON from the module information and options RPC responses. Useful for debugging and inspecting fields that the UI does not yet interpret.">
+                        <pre className="text-[11px] leading-5 text-gray-300 whitespace-pre-wrap break-words font-mono">{prettyValue({ info: info.info, options: info.options })}</pre>
+                      </DetailSection>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
 
             {progress && (
-              <section className="rounded border border-border bg-bg-secondary p-3 space-y-3" aria-live="polite">
+              <div className="border-t border-border bg-bg-secondary px-4 md:px-6 py-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className={`text-xs font-semibold uppercase tracking-wide ${statusStyle(progress.phase)}`}>
+                  <div className="min-w-0">
+                    <div className={`text-[10px] font-semibold uppercase tracking-widest ${statusStyle(progress.phase)}`}>
                       {progress.phase === "submitting" ? "Submitting" :
                         progress.phase === "running" ? "In progress" :
                         progress.phase === "completed" ? "Completed" :
                         progress.phase === "timeout" ? "Needs attention" : "Failed"}
                     </div>
-                    <p className="text-sm text-gray-200 mt-1">{progress.message}</p>
-                    {progress.jobId && (
-                      <p className="text-xs text-gray-500 mt-1 font-mono">Job ID: {progress.jobId}</p>
-                    )}
+                    <p className="text-xs text-gray-300 mt-1">{progress.message}</p>
+                    {progress.jobId && <p className="text-[10px] text-gray-500 mt-1 font-mono">Job ID: {progress.jobId}</p>}
                   </div>
                   {progress.sessions.length > 0 && (
-                    <button
-                      onClick={onViewSessions}
-                      className="shrink-0 bg-accent-dim hover:bg-accent text-black text-xs font-medium px-3 py-1.5 rounded"
-                    >
-                      Open Sessions
+                    <button onClick={onViewSessions} className="shrink-0 rounded bg-accent-dim hover:bg-accent text-black text-xs font-medium px-3 py-2">
+                      Open Sessions ({progress.sessions.length})
                     </button>
                   )}
                 </div>
-
                 {progress.sessions.length > 0 && (
-                  <div className="space-y-1.5">
-                    <h3 className="text-xs uppercase tracking-wide text-gray-500">New sessions</h3>
+                  <div className="flex flex-wrap gap-2 mt-3">
                     {progress.sessions.map(({ id, session }) => (
-                      <div key={id} className="flex items-center justify-between gap-3 border border-border/70 rounded px-2.5 py-2">
-                        <div className="min-w-0">
-                          <div className="text-xs text-emerald-400 font-mono">Session {id} · {String(session.type ?? "session")}</div>
-                          <div className="text-xs text-gray-400 truncate">
-                            {String(session.target_host ?? session.session_host ?? "Unknown host")}
-                            {session.target_port ? `:${session.target_port}` : ""}
-                            {session.info ? ` · ${session.info}` : ""}
-                          </div>
-                        </div>
-                        <button onClick={onViewSessions} className="text-xs text-accent hover:underline">Interact</button>
-                      </div>
+                      <button
+                        key={id}
+                        onClick={onViewSessions}
+                        className="text-left rounded border border-accent/30 bg-accent/5 px-2.5 py-2 hover:bg-accent/10"
+                        title="Open the Sessions view to interact with this session"
+                      >
+                        <span className="block text-[10px] text-accent font-mono">Session {id} · {textValue(session.type) || "session"}</span>
+                        <span className="block mt-1 text-[10px] text-gray-400">{textValue(session.target_host ?? session.session_host ?? session.info) || "Target details unavailable"}</span>
+                      </button>
                     ))}
                   </div>
                 )}
-              </section>
+              </div>
             )}
-          </div>
+          </>
         )}
       </div>
     </div>
