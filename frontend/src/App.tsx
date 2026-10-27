@@ -6,43 +6,131 @@ import { SessionsView } from "./components/SessionsView";
 import { HostsView } from "./components/HostsView";
 import { JobsView } from "./components/JobsView";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
+import { LoginView } from "./components/LoginView";
 import { api } from "./lib/api";
+
+type AuthStatus = "checking" | "authenticated" | "unauthenticated";
 
 export default function App() {
   const [view, setView] = useState<View>("console");
   const [connected, setConnected] = useState(false);
   const [checked, setChecked] = useState(false);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
+  const [authStatus, setAuthStatus] = useState<AuthStatus>("checking");
+  const [authConfigured, setAuthConfigured] = useState<boolean | null>(null);
+  const [username, setUsername] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    const check = () =>
-      api
-        .status()
-        .then((s) => setConnected(s.connected))
-        .catch(() => setConnected(false))
-        .finally(() => setChecked(true));
-    check();
-    const t = setInterval(check, 10000);
-    return () => clearInterval(t);
+    let active = true;
+    api.auth.session()
+      .then((result) => {
+        if (!active) return;
+        setAuthConfigured(result.configured);
+        setUsername(result.username ?? "");
+        setAuthStatus(result.authenticated ? "authenticated" : "unauthenticated");
+      })
+      .catch((cause: unknown) => {
+        if (!active) return;
+        setAuthConfigured(null);
+        setAuthStatus("unauthenticated");
+        setAuthError(cause instanceof Error ? cause.message : "Unable to contact the backend.");
+      });
+    return () => {
+      active = false;
+    };
   }, []);
+
+  useEffect(() => {
+    const requireLogin = () => {
+      setUsername("");
+      setAuthStatus("unauthenticated");
+      setAuthError("Your login session expired or is no longer valid. Please sign in again.");
+    };
+    window.addEventListener("msf-auth-required", requireLogin);
+    return () => window.removeEventListener("msf-auth-required", requireLogin);
+  }, []);
+
+  useEffect(() => {
+    if (authStatus !== "authenticated") return;
+    let active = true;
+    const check = () =>
+      api.status()
+        .then((status) => { if (active) setConnected(status.connected); })
+        .catch(() => { if (active) setConnected(false); })
+        .finally(() => { if (active) setChecked(true); });
+    void check();
+    const timer = window.setInterval(() => void check(), 10000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [authStatus]);
+
+  const finishLogin = (name: string) => {
+    setUsername(name);
+    setAuthConfigured(true);
+    setAuthError(null);
+    setAuthStatus("authenticated");
+  };
+
+  const logout = async () => {
+    try {
+      await api.auth.logout();
+    } catch (cause: unknown) {
+      setAuthError(cause instanceof Error ? cause.message : "Logout request failed.");
+    } finally {
+      setUsername("");
+      setAuthStatus("unauthenticated");
+      setConnected(false);
+      setChecked(false);
+    }
+  };
+
+  if (authStatus === "checking") {
+    return (
+      <main className="flex h-screen w-screen items-center justify-center bg-bg-primary">
+        <div className="text-xs uppercase tracking-[0.2em] text-gray-500">Checking local session…</div>
+      </main>
+    );
+  }
+
+  if (authStatus !== "authenticated") {
+    return (
+      <LoginView
+        configured={authConfigured}
+        initialError={authError}
+        onAuthenticated={finishLogin}
+      />
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
       <Sidebar active={view} onSelect={setView} connected={connected} />
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex min-w-0 flex-1 flex-col">
         {checked && !connected && (
-          <div className="bg-warning/10 border-b border-warning/30 text-warning text-xs px-4 py-2">
-            Cannot reach msfrpcd. Start it and check backend/.env — see README for the exact
-            command.
+          <div className="border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs text-warning">
+            Cannot reach msfrpcd. Start it and check backend/.env — see README for the exact command.
           </div>
         )}
 
-        <div className="relative z-20 h-12 shrink-0 flex items-center justify-end px-4 border-b border-border bg-bg-secondary">
+        <div className="relative z-20 flex h-12 shrink-0 items-center justify-end gap-3 border-b border-border bg-bg-secondary px-4">
+          <span className="hidden max-w-40 truncate text-[10px] text-gray-500 sm:inline" title={username}>
+            Signed in as <span className="text-gray-300">{username}</span>
+          </span>
           <WorkspaceSwitcher onWorkspaceChanged={() => setWorkspaceRevision((revision) => revision + 1)} />
+          <button
+            type="button"
+            onClick={() => void logout()}
+            className="rounded border border-border px-2.5 py-1.5 text-xs text-gray-400 hover:bg-bg-tertiary hover:text-gray-100"
+          >
+            Sign out
+          </button>
         </div>
 
-        <div className="flex-1 min-h-0">
+        <div className="min-h-0 flex-1">
           {view === "console" && <ConsoleView />}
           {view === "modules" && <ModuleBrowser onViewSessions={() => setView("sessions")} />}
           {view === "sessions" && <SessionsView />}
