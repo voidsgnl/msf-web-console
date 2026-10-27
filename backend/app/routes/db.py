@@ -17,6 +17,13 @@ def _workspace_name(raw_name: str) -> str:
     return name
 
 
+def _rpc_error(exc: MsfRpcError) -> HTTPException:
+    # Metasploit uses 404 for a workspace that cannot be found. Other RPC
+    # failures indicate an upstream/database problem and remain 502 responses.
+    status_code = 404 if str(exc.error_code) == "404" else 502
+    return HTTPException(status_code, str(exc))
+
+
 @router.get("/hosts")
 def hosts():
     try:
@@ -84,7 +91,7 @@ def set_workspace(req: WorkspaceRequest):
             raise HTTPException(404, f"Workspace not found: {name}")
         return rpc.call("db.current_workspace")
     except MsfRpcError as exc:
-        raise HTTPException(502, str(exc))
+        raise _rpc_error(exc)
 
 
 @router.post("/workspaces")
@@ -92,6 +99,10 @@ def create_workspace(req: WorkspaceRequest):
     """Create a workspace and make it the active workspace."""
     name = _workspace_name(req.name)
     try:
+        current_workspaces = rpc.call("db.workspaces").get("workspaces", [])
+        if any(workspace.get("name") == name for workspace in current_workspaces):
+            raise HTTPException(409, f"Workspace already exists: {name}")
+
         result = rpc.call("db.add_workspace", name)
         if not isinstance(result, dict) or result.get("result") != "success":
             raise HTTPException(
@@ -107,4 +118,4 @@ def create_workspace(req: WorkspaceRequest):
             )
         return rpc.call("db.current_workspace")
     except MsfRpcError as exc:
-        raise HTTPException(502, str(exc))
+        raise _rpc_error(exc)
