@@ -199,6 +199,76 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     }
   };
 
+  const chooseTarget = async (targetId: string) => {
+    if (!selected || selected.type !== "exploit" || !targetId || targetId === selectedTargetId) return;
+
+    setSelectedTargetId(targetId);
+    setOptionValues((current) => {
+      const next = { ...current, TARGET: targetId };
+      delete next.PAYLOAD;
+      return next;
+    });
+    setSelectedPayload("");
+    setPayloadOptions({});
+    setPayloadOptionValues({});
+    setPayloadOptionsError(null);
+    setPayloadError(null);
+    setCompatiblePayloads([]);
+    setPayloadsLoading(true);
+
+    try {
+      const numericTarget = targetNumber(targetId);
+      const result = await api.modules.compatiblePayloads(
+        selected.name,
+        numericTarget
+      );
+      if (mounted.current) setCompatiblePayloads(result.payloads ?? []);
+    } catch (e: any) {
+      if (mounted.current) setPayloadError(e.message ?? String(e));
+    } finally {
+      if (mounted.current) setPayloadsLoading(false);
+    }
+  };
+
+  const choosePayload = async (payloadName: string) => {
+    if (!selected || selected.type !== "exploit" || !payloadName) return;
+
+    setPayloadOptionsLoading(true);
+    setPayloadOptionsError(null);
+    try {
+      const payloadInfo = await api.modules.info("payload", payloadName);
+      if (!mounted.current) return;
+
+      const defaults: Record<string, string> = {};
+      for (const [key, option] of Object.entries<any>(payloadInfo.options || {})) {
+        if (option.default !== undefined && option.default !== null) {
+          defaults[key] = String(option.default);
+        }
+      }
+      setSelectedPayload(payloadName);
+      setPayloadOptions(payloadInfo.options || {});
+      setPayloadOptionValues(defaults);
+      setOptionValues((current) => ({ ...current, PAYLOAD: payloadName }));
+      setActiveTab("options");
+    } catch (e: any) {
+      if (mounted.current) setPayloadOptionsError(e.message ?? String(e));
+    } finally {
+      if (mounted.current) setPayloadOptionsLoading(false);
+    }
+  };
+
+  const clearPayload = () => {
+    setSelectedPayload("");
+    setPayloadOptions({});
+    setPayloadOptionValues({});
+    setPayloadOptionsError(null);
+    setOptionValues((current) => {
+      const next = { ...current };
+      delete next.PAYLOAD;
+      return next;
+    });
+  };
+
   const execute = async () => {
     if (!selected || executing) return;
     const options = info?.options ?? {};
@@ -370,17 +440,36 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     { id: "raw", label: "Raw metadata" },
   ];
 
-  const renderOption = (key: string, option: any) => {
-    const value = optionValues[key] ?? "";
+  const renderOption = (
+    key: string,
+    option: any,
+    scope: "module" | "payload" = "module"
+  ) => {
+    const value = scope === "payload"
+      ? payloadOptionValues[key] ?? ""
+      : optionValues[key] ?? "";
+    const validationKey = scope === "payload" ? `PAYLOAD.${key}` : key;
     const description = option.desc ?? option.description;
     const choices = option.enums ?? option.enum ?? option.values;
     const isBoolean = /^(bool|boolean)$/i.test(String(option.type ?? ""));
     const isNumber = /^(int|integer|float|number|port)$/i.test(String(option.type ?? ""));
     const isSecret = /(password|passwd|token|secret)$/i.test(key);
     const hasChoices = Array.isArray(choices) && choices.length > 0;
+    const updateValue = (nextValue: string) => {
+      if (scope === "payload") {
+        setPayloadOptionValues((current) => ({ ...current, [key]: nextValue }));
+      } else {
+        setOptionValues((current) => ({ ...current, [key]: nextValue }));
+      }
+      setValidationErrors((current) => {
+        const next = { ...current };
+        delete next[validationKey];
+        return next;
+      });
+    };
 
     return (
-      <div key={key} className="grid grid-cols-1 md:grid-cols-[minmax(130px,180px)_minmax(180px,1fr)] gap-2 md:gap-4 py-3 border-b border-border/60 last:border-b-0">
+      <div key={`${scope}:${key}`} className="grid grid-cols-1 md:grid-cols-[minmax(130px,180px)_minmax(180px,1fr)] gap-2 md:gap-4 py-3 border-b border-border/60 last:border-b-0">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="font-mono text-xs text-gray-200 break-all">{key}</span>
@@ -398,10 +487,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
               <input
                 type="checkbox"
                 checked={value.toLowerCase() === "true"}
-                onChange={(event) => {
-                  setOptionValues((current) => ({ ...current, [key]: String(event.target.checked) }));
-                  setValidationErrors((current) => { const next = { ...current }; delete next[key]; return next; });
-                }}
+                onChange={(event) => updateValue(String(event.target.checked))}
                 className="accent-accent"
               />
               {value.toLowerCase() === "true" ? "Enabled" : "Disabled"}
@@ -409,10 +495,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
           ) : hasChoices ? (
             <select
               value={value}
-              onChange={(event) => {
-                setOptionValues((current) => ({ ...current, [key]: event.target.value }));
-                setValidationErrors((current) => { const next = { ...current }; delete next[key]; return next; });
-              }}
+              onChange={(event) => updateValue(event.target.value)}
               className="w-full min-w-0 bg-bg-tertiary border border-border rounded px-2.5 py-2 text-xs text-gray-100"
             >
               <option value="">Choose a value…</option>
@@ -424,16 +507,13 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
             <input
               type={isSecret ? "password" : isNumber ? "number" : "text"}
               value={value}
-              onChange={(event) => {
-                setOptionValues((current) => ({ ...current, [key]: event.target.value }));
-                setValidationErrors((current) => { const next = { ...current }; delete next[key]; return next; });
-              }}
-              aria-invalid={Boolean(validationErrors[key])}
-              className={`w-full min-w-0 bg-bg-tertiary border rounded px-2.5 py-2 text-xs text-gray-100 font-mono focus:outline-none focus:border-accent ${validationErrors[key] ? "border-danger" : "border-border"}`}
+              onChange={(event) => updateValue(event.target.value)}
+              aria-invalid={Boolean(validationErrors[validationKey])}
+              className={`w-full min-w-0 bg-bg-tertiary border rounded px-2.5 py-2 text-xs text-gray-100 font-mono focus:outline-none focus:border-accent ${validationErrors[validationKey] ? "border-danger" : "border-border"}`}
             />
           )}
           {description && <p className="text-[11px] leading-relaxed text-gray-500">{String(description)}</p>}
-          {validationErrors[key] && <p className="text-[11px] text-danger">{validationErrors[key]}</p>}
+          {validationErrors[validationKey] && <p className="text-[11px] text-danger">{validationErrors[validationKey]}</p>}
         </div>
       </div>
     );
