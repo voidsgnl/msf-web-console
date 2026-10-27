@@ -76,6 +76,25 @@ class LootHelperTests(unittest.TestCase):
             with patch.dict(os.environ, {"MSF_LOOT_ALLOWED_FILES": "", "MSF_LOOT_ALLOWED_DIRS": ""}):
                 self.assertIsNone(_loot_payload(record))
 
+    def test_download_endpoint_reads_an_allowlisted_registered_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / "capture.txt"
+            artifact.write_bytes(b"registered evidence")
+            record = {
+                "name": artifact.name,
+                "path": str(artifact),
+                "ctype": "text/plain",
+                "created_at": 100,
+            }
+            with patch.dict(os.environ, {"MSF_LOOT_ALLOWED_FILES": str(artifact), "MSF_LOOT_ALLOWED_DIRS": ""}):
+                reference = _loot_download_id(record, 0)
+                with patch("app.routes.db.rpc.call", return_value={"loots": [record]}):
+                    response = download_loot(reference)
+
+            self.assertIsInstance(response, Response)
+            self.assertEqual(response.body, b"registered evidence")
+            self.assertEqual(response.headers["content-disposition"], 'attachment; filename="capture.txt"')
+
     def test_registered_file_under_allowlisted_directory_can_be_read(self):
         with tempfile.TemporaryDirectory() as directory:
             artifact = Path(directory) / "evidence.txt"
