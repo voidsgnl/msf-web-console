@@ -61,6 +61,19 @@ export const api = {
     services: () => request<{ services: any[] }>("/db/services"),
     vulns: () => request<{ vulns: any[] }>("/db/vulns"),
     loot: () => request<{ loot: any[] }>("/db/loot"),
+    downloadLoot: async (downloadId: string): Promise<{ blob: Blob; filename: string }> => {
+      const response = await fetch(`${BASE}/db/loot/${encodeURIComponent(downloadId)}/download`);
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(`${response.status}: ${message}`);
+      }
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const match = /filename="([^"]+)"/i.exec(disposition);
+      return {
+        blob: await response.blob(),
+        filename: match?.[1] ?? "loot-artifact.bin",
+      };
+    },
     creds: () => request<{ creds: any[] }>("/db/creds"),
     workspaces: () => request<{ workspaces: Workspace[] }>("/db/workspaces"),
     currentWorkspace: () => request<CurrentWorkspace>("/db/workspace"),
