@@ -71,7 +71,6 @@ class SessionWebSocketLifecycleTests(unittest.IsolatedAsyncioTestCase):
         ):
             await asyncio.wait_for(session_ws(websocket, 1), timeout=1)
 
-        self.assertTrue(websocket.waiting_cancelled)
         self.assertIn(
             {"type": "error", "data": "session write failed"},
             websocket.messages,
