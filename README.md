@@ -59,7 +59,7 @@ backend `.env` accordingly.
 ```bash
 cd backend
 python3 -m venv venv
-source venv/bin/activate        # Windows: venv\\Scripts\\activate
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env            # edit MSF_RPC_USER / MSF_RPC_PASS to match step 1
 uvicorn app.main:app --reload --port 8000
