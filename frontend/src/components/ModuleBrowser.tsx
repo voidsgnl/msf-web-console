@@ -796,6 +796,11 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                   {executing ? "Executing…" : selected.type === "payload" ? "Generate payload" : "Execute module"}
                 </button>
               </div>
+              {!["exploit", "auxiliary", "post", "payload"].includes(selected.type) && (
+                <p role="status" className="mt-3 rounded border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning">
+                  This {selected.type} module is available for inspection, but execution is disabled until its dedicated encoding/generation workflow is implemented.
+                </p>
+              )}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4">
                 <MetaCard label="Platform" value={moduleInfo.platform} />
                 <MetaCard label="Architecture" value={moduleInfo.arch} />
