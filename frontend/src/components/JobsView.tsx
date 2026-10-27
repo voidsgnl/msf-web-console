@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 
@@ -57,7 +58,20 @@ function durationSince(value: unknown): string {
   return `${days}d ${hours % 24}h`;
 }
 
-function safeValue(value: unknown, fieldName = "", depth = 0): React.ReactNode {
+function sanitizeJobInfo(value: unknown, fieldName = ""): unknown {
+  if (isSensitiveField(fieldName)) return "[redacted]";
+  if (Array.isArray(value)) return value.map((item) => sanitizeJobInfo(item));
+  if (isObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => !/path/i.test(key) && key !== "data" && key !== "download_id")
+        .map(([key, nested]) => [key, sanitizeJobInfo(nested, key)])
+    );
+  }
+  return value;
+}
+
+function safeValue(value: unknown, fieldName = "", depth = 0): ReactNode {
   if (isSensitiveField(fieldName)) {
     return <span className="font-mono text-warning">•••••••• <span className="text-[10px] text-gray-500">(masked)</span></span>;
   }
@@ -102,15 +116,6 @@ function safeValue(value: unknown, fieldName = "", depth = 0): React.ReactNode {
     );
   }
   return <span className="text-gray-400">Unavailable value</span>;
-}
-
-function DetailCard({ label, value }: { label: string; value: unknown }) {
-  return (
-    <div className="min-w-0 rounded border border-border/70 bg-bg-primary/40 p-3">
-      <dt className="mb-1 text-[10px] uppercase tracking-widest text-gray-500">{label}</dt>
-      <dd className="break-words text-xs text-gray-200">{value as React.ReactNode}</dd>
-    </div>
-  );
 }
 
 export function JobsView() {
@@ -335,16 +340,8 @@ export function JobsView() {
               <button
                 onClick={() => {
                   if (!jobInfo) return;
-                  const exportable = Object.fromEntries(
-                    Object.entries(jobInfo).map(([key, value]) => [
-                      key,
-                      isSensitiveField(key) ? "[redacted]" : key === "datastore" && isObject(value)
-                        ? Object.fromEntries(Object.entries(value).map(([option, optionValue]) => [
-                            option, isSensitiveField(option) ? "[redacted]" : optionValue,
-                          ]))
-                        : value,
-                    ])
-                  );
+                  const exportable = sanitizeJobInfo(jobInfo);
+
                   const blob = new Blob([JSON.stringify(exportable, null, 2)], { type: "application/json;charset=utf-8" });
                   const url = URL.createObjectURL(blob);
                   const anchor = document.createElement("a");
