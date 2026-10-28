@@ -43,6 +43,14 @@ function formatStartTime(value: unknown): string {
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
 }
 
+function timeAgo(timestampMs: number): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - timestampMs) / 1000));
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ago`;
+}
+
 function durationSince(value: unknown): string {
   if (value === null || value === undefined || value === "") return "Unavailable";
   const numeric = typeof value === "number" ? value : Number(value);
@@ -118,6 +126,9 @@ function safeValue(value: unknown, fieldName = "", depth = 0): ReactNode {
   return <span className="text-gray-400">Unavailable value</span>;
 }
 
+type FinishedJob = { id: string; name: string; finishedAt: number };
+const FINISHED_JOB_DISPLAY_MS = 2 * 60 * 1000;
+
 export function JobsView() {
   const [jobs, setJobs] = useState<Record<string, unknown>>({});
   const [loading, setLoading] = useState(true);
@@ -130,10 +141,19 @@ export function JobsView() {
   const [jobInfo, setJobInfo] = useState<JobInfo | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [recentlyFinished, setRecentlyFinished] = useState<FinishedJob[]>([]);
   const mounted = useRef(true);
   const refreshInFlight = useRef(false);
   const refreshAgain = useRef(false);
   const detailRequest = useRef(0);
+  // Tracks job ids/names seen on the last successful poll so a job that
+  // disappears between polls (Metasploit has no "completed" state for a job -
+  // it's simply there, then gone) can be reported as finished instead of
+  // just vanishing from the table with no explanation.
+  const knownJobs = useRef<Map<string, string>>(new Map());
+  const seededKnownJobs = useRef(false);
+  const stoppingJobIdRef = useRef<string | null>(null);
+  stoppingJobIdRef.current = stoppingJobId;
 
   const refresh = useCallback(async (manual = false) => {
     if (refreshInFlight.current) {
@@ -145,8 +165,31 @@ export function JobsView() {
     try {
       const data = await api.jobs.list();
       if (mounted.current) {
-        setJobs(data && typeof data === "object" ? data : {});
+        const nextJobs = data && typeof data === "object" ? data : {};
+        setJobs(nextJobs);
         setError(null);
+
+        const nextEntries = Object.entries(nextJobs).map(
+          ([id, rawName]) => [id, typeof rawName === "string" ? rawName : `Job ${id}`] as const
+        );
+        const nextIds = new Set(nextEntries.map(([id]) => id));
+        if (!seededKnownJobs.current) {
+          // First successful load: just record the baseline, nothing to report yet.
+          seededKnownJobs.current = true;
+        } else {
+          const vanished: FinishedJob[] = [];
+          for (const [id, name] of knownJobs.current) {
+            // A job the user just told us to stop already has its own "Stop
+            // requested" notice - no need to report it a second time here.
+            if (!nextIds.has(id) && id !== stoppingJobIdRef.current) {
+              vanished.push({ id, name, finishedAt: Date.now() });
+            }
+          }
+          if (vanished.length > 0) {
+            setRecentlyFinished((current) => [...vanished, ...current].slice(0, 20));
+          }
+        }
+        knownJobs.current = new Map(nextEntries);
       }
     } catch (e: unknown) {
       if (mounted.current) setError(errorMessage(e));
@@ -162,6 +205,17 @@ export function JobsView() {
       }
     }
   }, []);
+
+  // Drop finished-job notices after a couple of minutes so the list doesn't
+  // grow stale and unbounded over a long session.
+  useEffect(() => {
+    if (recentlyFinished.length === 0) return;
+    const timer = window.setInterval(() => {
+      const cutoff = Date.now() - FINISHED_JOB_DISPLAY_MS;
+      setRecentlyFinished((current) => current.filter((job) => job.finishedAt >= cutoff));
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [recentlyFinished.length]);
 
   useEffect(() => {
     mounted.current = true;
@@ -255,6 +309,31 @@ export function JobsView() {
           {refreshing ? "refreshing…" : "refresh"}
         </button>
       </div>
+
+      {recentlyFinished.length > 0 && (
+        <div role="status" className="mb-3 rounded border border-accent/30 bg-accent/5 p-3 text-xs">
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-medium text-accent">
+              {recentlyFinished.length === 1 ? "A job just finished" : `${recentlyFinished.length} jobs just finished`}
+            </p>
+            <button onClick={() => setRecentlyFinished([])} className="text-[10px] text-gray-500 hover:text-gray-300">
+              dismiss all
+            </button>
+          </div>
+          <p className="mt-1 text-[11px] text-gray-500">
+            Metasploit doesn't report a "completed" state for background jobs - a job simply stops appearing in the list once it's
+            done or was stopped. If this was an exploit or scan, check Sessions for a new result.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {recentlyFinished.map((job) => (
+              <li key={`${job.id}-${job.finishedAt}`} className="flex items-center justify-between gap-2 font-mono text-gray-300">
+                <span>Job {job.id} · {job.name}</span>
+                <span className="shrink-0 text-[10px] text-gray-500">{timeAgo(job.finishedAt)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {error && (
         <div role="alert" className="mb-3 rounded border border-danger/30 bg-danger/5 p-3 text-xs text-danger">

@@ -14,6 +14,11 @@ type AuthStatus = "checking" | "authenticated" | "unauthenticated";
 
 export default function App() {
   const [view, setView] = useState<View>("console");
+  // Each view mounts the first time it's opened, then stays mounted (hidden
+  // with CSS) instead of unmounting on every switch - so a module execution
+  // keeps polling, a job/session detail panel stays open, and search/filter
+  // state survives even if you check another tab mid-run and come back.
+  const [visitedViews, setVisitedViews] = useState<Set<View>>(() => new Set(["console"]));
   const [connected, setConnected] = useState(false);
   const [checked, setChecked] = useState(false);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
@@ -68,6 +73,11 @@ export default function App() {
     };
   }, [authStatus]);
 
+  const visit = (next: View) => {
+    setView(next);
+    setVisitedViews((current) => (current.has(next) ? current : new Set(current).add(next)));
+  };
+
   const finishLogin = (name: string) => {
     setUsername(name);
     setAuthConfigured(true);
@@ -109,7 +119,7 @@ export default function App() {
   return (
     <div className="flex h-screen w-screen overflow-hidden">
       <ContextMenu />
-      <Sidebar active={view} onSelect={setView} connected={connected} />
+      <Sidebar active={view} onSelect={visit} connected={connected} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         {checked && !connected && (
@@ -132,12 +142,32 @@ export default function App() {
           </button>
         </div>
 
-        <div className="min-h-0 flex-1">
-          {view === "console" && <ConsoleView />}
-          {view === "modules" && <ModuleBrowser onViewSessions={() => setView("sessions")} />}
-          {view === "sessions" && <SessionsView />}
-          {view === "hosts" && <HostsView key={workspaceRevision} />}
-          {view === "jobs" && <JobsView />}
+        <div className="min-h-0 flex-1 relative">
+          {visitedViews.has("console") && (
+            <div className="absolute inset-0" style={{ display: view === "console" ? "block" : "none" }}>
+              <ConsoleView />
+            </div>
+          )}
+          {visitedViews.has("modules") && (
+            <div className="absolute inset-0 overflow-hidden" style={{ display: view === "modules" ? "block" : "none" }}>
+              <ModuleBrowser onViewSessions={() => visit("sessions")} onViewJobs={() => visit("jobs")} />
+            </div>
+          )}
+          {visitedViews.has("sessions") && (
+            <div className="absolute inset-0 overflow-y-auto" style={{ display: view === "sessions" ? "block" : "none" }}>
+              <SessionsView />
+            </div>
+          )}
+          {visitedViews.has("hosts") && (
+            <div className="absolute inset-0 overflow-y-auto" style={{ display: view === "hosts" ? "block" : "none" }}>
+              <HostsView key={workspaceRevision} />
+            </div>
+          )}
+          {visitedViews.has("jobs") && (
+            <div className="absolute inset-0 overflow-y-auto" style={{ display: view === "jobs" ? "block" : "none" }}>
+              <JobsView />
+            </div>
+          )}
         </div>
       </div>
     </div>
