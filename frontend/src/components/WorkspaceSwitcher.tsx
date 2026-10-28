@@ -98,6 +98,42 @@ export function WorkspaceSwitcher({
     }
   };
 
+  const renameWorkspace = async (workspace: Workspace) => {
+    if (busy || workspace.name.toLowerCase() === "default") return;
+    const entered = window.prompt(
+      `Rename workspace "${workspace.name}" to:`,
+      workspace.name
+    );
+    if (entered === null) return;
+    const newName = entered.trim();
+    if (!newName) {
+      setError("Workspace name must not be blank.");
+      return;
+    }
+    if (newName === workspace.name) {
+      setMessage("Workspace name unchanged.");
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await api.db.renameWorkspace(workspace.name, newName);
+      const nextWorkspace = result.current_workspace?.workspace ?? currentWorkspace;
+      setWorkspaces(result.workspaces ?? []);
+      setCurrentWorkspace(nextWorkspace);
+      knownWorkspace.current = nextWorkspace;
+      setManageOpen(false);
+      setMessage(`Renamed ${workspace.name} to ${result.renamed_workspace?.new_name ?? newName}`);
+      if (nextWorkspace !== currentWorkspace) onWorkspaceChanged(nextWorkspace);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const deleteWorkspace = async (workspace: Workspace) => {
     if (busy || workspace.name.toLowerCase() === "default") return;
     const entered = window.prompt(
@@ -246,8 +282,7 @@ export function WorkspaceSwitcher({
             </button>
           </div>
           <p className="mb-3 text-[10px] leading-4 text-gray-500">
-            Deleting a workspace permanently removes its stored assessment data. The default workspace is protected.
-            Standard Metasploit RPC does not expose a workspace rename operation.
+            Rename a workspace without moving or deleting its records. Deleting a workspace permanently removes its stored assessment data. The default workspace is protected.
           </p>
           <div className="max-h-64 space-y-1 overflow-auto">
             {workspaces.map((workspace) => (
@@ -259,14 +294,25 @@ export function WorkspaceSwitcher({
                     {workspace.name.toLowerCase() === "default" ? " · protected" : ""}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void deleteWorkspace(workspace)}
-                  disabled={busy || workspace.name.toLowerCase() === "default"}
-                  className="shrink-0 rounded border border-danger/30 px-2 py-1 text-[10px] text-danger hover:bg-danger/5 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {busy ? "working…" : "Delete"}
-                </button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => void renameWorkspace(workspace)}
+                    disabled={busy || workspace.name.toLowerCase() === "default"}
+                    title={workspace.name.toLowerCase() === "default" ? "The default workspace is protected" : "Rename this workspace"}
+                    className="rounded border border-border px-2 py-1 text-[10px] text-gray-300 hover:bg-bg-tertiary disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteWorkspace(workspace)}
+                    disabled={busy || workspace.name.toLowerCase() === "default"}
+                    className="rounded border border-danger/30 px-2 py-1 text-[10px] text-danger hover:bg-danger/5 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {busy ? "working…" : "Delete"}
+                  </button>
+                </div>
               </div>
             ))}
           </div>
