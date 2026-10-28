@@ -222,14 +222,14 @@ def encode_data(req: EncodeRequest):
     """Encode caller-provided bytes with one selected Metasploit encoder."""
     if not _module_path_is_valid(req.name):
         raise HTTPException(400, "Invalid encoder module name.")
+    input_data = _decode_encoder_input(req)
+    badchars = _hex_bytes(req.badchars, "Bad characters")
     try:
         encoder_result = rpc.call("module.encoders")
         encoders = encoder_result.get("modules", []) if isinstance(encoder_result, dict) else []
         if req.name not in encoders:
             raise HTTPException(404, f"Encoder module not found: {req.name}")
 
-        input_data = _decode_encoder_input(req)
-        badchars = _hex_bytes(req.badchars, "Bad characters")
         option_result = rpc.call("module.options", "encoder", req.name)
         declared_options = option_result if isinstance(option_result, dict) else {}
 
