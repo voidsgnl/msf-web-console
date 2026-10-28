@@ -71,7 +71,7 @@ class WorkspaceManagementTests(unittest.TestCase):
         self.assertEqual(result["renamed_workspace"], {"old_name": "lab", "new_name": "lab-new"})
         self.assertEqual(result["current_workspace"], {"workspace": "lab-new", "workspace_id": 2})
         self.assertEqual([item["name"] for item in result["workspaces"]], ["default", "lab-new"])
-        rpc_call.assert_any_call("console.write", "9", 'workspace -r "lab" "lab-new"\\n')
+        rpc_call.assert_any_call("console.write", "9", 'workspace -r "lab" "lab-new"\n')
         rpc_call.assert_any_call("db.set_workspace", "lab-new")
         rpc_call.assert_any_call("console.destroy", "9")
 
