@@ -903,18 +903,29 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                 </div>
                 <button
                   onClick={() => void execute()}
-                  disabled={executing || loadingInfo || payloadOptionsLoading || !info || !["exploit", "auxiliary", "post", "payload"].includes(selected.type)}
-                  title={!["exploit", "auxiliary", "post", "payload"].includes(selected.type)
-                    ? "Encoder and NOP modules need a dedicated generation workflow."
-                    : undefined}
+                  disabled={executing || loadingInfo || payloadOptionsLoading || !info}
+                  title={selected.type === "encoder"
+                    ? "Encode input data with this Metasploit encoder."
+                    : selected.type === "nop"
+                      ? "Generate a NOP sled with this Metasploit module."
+                      : undefined}
                   className="shrink-0 rounded bg-accent hover:bg-emerald-400 text-gray-950 font-semibold text-xs px-4 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {executing ? "Executing…" : selected.type === "payload" ? "Generate payload" : "Execute module"}
+                  {executing
+                    ? selected.type === "encoder" ? "Encoding…" : selected.type === "nop" ? "Generating…" : "Executing…"
+                    : selected.type === "payload" ? "Generate payload"
+                      : selected.type === "encoder" ? "Encode input"
+                        : selected.type === "nop" ? "Generate NOP sled" : "Execute module"}
                 </button>
               </div>
-              {!["exploit", "auxiliary", "post", "payload"].includes(selected.type) && (
-                <p role="status" className="mt-3 rounded border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning">
-                  This {selected.type} module is available for inspection, but execution is disabled until its dedicated encoding/generation workflow is implemented.
+              {selected.type === "encoder" && (
+                <p role="status" className="mt-3 rounded border border-accent/20 bg-accent/5 px-3 py-2 text-xs text-gray-400">
+                  Provide input as text, hexadecimal bytes, or Base64. Output is saved as a raw binary artifact; encoder options from the Options tab are included when supported.
+                </p>
+              )}
+              {selected.type === "nop" && (
+                <p role="status" className="mt-3 rounded border border-accent/20 bg-accent/5 px-3 py-2 text-xs text-gray-400">
+                  Generate an architecture-aware NOP sled with this selected module. Choose a byte length and optional bad characters or registers to preserve.
                 </p>
               )}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4">
@@ -924,6 +935,142 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                 <MetaCard label="Disclosure date" value={moduleInfo.disclosure_date} />
               </div>
             </div>
+
+            {selected.type === "encoder" && info && !loadingInfo && !infoError && (
+              <section className="border-b border-border bg-bg-primary px-4 py-4 md:px-6">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-200">Encoder input</h2>
+                    <p className="mt-1 text-[11px] text-gray-500">Enter the bytes to encode. No exploit or target is contacted by this workflow.</p>
+                  </div>
+                  <span className="rounded border border-border px-2 py-1 font-mono text-[10px] text-gray-500">module.encode · raw</span>
+                </div>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label htmlFor="encoder-input-data" className="block text-[11px] text-gray-400">Input data</label>
+                    <textarea
+                      id="encoder-input-data"
+                      value={encoderInput}
+                      onChange={(event) => setEncoderInput(event.target.value)}
+                      rows={5}
+                      spellCheck={false}
+                      placeholder={encoderInputFormat === "text" ? "Paste input data…" : encoderInputFormat === "hex" ? "e.g. 41424390ff" : "Paste Base64 data…"}
+                      className="w-full resize-y rounded border border-border bg-bg-tertiary px-3 py-2 font-mono text-xs text-gray-100 placeholder:text-gray-600 focus:border-accent focus:outline-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <label htmlFor="encoder-input-format" className="block text-[11px] text-gray-400">Input format</label>
+                      <select
+                        id="encoder-input-format"
+                        value={encoderInputFormat}
+                        onChange={(event) => setEncoderInputFormat(event.target.value as "text" | "hex" | "base64")}
+                        className="w-full rounded border border-border bg-bg-tertiary px-2.5 py-2 text-xs text-gray-100"
+                      >
+                        <option value="text">Text (UTF-8)</option>
+                        <option value="hex">Hexadecimal bytes</option>
+                        <option value="base64">Base64</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label htmlFor="encoder-iterations" className="block text-[11px] text-gray-400">Encoding iterations</label>
+                      <input
+                        id="encoder-iterations"
+                        type="number"
+                        min={1}
+                        max={5}
+                        step={1}
+                        value={encoderIterations}
+                        onChange={(event) => setEncoderIterations(Number(event.target.value))}
+                        className="w-full rounded border border-border bg-bg-tertiary px-2.5 py-2 text-xs text-gray-100"
+                      />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <label htmlFor="encoder-badchars" className="block text-[11px] text-gray-400">Bad characters (optional hex bytes)</label>
+                      <input
+                        id="encoder-badchars"
+                        value={encoderBadChars}
+                        onChange={(event) => setEncoderBadChars(event.target.value)}
+                        placeholder="e.g. 00 0a 0d"
+                        className="w-full rounded border border-border bg-bg-tertiary px-2.5 py-2 font-mono text-xs text-gray-100 placeholder:text-gray-600"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label htmlFor="encoder-platform" className="block text-[11px] text-gray-400">Platform (optional)</label>
+                      <input
+                        id="encoder-platform"
+                        value={encoderPlatform}
+                        onChange={(event) => setEncoderPlatform(event.target.value)}
+                        placeholder="e.g. windows"
+                        className="w-full rounded border border-border bg-bg-tertiary px-2.5 py-2 font-mono text-xs text-gray-100 placeholder:text-gray-600"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label htmlFor="encoder-arch" className="block text-[11px] text-gray-400">Architecture (optional)</label>
+                      <input
+                        id="encoder-arch"
+                        value={encoderArch}
+                        onChange={(event) => setEncoderArch(event.target.value)}
+                        placeholder="e.g. x86"
+                        className="w-full rounded border border-border bg-bg-tertiary px-2.5 py-2 font-mono text-xs text-gray-100 placeholder:text-gray-600"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <p className="mt-2 text-[10px] leading-4 text-gray-600">
+                  Hex input and bad characters accept spaces, commas, colons, and optional 0x or \\x prefixes. Iterations are limited to 1–5.
+                </p>
+              </section>
+            )}
+
+            {selected.type === "nop" && info && !loadingInfo && !infoError && (
+              <section className="border-b border-border bg-bg-primary px-4 py-4 md:px-6">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-200">NOP generation</h2>
+                    <p className="mt-1 text-[11px] text-gray-500">The selected NOP module determines the architecture-specific instructions.</p>
+                  </div>
+                  <span className="rounded border border-border px-2 py-1 font-mono text-[10px] text-gray-500">generate · raw</span>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="space-y-1.5">
+                    <label htmlFor="nop-length" className="block text-[11px] text-gray-400">Sled length (bytes)</label>
+                    <input
+                      id="nop-length"
+                      type="number"
+                      min={1}
+                      max={16384}
+                      step={1}
+                      value={nopLength}
+                      onChange={(event) => setNopLength(event.target.value)}
+                      className="w-full rounded border border-border bg-bg-tertiary px-2.5 py-2 font-mono text-xs text-gray-100"
+                    />
+                    <p className="text-[10px] text-gray-600">1 to 16,384 bytes</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="nop-badchars" className="block text-[11px] text-gray-400">Bad characters (optional hex bytes)</label>
+                    <input
+                      id="nop-badchars"
+                      value={nopBadChars}
+                      onChange={(event) => setNopBadChars(event.target.value)}
+                      placeholder="e.g. 00 0a"
+                      className="w-full rounded border border-border bg-bg-tertiary px-2.5 py-2 font-mono text-xs text-gray-100 placeholder:text-gray-600"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="nop-save-registers" className="block text-[11px] text-gray-400">Registers to preserve (optional)</label>
+                    <input
+                      id="nop-save-registers"
+                      value={nopSaveRegisters}
+                      onChange={(event) => setNopSaveRegisters(event.target.value)}
+                      placeholder="e.g. esp, ebp"
+                      className="w-full rounded border border-border bg-bg-tertiary px-2.5 py-2 font-mono text-xs text-gray-100 placeholder:text-gray-600"
+                    />
+                    <p className="text-[10px] text-gray-600">Comma-separated register names</p>
+                  </div>
+                </div>
+              </section>
+            )}
 
             {loadingInfo && (
               <div className="flex-1 p-6 text-sm text-gray-500">Loading module metadata…</div>
