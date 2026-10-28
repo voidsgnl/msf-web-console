@@ -96,6 +96,49 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ type, name, options }),
       }),
+    encode: (requestBody: {
+      name: string;
+      data: string;
+      data_format: "text" | "hex" | "base64";
+      badchars: string;
+      platform: string;
+      arch: string;
+      iterations: number;
+      module_options: Record<string, unknown>;
+    }) =>
+      request<{
+        kind: "encoder";
+        filename: string;
+        size: number;
+        payload_base64: string;
+        format: "raw";
+        module: string;
+        input_size: number;
+        iterations: number;
+      }>("/modules/encode", {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+      }),
+    generateNops: (requestBody: {
+      name: string;
+      length: number;
+      badchars: string;
+      save_registers: string[];
+    }) =>
+      request<{
+        kind: "nop";
+        filename: string;
+        size: number;
+        payload_base64: string;
+        format: "raw";
+        module: string;
+        requested_size: number;
+        badchars: string;
+        save_registers: string[];
+      }>("/modules/generate-nops", {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+      }),
     runningStats: () =>
       request<{ waiting?: string[]; running?: string[]; results?: string[] }>("/modules/running-stats"),
     results: (runUuid: string) =>
