@@ -307,6 +307,7 @@ def generate_nops(req: NopGenerateRequest):
     """Generate a raw NOP sled using the selected module's native console dispatcher."""
     if not _module_path_is_valid(req.name):
         raise HTTPException(400, "Invalid NOP module name.")
+    badchars = _hex_bytes(req.badchars, "Bad characters")
     if len(req.save_registers) > 16:
         raise HTTPException(400, "Too many registers were specified.")
     if any(not re.fullmatch(r"[A-Za-z][A-Za-z0-9]{0,15}", register) for register in req.save_registers):
@@ -334,7 +335,6 @@ def generate_nops(req: NopGenerateRequest):
         if re.search(r"(?i)(failed to load|could not load|invalid module|no module selected)", use_output):
             raise HTTPException(502, f"Metasploit could not select NOP module '{req.name}'.")
 
-        badchars = _hex_bytes(req.badchars, "Bad characters")
         command_parts = ["generate", "-t", "c"]
         if badchars:
             command_parts.extend(["-b", badchars.hex()])
