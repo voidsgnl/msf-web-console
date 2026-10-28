@@ -89,7 +89,34 @@ def module_result(run_uuid: str):
         result = rpc.call("module.results", run_uuid)
         return result if isinstance(result, dict) else {"status": "unknown", "result": result}
     except MsfRpcError as exc:
-        raise HTTPException(502, str(exc))
+        detail = str(exc)
+        # module.results often fails with no usable detail at all (see
+        # msf_rpc.py's generic fallback message). Cross-check
+        # module.running_stats so we can tell the caller *why*: the UUID is
+        # still queued/running, or it was never recognized in the first
+        # place (stale UUID, already purged by msfrpcd, or this Metasploit
+        # build may not fully support module.results/module.running_stats).
+        try:
+            stats = rpc.call("module.running_stats")
+        except MsfRpcError:
+            stats = None
+        if isinstance(stats, dict):
+            waiting = stats.get("waiting") or []
+            running = stats.get("running") or []
+            completed = stats.get("results") or []
+            if run_uuid in waiting:
+                detail = f"{detail} Module run {run_uuid} is still waiting to start; try again shortly."
+            elif run_uuid in running:
+                detail = f"{detail} Module run {run_uuid} is still running; try again shortly."
+            elif run_uuid not in completed:
+                detail = (
+                    f"{detail} Module run {run_uuid} was not found in module.running_stats "
+                    "(waiting/running/results) at all. The UUID may be stale or already "
+                    "purged by msfrpcd, or your Metasploit Framework build may not fully "
+                    "support module.results/module.running_stats - check `msfconsole -v` "
+                    "for your Framework version."
+                )
+        raise HTTPException(502, detail)
 
 
 @router.get("/{type}/{name:path}/info")

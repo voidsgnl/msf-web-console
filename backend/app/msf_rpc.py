@@ -11,6 +11,7 @@ Reference: https://docs.metasploit.com/docs/using-metasploit/advanced/RPC.html
 """
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -21,6 +22,8 @@ import requests
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 def _decode_bytes(obj: Any) -> Any:
@@ -142,6 +145,14 @@ class MsfRpcClient:
             error_message = self._rpc_error_message(decoded, method)
             if resp.status_code != 200:
                 error_message = f"{error_message} (HTTP {resp.status_code})"
+            # decoded may omit error_message/error_string entirely (this is what
+            # produces the generic "returned an error without details" text the
+            # client sees) - log the full raw payload server-side so the actual
+            # error_class / whatever fields msfrpcd did send are still visible.
+            logger.error(
+                "msfrpcd error for method %r (HTTP %s): raw response=%r",
+                method, resp.status_code, decoded,
+            )
             raise MsfRpcError(
                 error_message,
                 error_code=decoded.get("error_code"),
