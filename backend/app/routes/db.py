@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -19,10 +20,29 @@ class WorkspaceRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 
+class WorkspaceRenameRequest(BaseModel):
+    old_name: str = Field(min_length=1, max_length=100)
+    new_name: str = Field(min_length=1, max_length=100)
+
+
 def _workspace_name(raw_name: str) -> str:
     name = raw_name.strip()
     if not name:
         raise HTTPException(400, "Workspace name must not be blank.")
+    return name
+
+
+def _rename_workspace_name(raw_name: str) -> str:
+    """Validate a workspace name before embedding it in a quoted console command."""
+    name = raw_name.strip()
+    if not name:
+        raise HTTPException(400, "Workspace name must not be blank.")
+    if len(name) > 100 or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_. -]{0,98}[A-Za-z0-9_]|[A-Za-z0-9_]", name):
+        raise HTTPException(
+            400,
+            "Workspace names may contain letters, digits, spaces, dots, hyphens, and underscores; "
+            "they must start and end with a letter, digit, or underscore.",
+        )
     return name
 
 
@@ -338,6 +358,128 @@ def set_workspace(req: WorkspaceRequest):
         return rpc.call("db.current_workspace")
     except MsfRpcError as exc:
         raise _rpc_error(exc)
+
+
+@router.post("/workspaces/rename")
+def rename_workspace(req: WorkspaceRenameRequest):
+    """
+    Rename a workspace using Metasploit's supported workspace console command.
+
+    The standard db.* RPC namespace exposes add/delete/switch, but not the
+    framework's native workspace update operation. Names are validated and
+    quoted before being sent to the Metasploit console to prevent command injection.
+    """
+    old_name = _rename_workspace_name(req.old_name)
+    new_name = _rename_workspace_name(req.new_name)
+    if old_name.casefold() == "default":
+        raise HTTPException(400, "The default workspace is protected and cannot be renamed.")
+    if old_name.casefold() == new_name.casefold():
+        raise HTTPException(400, "The new workspace name must be different from the current name.")
+
+    console_id: str | None = None
+    try:
+        listed = rpc.call("db.workspaces")
+        available = listed.get("workspaces", []) if isinstance(listed, dict) else []
+        existing_names = [
+            str(workspace.get("name"))
+            for workspace in available
+            if isinstance(workspace, dict) and workspace.get("name") is not None
+        ]
+        if not any(name.casefold() == old_name.casefold() for name in existing_names):
+            raise HTTPException(404, f"Workspace not found: {old_name}")
+        if any(name.casefold() == new_name.casefold() for name in existing_names):
+            raise HTTPException(409, f"Workspace already exists: {new_name}")
+
+        current_before = rpc.call("db.current_workspace")
+        current_name = (
+            str(current_before.get("workspace") or "default")
+            if isinstance(current_before, dict)
+            else "default"
+        )
+
+        created = rpc.call("console.create")
+        raw_console_id = created.get("id") if isinstance(created, dict) else None
+        if raw_console_id is None:
+            raise HTTPException(502, "Metasploit did not provide a console for workspace renaming.")
+        console_id = str(raw_console_id)
+
+        output = ""
+        deadline = time.monotonic() + 15
+        try:
+            command = f'workspace -r "{old_name}" "{new_name}"\n'
+            rpc.call("console.write", console_id, command)
+            while time.monotonic() < deadline:
+                result = rpc.call("console.read", console_id)
+                if isinstance(result, dict) and result.get("data"):
+                    output = (output + str(result["data"]))[-8000:]
+                busy = bool(result.get("busy")) if isinstance(result, dict) else False
+                lowered = output.lower()
+                has_result = (
+                    "renamed workspace" in lowered
+                    or "failed to rename workspace" in lowered
+                    or "does not exist" in lowered
+                    or "problem updating the workspace" in lowered
+                    or "wrong number of arguments to rename" in lowered
+                    or "workspace already exists" in lowered
+                )
+                if has_result and not busy:
+                    break
+                time.sleep(0.2)
+        finally:
+            try:
+                rpc.call("console.destroy", console_id)
+            except MsfRpcError:
+                pass
+            console_id = None
+
+        refreshed = rpc.call("db.workspaces")
+        refreshed_workspaces = refreshed.get("workspaces", []) if isinstance(refreshed, dict) else []
+        refreshed_names = [
+            str(workspace.get("name"))
+            for workspace in refreshed_workspaces
+            if isinstance(workspace, dict) and workspace.get("name") is not None
+        ]
+        renamed = (
+            any(name.casefold() == new_name.casefold() for name in refreshed_names)
+            and not any(name.casefold() == old_name.casefold() for name in refreshed_names)
+        )
+        if not renamed:
+            if any(marker in output.lower() for marker in (
+                "failed to rename workspace",
+                "does not exist",
+                "problem updating the workspace",
+                "wrong number of arguments to rename",
+                "workspace already exists",
+            )):
+                raise HTTPException(409, f"Metasploit rejected the rename of '{old_name}'. Check the workspace name and try again.")
+            raise HTTPException(
+                504,
+                "The rename could not be confirmed. Refresh the workspace list before trying again.",
+            )
+
+        if current_name.casefold() == old_name.casefold():
+            switched = rpc.call("db.set_workspace", new_name)
+            if not isinstance(switched, dict) or switched.get("result") != "success":
+                raise HTTPException(
+                    502,
+                    f"Workspace was renamed to '{new_name}', but Metasploit could not keep it selected.",
+                )
+
+        current = rpc.call("db.current_workspace")
+        final_list = rpc.call("db.workspaces")
+        return {
+            "renamed_workspace": {"old_name": old_name, "new_name": new_name},
+            "current_workspace": current,
+            "workspaces": final_list.get("workspaces", []) if isinstance(final_list, dict) else [],
+        }
+    except MsfRpcError as exc:
+        raise _rpc_error(exc)
+    finally:
+        if console_id is not None:
+            try:
+                rpc.call("console.destroy", console_id)
+            except MsfRpcError:
+                pass
 
 
 @router.delete("/workspaces/{name:path}")
