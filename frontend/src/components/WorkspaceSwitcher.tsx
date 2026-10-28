@@ -16,6 +16,9 @@ export function WorkspaceSwitcher({
   const [createOpen, setCreateOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
   const [newName, setNewName] = useState("");
+  const [workspaceDialog, setWorkspaceDialog] = useState<{ kind: "rename" | "delete"; workspace: Workspace } | null>(null);
+  const [dialogValue, setDialogValue] = useState("");
+  const [dialogError, setDialogError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const knownWorkspace = useRef<string | null>(null);
@@ -49,6 +52,18 @@ export function WorkspaceSwitcher({
       active = false;
     };
   }, [reloadKey]);
+
+  useEffect(() => {
+    if (!workspaceDialog) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) {
+        setWorkspaceDialog(null);
+        setDialogError(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [workspaceDialog, busy]);
 
   const switchWorkspace = async (name: string) => {
     if (!name || name === currentWorkspace || busy) return;
@@ -98,53 +113,85 @@ export function WorkspaceSwitcher({
     }
   };
 
-  const renameWorkspace = async (workspace: Workspace) => {
+  const openRenameDialog = (workspace: Workspace) => {
     if (busy || workspace.name.toLowerCase() === "default") return;
-    const entered = window.prompt(
-      `Rename workspace "${workspace.name}" to:`,
-      workspace.name
-    );
-    if (entered === null) return;
-    const newName = entered.trim();
-    if (!newName) {
-      setError("Workspace name must not be blank.");
-      return;
-    }
-    if (newName === workspace.name) {
-      setMessage("Workspace name unchanged.");
-      return;
-    }
-
-    setBusy(true);
+    setWorkspaceDialog({ kind: "rename", workspace });
+    setDialogValue(workspace.name);
+    setDialogError(null);
     setError(null);
     setMessage(null);
-    try {
-      const result = await api.db.renameWorkspace(workspace.name, newName);
-      const nextWorkspace = result.current_workspace?.workspace ?? currentWorkspace;
-      setWorkspaces(result.workspaces ?? []);
-      setCurrentWorkspace(nextWorkspace);
-      knownWorkspace.current = nextWorkspace;
-      setManageOpen(false);
-      setMessage(`Renamed ${workspace.name} to ${result.renamed_workspace?.new_name ?? newName}`);
-      if (nextWorkspace !== currentWorkspace) onWorkspaceChanged(nextWorkspace);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
+    setCreateOpen(false);
+    setManageOpen(false);
   };
 
-  const deleteWorkspace = async (workspace: Workspace) => {
+  const openDeleteDialog = (workspace: Workspace) => {
     if (busy || workspace.name.toLowerCase() === "default") return;
-    const entered = window.prompt(
-      `This permanently deletes the "${workspace.name}" workspace and its stored assessment records. Type the workspace name exactly to confirm:`
-    );
-    if (entered !== workspace.name) {
-      if (entered !== null) setMessage("Workspace deletion cancelled because the name did not match.");
+    setWorkspaceDialog({ kind: "delete", workspace });
+    setDialogValue("");
+    setDialogError(null);
+    setError(null);
+    setMessage(null);
+    setCreateOpen(false);
+    setManageOpen(false);
+  };
+
+  const closeWorkspaceDialog = () => {
+    if (busy) return;
+    setWorkspaceDialog(null);
+    setDialogError(null);
+  };
+
+  const submitWorkspaceDialog = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!workspaceDialog || busy) return;
+
+    const { kind, workspace } = workspaceDialog;
+    const value = dialogValue.trim();
+
+    if (kind === "rename") {
+      if (!value) {
+        setDialogError("Workspace name must not be blank.");
+        return;
+      }
+      if (value.length > 100 || !/^[A-Za-z0-9_](?:[A-Za-z0-9_. -]{0,98}[A-Za-z0-9_])?$/.test(value)) {
+        setDialogError("Use up to 100 letters, numbers, spaces, dots, hyphens, or underscores. The first and last characters must be a letter, number, or underscore.");
+        return;
+      }
+      if (value.toLowerCase() === workspace.name.toLowerCase()) {
+        setDialogError("Enter a different name. Workspace names are not case-sensitive.");
+        return;
+      }
+
+      setBusy(true);
+      setDialogError(null);
+      setError(null);
+      setMessage(null);
+      try {
+        const result = await api.db.renameWorkspace(workspace.name, value);
+        const nextWorkspace = result.current_workspace?.workspace ?? currentWorkspace;
+        setWorkspaces(result.workspaces ?? []);
+        setCurrentWorkspace(nextWorkspace);
+        knownWorkspace.current = nextWorkspace;
+        setWorkspaceDialog(null);
+        setDialogValue("");
+        setManageOpen(false);
+        setMessage(`Renamed ${workspace.name} to ${result.renamed_workspace?.new_name ?? value}`);
+        if (nextWorkspace !== currentWorkspace) onWorkspaceChanged(nextWorkspace);
+      } catch (e: unknown) {
+        setDialogError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    if (value !== workspace.name) {
+      setDialogError("The name does not match. Type the exact workspace name to confirm deletion.");
       return;
     }
 
     setBusy(true);
+    setDialogError(null);
     setError(null);
     setMessage(null);
     try {
@@ -153,6 +200,8 @@ export function WorkspaceSwitcher({
       setWorkspaces(result.workspaces ?? []);
       setCurrentWorkspace(nextWorkspace);
       knownWorkspace.current = nextWorkspace;
+      setWorkspaceDialog(null);
+      setDialogValue("");
       setManageOpen(false);
       const switched = nextWorkspace !== currentWorkspace;
       setMessage(
@@ -162,7 +211,7 @@ export function WorkspaceSwitcher({
       );
       if (switched) onWorkspaceChanged(nextWorkspace);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
+      setDialogError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -297,7 +346,7 @@ export function WorkspaceSwitcher({
                 <div className="flex shrink-0 items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => void renameWorkspace(workspace)}
+                    onClick={() => openRenameDialog(workspace)}
                     disabled={busy || workspace.name.toLowerCase() === "default"}
                     title={workspace.name.toLowerCase() === "default" ? "The default workspace is protected" : "Rename this workspace"}
                     className="rounded border border-border px-2 py-1 text-[10px] text-gray-300 hover:bg-bg-tertiary disabled:cursor-not-allowed disabled:opacity-40"
@@ -306,7 +355,7 @@ export function WorkspaceSwitcher({
                   </button>
                   <button
                     type="button"
-                    onClick={() => void deleteWorkspace(workspace)}
+                    onClick={() => openDeleteDialog(workspace)}
                     disabled={busy || workspace.name.toLowerCase() === "default"}
                     className="rounded border border-danger/30 px-2 py-1 text-[10px] text-danger hover:bg-danger/5 disabled:cursor-not-allowed disabled:opacity-40"
                   >
@@ -316,6 +365,139 @@ export function WorkspaceSwitcher({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {workspaceDialog && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-4 backdrop-blur-[2px]"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeWorkspaceDialog();
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="workspace-dialog-title"
+            aria-describedby="workspace-dialog-description"
+            className="w-full max-w-md overflow-hidden rounded-lg border border-border bg-bg-primary shadow-2xl"
+          >
+            <div className="flex items-start gap-3 border-b border-border p-5">
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md border ${workspaceDialog.kind === "delete" ? "border-danger/30 bg-danger/10 text-danger" : "border-accent/30 bg-accent-dim text-accent"}`}>
+                <span aria-hidden="true" className="text-lg font-semibold">
+                  {workspaceDialog.kind === "delete" ? "!" : "↗"}
+                </span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">
+                  Workspace manager
+                </p>
+                <h2 id="workspace-dialog-title" className="mt-1 text-base font-semibold text-gray-100">
+                  {workspaceDialog.kind === "rename" ? "Rename workspace" : "Delete workspace"}
+                </h2>
+                <p id="workspace-dialog-description" className="mt-1 text-xs leading-5 text-gray-500">
+                  {workspaceDialog.kind === "rename"
+                    ? "Change the workspace name without moving or deleting its assessment records."
+                    : "This permanently deletes the workspace and its stored assessment records. This action cannot be undone."}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close dialog"
+                onClick={closeWorkspaceDialog}
+                disabled={busy}
+                className="rounded p-1 text-gray-500 hover:bg-bg-tertiary hover:text-gray-200 disabled:opacity-40"
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+
+            <form onSubmit={(event) => void submitWorkspaceDialog(event)}>
+              <div className="space-y-2 p-5">
+                {workspaceDialog.kind === "rename" ? (
+                  <>
+                    <label htmlFor="workspace-rename-name" className="block text-xs font-medium text-gray-300">
+                      New workspace name
+                    </label>
+                    <input
+                      id="workspace-rename-name"
+                      autoFocus
+                      autoComplete="off"
+                      spellCheck={false}
+                      maxLength={100}
+                      value={dialogValue}
+                      onChange={(event) => {
+                        setDialogValue(event.target.value);
+                        setDialogError(null);
+                      }}
+                      placeholder="e.g. client_assessment"
+                      aria-invalid={Boolean(dialogError)}
+                      aria-describedby={dialogError ? "workspace-dialog-error" : "workspace-rename-help"}
+                      className="w-full rounded-md border border-border bg-bg-tertiary px-3 py-2.5 font-mono text-sm text-gray-100 outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+                    />
+                    <p id="workspace-rename-help" className="text-[11px] leading-4 text-gray-500">
+                      Letters, numbers, spaces, dots, hyphens, and underscores are supported.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <label htmlFor="workspace-delete-confirmation" className="block text-xs font-medium text-gray-300">
+                      Type <span className="rounded bg-bg-tertiary px-1.5 py-0.5 font-mono text-gray-100">{workspaceDialog.workspace.name}</span> to confirm
+                    </label>
+                    <input
+                      id="workspace-delete-confirmation"
+                      autoFocus
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={dialogValue}
+                      onChange={(event) => {
+                        setDialogValue(event.target.value);
+                        setDialogError(null);
+                      }}
+                      placeholder="Enter the workspace name exactly"
+                      aria-invalid={Boolean(dialogError)}
+                      aria-describedby={dialogError ? "workspace-dialog-error" : "workspace-delete-help"}
+                      className="w-full rounded-md border border-danger/30 bg-bg-tertiary px-3 py-2.5 font-mono text-sm text-gray-100 outline-none transition focus:border-danger focus:ring-2 focus:ring-danger/20"
+                    />
+                    <p id="workspace-delete-help" className="text-[11px] leading-4 text-gray-500">
+                      The workspace and its database records will be permanently removed.
+                    </p>
+                  </>
+                )}
+                {dialogError && (
+                  <p id="workspace-dialog-error" role="alert" className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs leading-5 text-danger">
+                    {dialogError}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-t border-border bg-bg-secondary/70 px-5 py-4">
+                <span className="hidden text-[10px] text-gray-600 sm:inline">
+                  Press Esc to cancel
+                </span>
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={closeWorkspaceDialog}
+                    disabled={busy}
+                    className="rounded-md border border-border px-3 py-2 text-xs text-gray-300 hover:bg-bg-tertiary disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={busy || (workspaceDialog.kind === "rename" ? !dialogValue.trim() : dialogValue !== workspaceDialog.workspace.name)}
+                    className={`rounded-md px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${workspaceDialog.kind === "delete" ? "bg-danger text-white hover:bg-danger/90" : "bg-accent-dim text-black hover:bg-accent"}`}
+                  >
+                    {busy
+                      ? workspaceDialog.kind === "rename" ? "Renaming…" : "Deleting…"
+                      : workspaceDialog.kind === "rename" ? "Rename workspace" : "Delete workspace"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </section>
         </div>
       )}
 
