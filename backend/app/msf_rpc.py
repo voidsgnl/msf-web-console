@@ -74,6 +74,38 @@ class MsfRpcClient:
 
     # -- low level -----------------------------------------------------
 
+    @staticmethod
+    def _rpc_error_message(decoded: dict[str, Any], method: str) -> str:
+        """Extract a useful RPC error without exposing the server backtrace."""
+        candidates = (
+            decoded.get("error_message"),
+            decoded.get("error_string"),
+            decoded.get("message"),
+        )
+        message = None
+        generic_messages = {"unknown rpc error", "unknown error"}
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            value = str(candidate).strip()
+            if value and value.lower() not in generic_messages:
+                message = value
+                break
+
+        if message is None:
+            message = f"Metasploit RPC method '{method}' returned an error without details."
+
+        error_class = decoded.get("error_class")
+        if error_class and not message.startswith(f"{error_class}:"):
+            message = f"{error_class}: {message}"
+
+        error_code = decoded.get("error_code")
+        if error_code is not None:
+            message = f"{message} (RPC error code {error_code})"
+
+        # Keep an unexpected server-supplied message from overwhelming the UI.
+        return message[:1000]
+
     def _raw_call(self, method: str, params: list[Any]) -> Any:
         body = msgpack.packb([method] + params, use_bin_type=True)
         try:
@@ -90,19 +122,34 @@ class MsfRpcClient:
                 "Is msfrpcd running? See backend/.env.example for the start command."
             ) from exc
 
+        # Metasploit normally returns MessagePack even for RPC exceptions,
+        # including non-200 HTTP responses. Decode that body before falling back
+        # to the HTTP status text so we do not hide error_string/error_class.
+        try:
+            decoded = _decode_bytes(
+                msgpack.unpackb(resp.content, raw=False, strict_map_key=False)
+            )
+        except Exception as exc:
+            if resp.status_code != 200:
+                raise MsfRpcError(
+                    f"msfrpcd HTTP {resp.status_code}: {resp.text[:300]}"
+                ) from exc
+            raise MsfRpcError(
+                f"msfrpcd returned an invalid MessagePack response for {method}."
+            ) from exc
+
+        if isinstance(decoded, dict) and decoded.get("error"):
+            error_message = self._rpc_error_message(decoded, method)
+            if resp.status_code != 200:
+                error_message = f"{error_message} (HTTP {resp.status_code})"
+            raise MsfRpcError(
+                error_message,
+                error_code=decoded.get("error_code"),
+                error_message=error_message,
+            )
+
         if resp.status_code != 200:
             raise MsfRpcError(f"msfrpcd HTTP {resp.status_code}: {resp.text[:300]}")
-
-        # strict_map_key=False: some RPC responses (e.g. module.info) contain
-        # maps with non-string keys (integers), which msgpack rejects by
-        # default even though it's perfectly valid MessagePack.
-        decoded = _decode_bytes(msgpack.unpackb(resp.content, raw=False, strict_map_key=False))
-        if isinstance(decoded, dict) and "error" in decoded and decoded.get("error"):
-            raise MsfRpcError(
-                decoded.get("error_message", "Unknown RPC error"),
-                error_code=decoded.get("error_code"),
-                error_message=decoded.get("error_message"),
-            )
         return decoded
 
     def call(self, method: str, *params: Any) -> Any:

@@ -561,6 +561,8 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
       const startedAt = Date.now();
       let jobObserved = false;
       let latestSessions: SessionSummary[] = [];
+      let resultLookupFailures = 0;
+      let lastResultLookupError = "";
 
       while (isCurrentRun() && Date.now() - startedAt < EXECUTION_TIMEOUT_MS) {
         await sleep(POLL_INTERVAL_MS);
@@ -593,6 +595,8 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
           try {
             const outcome = await api.modules.results(runUuid);
             if (!isCurrentRun()) return;
+            resultLookupFailures = 0;
+            lastResultLookupError = "";
             const outcomeStatus = String(outcome.status ?? "").toLowerCase();
             if (["completed", "complete", "success"].includes(outcomeStatus)) {
               setProgress({
@@ -618,9 +622,23 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
               });
               return;
             }
-          } catch {
-            // Some older Framework versions lack result retrieval. Continue
-            // using job/session state instead of treating this as fatal.
+          } catch (e: unknown) {
+            // The UUID is already listed in "results", so a repeated result
+            // lookup failure is actionable. Retry briefly for transient RPC
+            // errors, then surface the actual backend detail instead of letting
+            // the UI time out with a misleading generic warning.
+            resultLookupFailures += 1;
+            lastResultLookupError = e instanceof Error ? e.message : String(e);
+            if (resultLookupFailures >= 3) {
+              setProgress({
+                phase: "error",
+                message: `Metasploit lists this run as having a result, but fetching it failed after ${resultLookupFailures} attempts: ${lastResultLookupError}. Check the Metasploit console for the module outcome.`,
+                jobId,
+                runUuid,
+                sessions: latestSessions,
+              });
+              return;
+            }
           }
         }
 
