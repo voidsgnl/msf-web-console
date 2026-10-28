@@ -16,7 +16,11 @@ type ExecutionProgress = {
 type ModuleTab = "overview" | "options" | "targets" | "payloads" | "references" | "advanced" | "raw";
 
 const POLL_INTERVAL_MS = 2000;
-const EXECUTION_TIMEOUT_MS = 90000;
+// How long this panel actively tracks a run before it stops polling and tells
+// you to check the Jobs/Sessions views instead. Metasploit itself keeps the
+// job running past this point if it's a long scan or a waiting handler - this
+// is only about how long the module browser watches it, not a hard deadline.
+const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
 const CORE_INFO_KEYS = new Set([
   "name", "fullname", "description", "rank", "platform", "arch", "privileged",
   "license", "disclosure_date", "author", "authors", "references", "targets",
@@ -210,7 +214,7 @@ function DetailSection({
   );
 }
 
-export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }) {
+export function ModuleBrowser({ onViewSessions, onViewJobs }: { onViewSessions: () => void; onViewJobs: () => void }) {
   const [query, setQuery] = useState("");
   const [type, setType] = useState<string>("exploit");
   const [results, setResults] = useState<ModuleRef[]>([]);
@@ -235,6 +239,8 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
   const [activeTab, setActiveTab] = useState<ModuleTab>("overview");
   const [executing, setExecuting] = useState(false);
   const [progress, setProgress] = useState<ExecutionProgress | null>(null);
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const [encoderInput, setEncoderInput] = useState("");
   const [encoderInputFormat, setEncoderInputFormat] = useState<"text" | "hex" | "base64">("text");
   const [encoderBadChars, setEncoderBadChars] = useState("");
@@ -258,6 +264,14 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
       mounted.current = false;
     };
   }, []);
+
+  // Live "running for Xs" display. Only ticks while a run is actually in
+  // flight, so it doesn't redraw the whole panel once a result is in.
+  useEffect(() => {
+    if (!runStartedAt || (progress?.phase !== "submitting" && progress?.phase !== "running")) return;
+    const timer = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [runStartedAt, progress?.phase]);
 
   const search = async (q: string, selectedType = type) => {
     setQuery(q);
@@ -323,6 +337,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     setSelected(mod);
     setActiveTab("overview");
     setProgress(null);
+    setRunStartedAt(null);
     setEncoderInput("");
     setEncoderInputFormat("text");
     setEncoderBadChars("");
@@ -495,6 +510,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     const runGeneration = ++executionGeneration.current;
     const isCurrentRun = () => mounted.current && executionGeneration.current === runGeneration;
     setExecuting(true);
+    setRunStartedAt(Date.now());
     setProgress({
       phase: "submitting",
       message: selected.type === "encoder"
@@ -592,6 +608,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
 
     setValidationErrors({});
     setExecuting(true);
+    setRunStartedAt(Date.now());
     setProgress({
       phase: "submitting",
       message: "Submitting module to Metasploit…",
@@ -789,12 +806,13 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
       }
 
       if (isCurrentRun()) {
+        const minutes = Math.round(EXECUTION_TIMEOUT_MS / 60000);
         setProgress((current) => current ? {
           ...current,
           phase: "timeout",
           message: current.sessions.length
-            ? "The run is still unresolved. New session(s) are available below; check Jobs and the Metasploit console for further status."
-            : "No completion signal or new session was detected within 90 seconds. Check Jobs and the Metasploit console; the module may still be running.",
+            ? "Still watching this run, but new session(s) are already available below - open Sessions to use them now."
+            : `This panel stopped watching after ${minutes} minutes, but the module itself is very likely still running in Metasploit (long scans and waiting handlers are normal). Open the Jobs tab to see it live - it keeps updating even while you're not looking at it.`,
         } : null);
       }
     } catch (e: unknown) {
@@ -816,6 +834,16 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     if (phase === "timeout") return "text-warning";
     return "text-accent";
   };
+
+  function formatElapsed(ms: number): string {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    if (totalSeconds < 60) return `${totalSeconds}s`;
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes < 60) return `${minutes}m ${seconds}s`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ${minutes % 60}m`;
+  }
 
   const moduleInfo: Record<string, any> =
     info?.info && typeof info.info === "object" ? info.info : {};
@@ -1562,11 +1590,19 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
               <div className="border-t border-border bg-bg-secondary px-4 md:px-6 py-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className={`text-[10px] font-semibold uppercase tracking-widest ${statusStyle(progress.phase)}`}>
-                      {progress.phase === "submitting" ? "Submitting" :
-                        progress.phase === "running" ? "In progress" :
-                        progress.phase === "completed" ? "Completed" :
-                        progress.phase === "timeout" ? "Needs attention" : "Failed"}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-[10px] font-semibold uppercase tracking-widest ${statusStyle(progress.phase)}`}>
+                        {progress.phase === "submitting" ? "Submitting" :
+                          progress.phase === "running" ? "Running" :
+                          progress.phase === "completed" ? "Completed" :
+                          progress.phase === "timeout" ? "Still running (in background)" : "Failed"}
+                      </span>
+                      {(progress.phase === "submitting" || progress.phase === "running") && runStartedAt && (
+                        <span className="text-[10px] text-gray-500 font-mono">· {formatElapsed(nowTick - runStartedAt)} elapsed</span>
+                      )}
+                      {(progress.phase === "completed" || progress.phase === "error" || progress.phase === "timeout") && runStartedAt && (
+                        <span className="text-[10px] text-gray-500 font-mono">· took {formatElapsed((nowTick - runStartedAt))}</span>
+                      )}
                     </div>
                     <p className="text-xs text-gray-300 mt-1">{progress.message}</p>
                     {progress.jobId && <p className="text-[10px] text-gray-500 mt-1 font-mono">Job ID: {progress.jobId}</p>}
@@ -1584,6 +1620,11 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                     {progress.sessions.length > 0 && (
                       <button onClick={onViewSessions} className="rounded bg-accent-dim hover:bg-accent px-3 py-2 text-xs font-medium text-black">
                         Open Sessions ({progress.sessions.length})
+                      </button>
+                    )}
+                    {(progress.phase === "running" || progress.phase === "timeout") && progress.jobId && (
+                      <button onClick={onViewJobs} className="rounded border border-border px-3 py-2 text-xs text-gray-300 hover:bg-bg-tertiary">
+                        Watch in Jobs
                       </button>
                     )}
                   </div>

@@ -172,7 +172,14 @@ export function SessionsView() {
       )}
       {!loading && !error && entries.length === 0 && (
         <div className="rounded border border-border bg-bg-secondary/50 p-4 text-xs text-gray-500">
-          No active sessions. Sessions created by a module or console command will appear here.
+          <p>No active sessions right now. A session shows up here the moment an exploit or payload succeeds - from the module browser, or from a <span className="font-mono text-gray-400">exploit</span>/<span className="font-mono text-gray-400">sessions -i</span> command in the console.</p>
+          <p className="mt-2 text-gray-400">If you ran something and expected a session but don't see one, it usually means one of:</p>
+          <ul className="mt-1.5 list-disc space-y-1 pl-4">
+            <li>The exploit/payload is still running - check the <span className="font-mono text-gray-300">Jobs</span> tab, it keeps tracking in the background.</li>
+            <li>The target wasn't vulnerable, unreachable, or the exploit failed - the module's run result or the console output will say why.</li>
+            <li>For a reverse payload (e.g. <span className="font-mono text-gray-300">reverse_tcp</span>), <span className="font-mono text-gray-300">LHOST</span>/<span className="font-mono text-gray-300">LPORT</span> must be reachable from the target - a wrong or unreachable LHOST is the most common reason nothing connects back.</li>
+            <li>For a bind payload, the target's port must be reachable from this machine.</li>
+          </ul>
         </div>
       )}
 
