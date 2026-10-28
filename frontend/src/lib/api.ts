@@ -167,6 +167,15 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ name }),
       }),
+    renameWorkspace: (oldName: string, newName: string) =>
+      request<{
+        renamed_workspace: { old_name: string; new_name: string };
+        current_workspace: CurrentWorkspace;
+        workspaces: Workspace[];
+      }>("/db/workspaces/rename", {
+        method: "POST",
+        body: JSON.stringify({ old_name: oldName, new_name: newName }),
+      }),
     deleteWorkspace: (name: string) =>
       request<{ deleted_workspace: string; current_workspace: CurrentWorkspace; workspaces: Workspace[] }>(
         `/db/workspaces/${encodeURIComponent(name)}`,
