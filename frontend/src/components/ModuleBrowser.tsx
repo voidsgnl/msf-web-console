@@ -23,6 +23,70 @@ const CORE_INFO_KEYS = new Set([
   "default_target", "payload", "payloads", "compatible_payloads", "actions",
   "notes", "options", "default_options",
 ]);
+// Metasploit's RPC API has no "most used" / popularity metric, so this is a
+// hand-picked, clearly-labeled set of well-known modules shown by default
+// for each type - not telemetry-derived usage data. It exists purely so the
+// Module explorer shows *something* useful before the user types a search
+// term; the full catalog is always one search away.
+const POPULAR_MODULES: Record<string, string[]> = {
+  exploit: [
+    "windows/smb/ms17_010_eternalblue",
+    "windows/smb/psexec",
+    "multi/handler",
+    "unix/ftp/vsftpd_234_backdoor",
+    "multi/http/apache_struts2_content_type_ognl",
+    "windows/smb/ms08_067_netapi",
+    "linux/http/apache_mod_cgi_bash_env_exec",
+    "multi/http/php_cgi_arg_injection",
+    "windows/rdp/cve_2019_0708_bluekeep_rce",
+    "multi/misc/java_rmi_server",
+  ],
+  auxiliary: [
+    "scanner/portscan/tcp",
+    "scanner/http/http_version",
+    "scanner/ssh/ssh_login",
+    "scanner/smb/smb_version",
+    "scanner/discovery/udp_sweep",
+    "scanner/ftp/ftp_version",
+    "scanner/mysql/mysql_login",
+    "scanner/rdp/rdp_scanner",
+  ],
+  post: [
+    "windows/gather/hashdump",
+    "multi/gather/env",
+    "windows/gather/credentials/credential_collector",
+    "linux/gather/hashdump",
+    "multi/recon/local_exploit_suggester",
+  ],
+  payload: [
+    "windows/meterpreter/reverse_tcp",
+    "windows/x64/meterpreter/reverse_tcp",
+    "linux/x64/meterpreter/reverse_tcp",
+    "cmd/unix/reverse_bash",
+    "python/meterpreter/reverse_tcp",
+    "osx/x64/meterpreter/reverse_tcp",
+  ],
+  encoder: [
+    "x86/shikata_ga_nai",
+    "x64/xor_dynamic",
+    "cmd/powershell_base64",
+  ],
+  nop: [
+    "x86/opty2",
+    "x86/single_byte",
+  ],
+};
+// Well-known "you'd type this in msfconsole" datastore options. These are
+// surfaced first in the Options list (ahead of less familiar framework
+// options) regardless of whether Metasploit's RPC happens to flag them as
+// advanced, so the fields people actually expect - RHOSTS/RPORT/LHOST/LPORT
+// and friends - aren't buried in a long, unfamiliar list.
+const ESSENTIAL_OPTION_KEYS = new Set([
+  "RHOSTS", "RHOST", "RPORT", "LHOST", "LPORT",
+  "SRVHOST", "SRVPORT", "TARGETURI", "TARGETURL",
+  "USERNAME", "PASSWORD", "SMBUSER", "SMBPASS",
+  "SSL", "VHOST", "TARGET",
+]);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function textValue(value: unknown): string {
@@ -53,7 +117,7 @@ function runResultText(value: unknown): string {
   }
   const rendered = prettyValue(value);
   return rendered.length > 12000
-    ? rendered.slice(0, 12000) + "\\n… output truncated in the UI …"
+    ? rendered.slice(0, 12000) + "\n… output truncated in the UI …"
     : rendered;
 }
 
@@ -98,6 +162,21 @@ function targetNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
   if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
   return undefined;
+}
+
+// Required options first, then the well-known "you'd type this in
+// msfconsole" fields, then everything else alphabetically. Purely a display
+// order - it never hides anything the advanced toggle wasn't already hiding.
+function sortOptionEntries(entries: [string, any][]): [string, any][] {
+  const rank = (key: string, option: any) => {
+    if (option?.required) return 0;
+    if (ESSENTIAL_OPTION_KEYS.has(key.toUpperCase())) return 1;
+    return 2;
+  };
+  return [...entries].sort(([keyA, optionA], [keyB, optionB]) => {
+    const diff = rank(keyA, optionA) - rank(keyB, optionB);
+    return diff !== 0 ? diff : keyA.localeCompare(keyB);
+  });
 }
 
 function MetaCard({ label, value }: { label: string; value: unknown }) {
@@ -148,6 +227,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
   const [payloadOptionValues, setPayloadOptionValues] = useState<Record<string, string>>({});
   const [payloadOptionsLoading, setPayloadOptionsLoading] = useState(false);
   const [payloadOptionsError, setPayloadOptionsError] = useState<string | null>(null);
+  const [payloadAutoSelected, setPayloadAutoSelected] = useState(false);
   const [optionValues, setOptionValues] = useState<Record<string, string>>({});
   const [optionSearch, setOptionSearch] = useState("");
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
@@ -199,14 +279,29 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     }
   };
 
-  const loadCompatiblePayloads = async (moduleName: string, target?: number) => {
+  const loadCompatiblePayloads = async (
+    moduleName: string,
+    target?: number,
+    options: { autoSelect?: boolean } = {}
+  ) => {
+    const { autoSelect = false } = options;
     const requestGeneration = ++payloadRequestGeneration.current;
     setPayloadsLoading(true);
     setPayloadError(null);
     try {
       const result = await api.modules.compatiblePayloads(moduleName, target);
       if (mounted.current && requestGeneration === payloadRequestGeneration.current) {
-        setCompatiblePayloads(result.payloads ?? []);
+        const payloadNames: string[] = result.payloads ?? [];
+        setCompatiblePayloads(payloadNames);
+        // Mirror msfconsole: `use <exploit>` picks a default payload right
+        // away, so LHOST/LPORT show up alongside RHOSTS/RPORT immediately.
+        // Here we approximate that by auto-selecting the first compatible
+        // payload Metasploit reports, without forcing a tab switch - the
+        // user can still pick a different one from the Payloads tab.
+        if (autoSelect && payloadNames.length > 0) {
+          setPayloadAutoSelected(true);
+          void choosePayload(payloadNames[0], { switchTab: false });
+        }
       }
     } catch (e: unknown) {
       if (mounted.current && requestGeneration === payloadRequestGeneration.current) {
@@ -249,6 +344,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     setPayloadOptionValues({});
     setPayloadOptionsLoading(false);
     setPayloadOptionsError(null);
+    setPayloadAutoSelected(false);
     setInfoError(null);
     setValidationErrors({});
     setOptionSearch("");
@@ -271,7 +367,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
       setOptionValues(defaults);
 
       if (mod.type === "exploit") {
-        void loadCompatiblePayloads(mod.name, defaultTarget);
+        void loadCompatiblePayloads(mod.name, defaultTarget, { autoSelect: true });
       } else {
         setPayloadsLoading(false);
       }
@@ -300,13 +396,18 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     setPayloadOptions({});
     setPayloadOptionValues({});
     setPayloadOptionsError(null);
+    setPayloadAutoSelected(false);
     setValidationErrors({});
     setPayloadError(null);
     setCompatiblePayloads([]);
-    void loadCompatiblePayloads(selected.name, targetNumber(targetId));
+    void loadCompatiblePayloads(selected.name, targetNumber(targetId), { autoSelect: true });
   };
 
-  const choosePayload = async (payloadName: string) => {
+  const choosePayload = async (
+    payloadName: string,
+    options: { switchTab?: boolean } = {}
+  ) => {
+    const { switchTab = true } = options;
     if (!selected || selected.type !== "exploit" || !payloadName || payloadOptionsLoading) return;
     const generation = selectionGeneration.current;
 
@@ -323,11 +424,12 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
         }
       }
       setSelectedPayload(payloadName);
+      if (!switchTab) setPayloadAutoSelected(true);
       setSelectedPayloadDescription(String(payloadInfo.info?.description ?? ""));
       setPayloadOptions(payloadInfo.options || {});
       setPayloadOptionValues(defaults);
       setOptionValues((current) => ({ ...current, PAYLOAD: payloadName }));
-      setActiveTab("options");
+      if (switchTab) setActiveTab("options");
     } catch (e: unknown) {
       if (mounted.current && generation === selectionGeneration.current) {
         setPayloadOptionsError(e instanceof Error ? e.message : String(e));
@@ -343,6 +445,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     setPayloadOptions({});
     setPayloadOptionValues({});
     setPayloadOptionsError(null);
+    setPayloadAutoSelected(false);
     setValidationErrors((current) => Object.fromEntries(
       Object.entries(current).filter(([key]) => !key.startsWith("PAYLOAD."))
     ));
@@ -718,12 +821,14 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     info?.info && typeof info.info === "object" ? info.info : {};
   const moduleOptions: Record<string, any> =
     info?.options && typeof info.options === "object" ? info.options : {};
-  const optionEntries = Object.entries<any>(moduleOptions).filter(([key, option]) => {
-    const term = optionSearch.toLowerCase().trim();
-    if (term && !key.toLowerCase().includes(term) &&
-      !String(option.desc ?? option.description ?? "").toLowerCase().includes(term)) return false;
-    return showAdvancedOptions || !(option.advanced || option.evasion);
-  });
+  const optionEntries = sortOptionEntries(
+    Object.entries<any>(moduleOptions).filter(([key, option]) => {
+      const term = optionSearch.toLowerCase().trim();
+      if (term && !key.toLowerCase().includes(term) &&
+        !String(option.desc ?? option.description ?? "").toLowerCase().includes(term)) return false;
+      return showAdvancedOptions || !(option.advanced || option.evasion);
+    })
+  );
   const requiredCount = Object.values<any>(moduleOptions).filter((option) => option.required).length;
   const references = listEntries(moduleInfo.references ?? moduleInfo.refs);
   const targets = listEntries(moduleInfo.targets);
@@ -764,6 +869,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     const isNumber = /^(int|integer|float|number|port)$/i.test(String(option.type ?? ""));
     const isSecret = /(password|passwd|token|secret)$/i.test(key);
     const hasChoices = Array.isArray(choices) && choices.length > 0;
+    const isEssential = !option.required && ESSENTIAL_OPTION_KEYS.has(key.toUpperCase());
     const updateValue = (nextValue: string) => {
       if (scope === "payload") {
         setPayloadOptionValues((current) => ({ ...current, [key]: nextValue }));
@@ -783,6 +889,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="font-mono text-xs text-gray-200 break-all">{key}</span>
             {option.required && <span className="text-[10px] text-danger uppercase">Required</span>}
+            {isEssential && <span className="text-[10px] text-accent uppercase">Common</span>}
             {(option.advanced || option.evasion) && <span className="text-[10px] text-gray-500 uppercase">Advanced</span>}
           </div>
           <p className="text-[10px] text-gray-500 mt-1">
@@ -828,13 +935,17 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     );
   };
 
+  const popularRefs: ModuleRef[] = (POPULAR_MODULES[type] ?? []).map((name) => ({ type, name }));
+  const showingPopular = query.trim().length < 2;
+  const visibleModules = showingPopular ? popularRefs : results;
+
   return (
     <div className="flex h-full min-w-0">
       <aside className="w-64 md:w-72 shrink-0 border-r border-border flex flex-col bg-bg-secondary">
         <div className="p-3 border-b border-border space-y-2.5">
           <div className="flex items-center justify-between">
             <h2 className="text-[11px] uppercase tracking-widest text-gray-400 font-semibold">Module explorer</h2>
-            <span className="text-[10px] text-gray-600">{results.length} results</span>
+            <span className="text-[10px] text-gray-600">{visibleModules.length} {showingPopular ? "shown" : "results"}</span>
           </div>
           <select
             value={type}
@@ -857,10 +968,17 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
             aria-label="Search modules"
             className="w-full bg-bg-tertiary border border-border rounded px-2.5 py-2 text-xs text-gray-200 font-mono placeholder:text-gray-600 focus:outline-none focus:border-accent"
           />
-          <p className="text-[10px] text-gray-600">Enter at least two characters to search.</p>
+          <p className="text-[10px] text-gray-600">
+            {showingPopular ? "Showing a few well-known modules. Type to search the full catalog." : "Enter at least two characters to search."}
+          </p>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {results.map((module) => (
+          {showingPopular && visibleModules.length > 0 && (
+            <div className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest text-gray-600">
+              Popular {type} modules
+            </div>
+          )}
+          {visibleModules.map((module) => (
             <button
               key={`${module.type}/${module.name}`}
               data-context-kind="module"
@@ -880,11 +998,8 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
             </button>
           ))}
           {searchError && <div className="p-3 text-xs text-danger">Search failed: {searchError}</div>}
-          {!searchError && query.length >= 2 && results.length === 0 && (
+          {!showingPopular && !searchError && results.length === 0 && (
             <div className="p-4 text-xs text-gray-600">No modules matched this search.</div>
-          )}
-          {query.length < 2 && !results.length && (
-            <div className="p-4 text-xs text-gray-600">Search by module name to explore available modules.</div>
           )}
         </div>
       </aside>
@@ -1036,7 +1151,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                   </div>
                 </div>
                 <p className="mt-2 text-[10px] leading-4 text-gray-600">
-                  Hex input and bad characters accept spaces, commas, colons, and optional 0x or \\x prefixes. Iterations are limited to 1–5.
+                  Hex input and bad characters accept spaces, commas, colons, and optional 0x or \x prefixes. Iterations are limited to 1–5.
                 </p>
               </section>
             )}
@@ -1208,10 +1323,16 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                               <div className="rounded border border-accent/30 bg-accent/5 p-3">
                                 <div className="flex items-start justify-between gap-3">
                                   <div className="min-w-0">
-                                    <p className="text-[10px] uppercase tracking-widest text-accent">Selected payload</p>
+                                    <p className="text-[10px] uppercase tracking-widest text-accent">
+                                      {payloadAutoSelected ? "Auto-selected payload" : "Selected payload"}
+                                    </p>
                                     <p className="mt-1 font-mono text-xs text-gray-100 break-all">{selectedPayload}</p>
                                     {selectedPayloadDescription && <p className="text-xs text-gray-400 mt-2 leading-relaxed whitespace-pre-wrap">{selectedPayloadDescription}</p>}
-                                    <p className="text-[10px] text-gray-500 mt-1">Sent as PAYLOAD with the configured datastore options.</p>
+                                    <p className="text-[10px] text-gray-500 mt-1">
+                                      {payloadAutoSelected
+                                        ? "Metasploit's first compatible payload was pre-selected, mirroring msfconsole's default behavior. Change it below if you need a different one."
+                                        : "Sent as PAYLOAD with the configured datastore options."}
+                                    </p>
                                   </div>
                                   <button type="button" onClick={clearPayload} className="shrink-0 text-xs text-gray-400 hover:text-danger underline">Clear</button>
                                 </div>
@@ -1233,7 +1354,7 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
                             {selectedPayload && !payloadOptionsLoading && Object.keys(payloadOptions).length > 0 && (
                               <div className="mt-3">
                                 <h4 className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">Payload-specific options</h4>
-                                {Object.entries<any>(payloadOptions).map(([key, option]) => renderOption(key, option, "payload"))}
+                                {sortOptionEntries(Object.entries<any>(payloadOptions)).map(([key, option]) => renderOption(key, option, "payload"))}
                               </div>
                             )}
                             {selectedPayload && !payloadOptionsLoading && Object.keys(payloadOptions).length === 0 && !payloadOptionsError && (
