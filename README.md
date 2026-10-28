@@ -44,9 +44,9 @@ typed it into `msfconsole`.
 - Assessment report for the active workspace: executive summary, severity counts, database-record-based vulnerability findings, affected-host summary, remediation guidance, open-service exposure observations, and sanitized inventory tables. Export a native PDF directly from the backend or download the HTML snapshot. Credential values, common filesystem paths, artifact bytes, and download references are filtered.
 - Loot evidence browser: search records, inspect all returned metadata, copy a record, and export one or filtered records as JSON
 - Loot artifact download: retrieve inline artifact data from the Framework `db.loots` RPC response or, when RPC returns metadata only, read the associated file only when its exact path or containing directory is allowlisted in backend configuration; browser-supplied filesystem paths are never accepted
-- Workspace management: list, switch, create and delete workspaces; deleting the active workspace switches back to the default workspace, and the default workspace itself is protected
+- Workspace management: list, switch, create, rename and delete workspaces; rename uses Metasploit's native `workspace -r` console command and retains the existing workspace records; deleting the active workspace switches back to the default workspace, and the default workspace is protected from rename/delete
 
-Still planned: workspace renaming (the standard Metasploit database RPC does not expose a rename operation). The application remains single-account; multi-user accounts and roles are outside the current design.
+The application remains single-account; multi-user accounts and roles are outside the current design.
 
 ## Security boundary
 
