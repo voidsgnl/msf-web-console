@@ -33,8 +33,9 @@ typed it into `msfconsole`.
 - Module info + option editing + execution for exploit, auxiliary, and post
   modules, including required-option checks, job/UUID tracking, returned result
   display, and new-session detection
-- Payload generation with a binary-safe artifact download; encoder and NOP
-  modules remain inspectable but are not sent through the generic execute API
+- Payload generation with a binary-safe artifact download
+- Dedicated encoder workflow: encode supplied text, hex, or Base64 input with a selected Metasploit encoder, optional bad-character filtering, architecture/platform settings, iterations, and encoder-supported options; encoded output downloads as a raw binary artifact
+- Dedicated NOP workflow: generate an architecture-specific NOP sled with a selected Metasploit NOP module, optional bad-character exclusions and save-register hints, then download the raw binary artifact. Uses a temporary authenticated Metasploit console because standard RPC exposes NOP listing/inspection but no direct NOP-generation method
 - Target-aware compatible payload browsing and selection, including payload
   option editing before exploit execution
 - Session list + kill + interactive session shell/meterpreter terminal
@@ -148,7 +149,7 @@ backend/
     nvd_client.py      NVD CVE REST API client (CVE enrichment)
     routes/
       system.py        health/status
-      modules.py        search, info, execute
+      modules.py        search, info, execute, encode, NOP generation
       sessions.py        list, read/write, stop
       db.py               database views + workspace management + reports
       cve.py               CVE/NVD enrichment
