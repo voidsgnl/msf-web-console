@@ -1,6 +1,8 @@
 import base64
+import binascii
 import re
-from typing import Any
+import time
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -136,6 +138,244 @@ def _payload_response(result: Any, module_name: str, options: dict[str, Any]) ->
         "payload_base64": base64.b64encode(payload_bytes).decode("ascii"),
         "format": str(options.get("Format") or options.get("format") or "raw"),
     }
+
+
+
+class EncodeRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=300)
+    data: str = Field(min_length=1, max_length=200_000)
+    data_format: Literal["text", "hex", "base64"] = "text"
+    badchars: str = Field(default="", max_length=512)
+    platform: str = Field(default="", max_length=80)
+    arch: str = Field(default="", max_length=80)
+    iterations: int = Field(default=1, ge=1, le=5)
+    module_options: dict[str, Any] = Field(default_factory=dict)
+
+
+class NopGenerateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=300)
+    length: int = Field(default=256, ge=1, le=16384)
+    badchars: str = Field(default="", max_length=512)
+    save_registers: list[str] = Field(default_factory=list, max_length=16)
+
+
+def _module_path_is_valid(name: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+", name))
+
+
+def _hex_bytes(raw: str, label: str) -> bytes:
+    compact = re.sub(r"(?i)(?:0x|\\x)|[\s,:]", "", raw)
+    if compact and not re.fullmatch(r"(?:[0-9a-fA-F]{2})+", compact):
+        raise HTTPException(400, f"{label} must be pairs of hexadecimal bytes, such as 00ff or \\\\x00\\\\xff.")
+    try:
+        return bytes.fromhex(compact)
+    except ValueError as exc:
+        raise HTTPException(400, f"{label} must contain valid hexadecimal bytes.") from exc
+
+
+def _decode_encoder_input(req: EncodeRequest) -> bytes:
+    if req.data_format == "text":
+        return req.data.encode("utf-8")
+    if req.data_format == "hex":
+        data = _hex_bytes(req.data, "Input data")
+        if not data:
+            raise HTTPException(400, "Input data must not be empty.")
+        return data
+    try:
+        data = base64.b64decode(req.data, validate=True)
+    except (binascii.Error, ValueError, UnicodeEncodeError) as exc:
+        raise HTTPException(400, "Base64 input is invalid.") from exc
+    if not data:
+        raise HTTPException(400, "Input data must not be empty.")
+    return data
+
+
+def _safe_artifact_name(prefix: str, module_name: str, suffix: str = "bin") -> str:
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "-", module_name.replace("/", "-")).strip("-")[:100]
+    slug = slug or "module-output"
+    return f"{prefix}-{slug}.{suffix}"
+
+
+def _raw_artifact_response(kind: str, filename: str, payload: Any, **metadata: Any) -> dict[str, Any]:
+    if isinstance(payload, bytes):
+        raw = payload
+    elif isinstance(payload, bytearray):
+        raw = bytes(payload)
+    elif isinstance(payload, str):
+        raw = payload.encode("utf-8")
+    else:
+        raise HTTPException(502, "Metasploit returned artifact data in an unsupported format.")
+    if not raw:
+        raise HTTPException(502, "Metasploit returned an empty artifact.")
+    return {
+        "kind": kind,
+        "filename": filename,
+        "size": len(raw),
+        "payload_base64": base64.b64encode(raw).decode("ascii"),
+        "format": "raw",
+        **metadata,
+    }
+
+
+@router.post("/encode")
+def encode_data(req: EncodeRequest):
+    """Encode caller-provided bytes with one selected Metasploit encoder."""
+    if not _module_path_is_valid(req.name):
+        raise HTTPException(400, "Invalid encoder module name.")
+    try:
+        encoder_result = rpc.call("module.encoders")
+        encoders = encoder_result.get("modules", []) if isinstance(encoder_result, dict) else []
+        if req.name not in encoders:
+            raise HTTPException(404, f"Encoder module not found: {req.name}")
+
+        input_data = _decode_encoder_input(req)
+        badchars = _hex_bytes(req.badchars, "Bad characters")
+        option_result = rpc.call("module.options", "encoder", req.name)
+        declared_options = option_result if isinstance(option_result, dict) else {}
+
+        # Only pass options declared by the selected encoder. Keep RPC-level
+        # formatting and filesystem-oriented options out of the caller's control.
+        blocked = {
+            "format", "badchars", "platform", "arch", "ecount", "inject",
+            "altexe", "exedir", "template", "template_path", "addshellcode",
+        }
+        module_options = {
+            key: value
+            for key, value in req.module_options.items()
+            if key in declared_options
+            and key.lower() not in blocked
+            and isinstance(value, (str, int, float, bool))
+        }
+
+        options: dict[str, Any] = {
+            "format": "raw",
+            "badchars": badchars,
+            "ecount": req.iterations,
+            **module_options,
+        }
+        if req.platform.strip():
+            options["platform"] = req.platform.strip()
+        if req.arch.strip():
+            options["arch"] = req.arch.strip()
+
+        result = rpc.call("module.encode", input_data, req.name, options)
+        if not isinstance(result, dict) or "encoded" not in result:
+            raise HTTPException(502, "Metasploit did not return encoded bytes.")
+        artifact = _raw_artifact_response(
+            "encoder",
+            _safe_artifact_name("encoded", req.name),
+            result["encoded"],
+            module=req.name,
+            input_size=len(input_data),
+            iterations=req.iterations,
+        )
+        return artifact
+    except MsfRpcError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+def _run_console_command(console_id: str, command: str, timeout_seconds: float = 12.0) -> str:
+    """Run one fixed-form command in a temporary Metasploit console and collect its output."""
+    try:
+        rpc.call("console.write", console_id, command + "\n")
+        deadline = time.monotonic() + timeout_seconds
+        output = ""
+        idle_reads = 0
+        while time.monotonic() < deadline:
+            result = rpc.call("console.read", console_id)
+            if not isinstance(result, dict):
+                time.sleep(0.1)
+                continue
+
+            chunk = result.get("data")
+            if chunk:
+                output = (output + str(chunk))[-200_000:]
+            if result.get("busy"):
+                idle_reads = 0
+            elif output:
+                idle_reads += 1
+                if idle_reads >= 2:
+                    return output
+            time.sleep(0.1)
+        raise HTTPException(504, "Metasploit console command timed out. Check the Framework console and try again.")
+    except MsfRpcError as exc:
+        raise HTTPException(502, f"Metasploit console command failed: {exc}") from exc
+
+
+@router.post("/generate-nops")
+def generate_nops(req: NopGenerateRequest):
+    """Generate a raw NOP sled using the selected module's native console dispatcher."""
+    if not _module_path_is_valid(req.name):
+        raise HTTPException(400, "Invalid NOP module name.")
+    if len(req.save_registers) > 16:
+        raise HTTPException(400, "Too many registers were specified.")
+    if any(not re.fullmatch(r"[A-Za-z][A-Za-z0-9]{0,15}", register) for register in req.save_registers):
+        raise HTTPException(400, "Save-register entries may contain letters and numbers only.")
+
+    console_id: str | None = None
+    try:
+        nop_result = rpc.call("module.nops")
+        nops = nop_result.get("modules", []) if isinstance(nop_result, dict) else []
+        if req.name not in nops:
+            raise HTTPException(404, f"NOP module not found: {req.name}")
+
+        created = rpc.call("console.create")
+        console_raw_id = created.get("id") if isinstance(created, dict) else None
+        if console_raw_id is None:
+            raise HTTPException(502, "Metasploit did not provide a console for NOP generation.")
+        console_id = str(console_raw_id)
+        # Drain the initial banner so the output parser only sees the commands below.
+        try:
+            rpc.call("console.read", console_id)
+        except MsfRpcError:
+            pass
+
+        use_output = _run_console_command(console_id, f"use nop/{req.name}")
+        if re.search(r"(?i)(failed to load|could not load|invalid module|no module selected)", use_output):
+            raise HTTPException(502, f"Metasploit could not select NOP module '{req.name}'.")
+
+        badchars = _hex_bytes(req.badchars, "Bad characters")
+        command_parts = ["generate", "-t", "c"]
+        if badchars:
+            command_parts.extend(["-b", badchars.hex()])
+        if req.save_registers:
+            command_parts.extend(["-s", ",".join(req.save_registers)])
+        command_parts.append(str(req.length))
+        generated_output = _run_console_command(console_id, " ".join(command_parts))
+
+        if re.search(r"(?i)(sled generation failed|error:|invalid length|no module selected)", generated_output):
+            raise HTTPException(502, f"Metasploit could not generate a NOP sled: {generated_output[-600:].strip()}")
+
+        escaped_bytes = re.findall(r"\\x([0-9a-fA-F]{2})", generated_output)
+        if not escaped_bytes:
+            raise HTTPException(
+                502,
+                "Metasploit returned no recognizable binary data for the generated NOP sled.",
+            )
+        raw = bytes(int(value, 16) for value in escaped_bytes)
+        if len(raw) != req.length:
+            raise HTTPException(
+                502,
+                f"The selected NOP module returned {len(raw)} bytes; {req.length} were requested.",
+            )
+
+        return _raw_artifact_response(
+            "nop",
+            _safe_artifact_name(f"nop-{req.length}", req.name),
+            raw,
+            module=req.name,
+            requested_size=req.length,
+            badchars=req.badchars,
+            save_registers=req.save_registers,
+        )
+    except MsfRpcError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    finally:
+        if console_id is not None:
+            try:
+                rpc.call("console.destroy", console_id)
+            except MsfRpcError:
+                pass
 
 
 @router.post("/execute")
