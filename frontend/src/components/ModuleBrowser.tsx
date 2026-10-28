@@ -353,17 +353,112 @@ export function ModuleBrowser({ onViewSessions }: { onViewSessions: () => void }
     });
   };
 
-  const execute = async () => {
-    if (!selected || executing || payloadOptionsLoading) return;
-    const executableTypes = new Set(["exploit", "auxiliary", "post", "payload"]);
-    if (!executableTypes.has(selected.type)) {
+  const executeDedicatedArtifact = async () => {
+    if (!selected || executing || (selected.type !== "encoder" && selected.type !== "nop")) return;
+
+    if (selected.type === "encoder") {
+      if (encoderInput.length === 0) {
+        setProgress({ phase: "error", message: "Enter the input bytes to encode first.", sessions: [] });
+        return;
+      }
+      const missing: Record<string, string> = {};
+      for (const [key, option] of Object.entries<any>(info?.options ?? {})) {
+        if (option.required && !String(optionValues[key] ?? "").trim()) {
+          missing[key] = "This option is required.";
+        }
+      }
+      if (Object.keys(missing).length) {
+        setValidationErrors(missing);
+        setActiveTab("options");
+        setProgress({
+          phase: "error",
+          message: `Complete the ${Object.keys(missing).length} required encoder option(s) in the Options tab.`,
+          sessions: [],
+        });
+        return;
+      }
+    } else {
+      const length = Number(nopLength);
+      if (!Number.isSafeInteger(length) || length < 1 || length > 16384) {
+        setProgress({
+          phase: "error",
+          message: "NOP length must be a whole number between 1 and 16,384 bytes.",
+          sessions: [],
+        });
+        return;
+      }
+    }
+
+    const runGeneration = ++executionGeneration.current;
+    const isCurrentRun = () => mounted.current && executionGeneration.current === runGeneration;
+    setExecuting(true);
+    setProgress({
+      phase: "submitting",
+      message: selected.type === "encoder"
+        ? "Encoding input with the selected Metasploit encoder…"
+        : "Generating a NOP sled with the selected Metasploit module…",
+      sessions: [],
+    });
+
+    try {
+      const result = selected.type === "encoder"
+        ? await api.modules.encode({
+            name: selected.name,
+            data: encoderInput,
+            data_format: encoderInputFormat,
+            badchars: encoderBadChars,
+            platform: encoderPlatform,
+            arch: encoderArch,
+            iterations: encoderIterations,
+            module_options: optionValues,
+          })
+        : await api.modules.generateNops({
+            name: selected.name,
+            length: Number(nopLength),
+            badchars: nopBadChars,
+            save_registers: nopSaveRegisters.split(",").map((value) => value.trim()).filter(Boolean),
+          });
+
+      if (!isCurrentRun()) return;
+      const payloadBase64 = typeof result?.payload_base64 === "string" ? result.payload_base64 : "";
+      if (!payloadBase64 || !result.filename) {
+        throw new Error("Metasploit did not return a generated binary artifact.");
+      }
+      const rawSize = Number(result.size);
+      const artifact = {
+        filename: String(result.filename || `generated-${selected.type}.bin`),
+        size: Number.isFinite(rawSize) && rawSize >= 0 ? rawSize : 0,
+        payloadBase64,
+        format: String(result.format || "raw"),
+      };
       setProgress({
-        phase: "error",
-        message: `${selected.type} modules need a dedicated generation/encoding workflow and cannot be run with module.execute.`,
+        phase: "completed",
+        message: `${selected.type === "encoder" ? "Encoding" : "NOP generation"} completed successfully (${formatArtifactSize(artifact.size)}).`,
+        resultText: `Module: ${selected.type}/${selected.name}\nFile: ${artifact.filename}\nFormat: raw binary\nSize: ${artifact.size} bytes`,
+        artifact,
         sessions: [],
       });
+    } catch (e: unknown) {
+      if (isCurrentRun()) {
+        setProgress({
+          phase: "error",
+          message: e instanceof Error ? e.message : String(e),
+          sessions: [],
+        });
+      }
+    } finally {
+      if (isCurrentRun()) setExecuting(false);
+    }
+  };
+
+  const execute = async () => {
+    if (!selected || executing || payloadOptionsLoading) return;
+    if (selected.type === "encoder" || selected.type === "nop") {
+      await executeDedicatedArtifact();
       return;
     }
+    const executableTypes = new Set(["exploit", "auxiliary", "post", "payload"]);
+    if (!executableTypes.has(selected.type)) return;
 
     const runGeneration = ++executionGeneration.current;
     const isCurrentRun = () => mounted.current && executionGeneration.current === runGeneration;
