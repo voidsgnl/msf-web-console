@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { SessionShell } from "./SessionShell";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -26,6 +27,7 @@ export function SessionsView() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [stoppingSessionId, setStoppingSessionId] = useState<number | null>(null);
+  const [pendingTermination, setPendingTermination] = useState<{ id: number; info: string } | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [inspectedSession, setInspectedSession] = useState<{ id: string; session: Record<string, unknown> } | null>(null);
   const activeSessionRef = useRef<number | null>(null);
@@ -102,7 +104,6 @@ export function SessionsView() {
   }, [sessions]);
 
   const stopSession = async (id: number, info: string) => {
-    if (!window.confirm(`Terminate session ${id}${info ? ` (${info})` : ""}? This will close the remote session.`)) return;
     setStoppingSessionId(id);
     setActionError(null);
     setNotice(null);
@@ -219,7 +220,7 @@ export function SessionsView() {
                           interact
                         </button>
                         <button
-                          onClick={() => void stopSession(numericId, info)}
+                          onClick={() => setPendingTermination({ id: numericId, info })}
                           disabled={!Number.isInteger(numericId) || stoppingSessionId !== null}
                           className="text-danger hover:underline disabled:opacity-50"
                         >
@@ -249,6 +250,21 @@ export function SessionsView() {
           </section>
         </div>
       )}
+      <ConfirmDialog
+        open={pendingTermination !== null}
+        title="Terminate session?"
+        description={pendingTermination
+          ? `Terminate session ${pendingTermination.id}${pendingTermination.info ? ` (${pendingTermination.info})` : ""}? This will close the remote session.`
+          : ""}
+        confirmLabel="Terminate session"
+        cancelLabel="Keep session"
+        onCancel={() => setPendingTermination(null)}
+        onConfirm={async () => {
+          if (!pendingTermination) return;
+          await stopSession(pendingTermination.id, pendingTermination.info);
+          setPendingTermination(null);
+        }}
+      />
     </div>
   );
 }
