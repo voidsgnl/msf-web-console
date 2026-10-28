@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 type JobInfo = Record<string, unknown>;
 
@@ -137,6 +138,7 @@ export function JobsView() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [stoppingJobId, setStoppingJobId] = useState<string | null>(null);
+  const [pendingStop, setPendingStop] = useState<{ id: string; name: string } | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobInfo, setJobInfo] = useState<JobInfo | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -257,7 +259,6 @@ export function JobsView() {
   };
 
   const stopJob = async (id: string, name: string) => {
-    if (!window.confirm(`Stop job ${id} (${name})? This interrupts the running task.`)) return;
     setStoppingJobId(id);
     setActionError(null);
     setNotice(null);
@@ -392,7 +393,7 @@ export function JobsView() {
                     </td>
                     <td className="py-2 align-top">
                       <button
-                        onClick={() => void stopJob(id, name)}
+                        onClick={() => setPendingStop({ id, name })}
                         disabled={stoppingJobId !== null}
                         className="text-danger hover:underline disabled:opacity-50"
                       >
@@ -525,6 +526,19 @@ export function JobsView() {
           </div>
         </section>
       )}
+      <ConfirmDialog
+        open={pendingStop !== null}
+        title="Stop running job?"
+        description={pendingStop ? `Stop job ${pendingStop.id} (${pendingStop.name})? This interrupts the running task.` : ""}
+        confirmLabel="Stop job"
+        cancelLabel="Keep job running"
+        onCancel={() => setPendingStop(null)}
+        onConfirm={async () => {
+          if (!pendingStop) return;
+          await stopJob(pendingStop.id, pendingStop.name);
+          setPendingStop(null);
+        }}
+      />
     </div>
   );
 }
