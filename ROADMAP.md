@@ -37,7 +37,7 @@ would matter:
   state
 - Styled confirmation dialogs instead of native browser `confirm()` popups
 
-## Phase 1 — Plain-language layer (in progress)
+## Phase 1 — Plain-language layer (done)
 
 Make the *existing* flow (browse → configure → run → read result)
 understandable without already knowing Metasploit's vocabulary. No new
@@ -52,13 +52,14 @@ workflows yet — just translate what's already there.
       session-list outcome of a run into a one-line plain-English verdict
       ("A new session opened — you now have remote access to the target")
       instead of leaving the user to infer success from a status pill.
-- [ ] **Module one-liners** — a short, plain-language "what this does and
-      when you'd use it" line shown before Metasploit's own (often dense,
-      jargon-heavy) module description.
-- [ ] **Inline risk/impact labels** — surface a module's `Rank`,
-      `Privileged`, and side-effect notes (already returned by the RPC,
-      currently buried in the Advanced tab) as a visible badge before
-      execution, not after.
+- [x] **Module one-liners** — a "Quick summary" box combining a generic,
+      accurate explanation of the module *type* with the module's own first
+      sentence of description (pulled verbatim, not fabricated), shown
+      before the full dense description.
+- [x] **Inline risk/impact labels** — a module's `Rank` (color-coded by
+      reliability), `Privileged`, and `SideEffects` notes (already returned
+      by the RPC, previously buried in the Advanced tab) now show as visible
+      badges in the module header, before execution rather than after.
 
 ## Phase 2 — Guided workflows
 
