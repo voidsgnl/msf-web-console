@@ -49,6 +49,13 @@ typed it into `msfconsole`.
 
 The application remains single-account; multi-user accounts and roles are outside the current design.
 
+This covers the UI mechanics of driving Metasploit - it does not yet make
+the tool usable *without* already knowing Metasploit's concepts and
+vocabulary (RHOSTS, LHOST, payloads, sessions, etc.). See
+[ROADMAP.md](ROADMAP.md) for the plan to close that gap: a plain-language
+layer is in progress, followed by guided scan/exploit workflows and safety
+rails.
+
 ## Security boundary
 
 **Login is required for the console API and WebSockets. The application remains local-only and does not support remote deployment.** HTTP requests and browser terminal WebSockets require an authenticated server-side session. Login uses credentials configured in `backend/.env`, session cookies are HTTP-only and SameSite strict, sessions expire, logout revokes the session, and repeated failed login attempts are rate-limited. Sessions are kept in memory and are invalidated when the backend restarts.

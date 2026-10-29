@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { api } from "../lib/api";
+import { glossaryFor } from "../lib/glossary";
 
 type ModuleRef = { type: string; name: string };
 type SessionSummary = { id: string; session: Record<string, any> };
@@ -845,6 +846,33 @@ export function ModuleBrowser({ onViewSessions, onViewJobs }: { onViewSessions: 
     return `${hours}h ${minutes % 60}m`;
   }
 
+  // Translates the raw completed/error outcome into a plain-English verdict,
+  // so "Completed" + a wall of returned data doesn't leave someone who
+  // doesn't already know Metasploit guessing whether anything actually
+  // happened. Only covers the two terminal states with a clear meaning;
+  // "running"/"submitting"/"timeout" already have their own wording above.
+  function interpretOutcome(current: ExecutionProgress, moduleType: string): string | null {
+    if (current.phase === "completed") {
+      if (current.sessions.length > 0) {
+        return "Success — this opened a new session, meaning you now have remote access to the target. Open Sessions to use it.";
+      }
+      if (current.artifact) {
+        return "Done — a file was generated below. Nothing was sent to a target by this step.";
+      }
+      if (moduleType === "exploit") {
+        return "The exploit finished without opening a session. That usually means the target wasn't vulnerable, was unreachable, or the payload couldn't connect back (double-check LHOST/LPORT) — see the result below for details.";
+      }
+      if (moduleType === "auxiliary") {
+        return "The scan/check finished. This module type doesn't open sessions by itself — see the result below for what it found.";
+      }
+      return "The module finished running. See the result below for what it did.";
+    }
+    if (current.phase === "error") {
+      return "This run failed before producing a result. Common causes: the target is unreachable, the port is closed, or the target isn't actually vulnerable to this module. See the message below for the specific reason.";
+    }
+    return null;
+  }
+
   const moduleInfo: Record<string, any> =
     info?.info && typeof info.info === "object" ? info.info : {};
   const moduleOptions: Record<string, any> =
@@ -892,6 +920,7 @@ export function ModuleBrowser({ onViewSessions, onViewJobs }: { onViewSessions: 
       : optionValues[key] ?? "";
     const validationKey = scope === "payload" ? `PAYLOAD.${key}` : key;
     const description = option.desc ?? option.description;
+    const plainLanguageHint = glossaryFor(key);
     const choices = option.enums ?? option.enum ?? option.values;
     const isBoolean = /^(bool|boolean)$/i.test(String(option.type ?? ""));
     const isNumber = /^(int|integer|float|number|port)$/i.test(String(option.type ?? ""));
@@ -955,6 +984,11 @@ export function ModuleBrowser({ onViewSessions, onViewJobs }: { onViewSessions: 
               aria-invalid={Boolean(validationErrors[validationKey])}
               className={`w-full min-w-0 bg-bg-tertiary border rounded px-2.5 py-2 text-xs text-gray-100 font-mono focus:outline-none focus:border-accent ${validationErrors[validationKey] ? "border-danger" : "border-border"}`}
             />
+          )}
+          {plainLanguageHint && (
+            <p className="text-[11px] leading-relaxed text-gray-300 bg-accent/5 border border-accent/20 rounded px-2 py-1.5">
+              {plainLanguageHint}
+            </p>
           )}
           {description && <p className="text-[11px] leading-relaxed text-gray-500">{String(description)}</p>}
           {validationErrors[validationKey] && <p className="text-[11px] text-danger">{validationErrors[validationKey]}</p>}
@@ -1604,6 +1638,15 @@ export function ModuleBrowser({ onViewSessions, onViewJobs }: { onViewSessions: 
                         <span className="text-[10px] text-gray-500 font-mono">· took {formatElapsed((nowTick - runStartedAt))}</span>
                       )}
                     </div>
+                    {selected && interpretOutcome(progress, selected.type) && (
+                      <p className={`mt-2 rounded border px-2.5 py-2 text-xs leading-relaxed ${
+                        progress.phase === "error"
+                          ? "border-danger/30 bg-danger/5 text-gray-200"
+                          : "border-emerald-500/30 bg-emerald-500/5 text-gray-200"
+                      }`}>
+                        {interpretOutcome(progress, selected.type)}
+                      </p>
+                    )}
                     <p className="text-xs text-gray-300 mt-1">{progress.message}</p>
                     {progress.jobId && <p className="text-[10px] text-gray-500 mt-1 font-mono">Job ID: {progress.jobId}</p>}
                     {progress.runUuid && <p className="text-[10px] text-gray-500 mt-1 font-mono">Run UUID: {progress.runUuid}</p>}
