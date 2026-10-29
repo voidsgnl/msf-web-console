@@ -272,7 +272,17 @@ function DetailSection({
   );
 }
 
-export function ModuleBrowser({ onViewSessions, onViewJobs }: { onViewSessions: () => void; onViewJobs: () => void }) {
+export type ModuleSearchRequest = { type: string; query: string; nonce: number };
+
+export function ModuleBrowser({
+  onViewSessions,
+  onViewJobs,
+  externalSearchRequest,
+}: {
+  onViewSessions: () => void;
+  onViewJobs: () => void;
+  externalSearchRequest?: ModuleSearchRequest | null;
+}) {
   const [query, setQuery] = useState("");
   const [type, setType] = useState<string>("exploit");
   const [results, setResults] = useState<ModuleRef[]>([]);
@@ -350,6 +360,19 @@ export function ModuleBrowser({ onViewSessions, onViewJobs }: { onViewSessions: 
       }
     }
   };
+
+  // Lets another view (the scan wizard's "Investigate in Modules" button)
+  // drive this search from outside, without this component needing to know
+  // anything about where the request came from. Keyed on `nonce` so the
+  // same {type, query} pair fired twice in a row (e.g. clicking the same
+  // suggestion again) still re-triggers the search.
+  const lastAppliedSearchNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (!externalSearchRequest || externalSearchRequest.nonce === lastAppliedSearchNonce.current) return;
+    lastAppliedSearchNonce.current = externalSearchRequest.nonce;
+    setType(externalSearchRequest.type);
+    void search(externalSearchRequest.query, externalSearchRequest.type);
+  }, [externalSearchRequest]);
 
   const loadCompatiblePayloads = async (
     moduleName: string,

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Sidebar, View } from "./components/Sidebar";
 import { ConsoleView } from "./components/ConsoleView";
-import { ModuleBrowser } from "./components/ModuleBrowser";
+import { ModuleBrowser, ModuleSearchRequest } from "./components/ModuleBrowser";
+import { ScanWizard } from "./components/ScanWizard";
 import { SessionsView } from "./components/SessionsView";
 import { HostsView } from "./components/HostsView";
 import { JobsView } from "./components/JobsView";
@@ -22,6 +23,7 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [checked, setChecked] = useState(false);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
+  const [moduleSearchRequest, setModuleSearchRequest] = useState<ModuleSearchRequest | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>("checking");
   const [authConfigured, setAuthConfigured] = useState<boolean | null>(null);
   const [username, setUsername] = useState("");
@@ -76,6 +78,13 @@ export default function App() {
   const visit = (next: View) => {
     setView(next);
     setVisitedViews((current) => (current.has(next) ? current : new Set(current).add(next)));
+  };
+
+  // Drives the module browser's search from outside (the scan wizard's
+  // "Investigate in Modules" button) and switches to that tab.
+  const investigateModules = (type: string, query: string) => {
+    setModuleSearchRequest({ type, query, nonce: Date.now() });
+    visit("modules");
   };
 
   const finishLogin = (name: string) => {
@@ -148,9 +157,18 @@ export default function App() {
               <ConsoleView />
             </div>
           )}
+          {visitedViews.has("scan") && (
+            <div className="absolute inset-0 overflow-y-auto" style={{ display: view === "scan" ? "block" : "none" }}>
+              <ScanWizard onInvestigate={investigateModules} />
+            </div>
+          )}
           {visitedViews.has("modules") && (
             <div className="absolute inset-0 overflow-hidden" style={{ display: view === "modules" ? "block" : "none" }}>
-              <ModuleBrowser onViewSessions={() => visit("sessions")} onViewJobs={() => visit("jobs")} />
+              <ModuleBrowser
+                onViewSessions={() => visit("sessions")}
+                onViewJobs={() => visit("jobs")}
+                externalSearchRequest={moduleSearchRequest}
+              />
             </div>
           )}
           {visitedViews.has("sessions") && (
