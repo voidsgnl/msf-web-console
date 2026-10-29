@@ -67,14 +67,24 @@ The real skill gap in Metasploit isn't "which button do I click" — it's
 "which module do I even need." That requires a guided path, not just a
 better module browser.
 
-- [ ] **"Scan a target" wizard** — enter an IP/range, the tool runs the
-      right discovery modules (port scan → service version detection)
-      automatically, and shows findings in plain language rather than
-      requiring the user to pick scanner modules themselves.
-- [ ] **Suggested next steps from scan results** — match discovered
-      services/versions against known exploit modules (mirroring
-      `post/multi/recon/local_exploit_suggester`'s approach) and present
-      them as "here's what might work here," ranked by rank/reliability.
+- [x] **"Scan a target" wizard (v1)** — enter an IP/range/CIDR, the tool
+      runs Metasploit's TCP port scanner automatically and lists open ports
+      with a plain-language guess at what's likely running on well-known
+      ones - no scanner module picking required. The guess is explicitly
+      labeled as port-number-based, not a confirmed service identification
+      (the port scanner alone doesn't fingerprint services - see note
+      below).
+- [ ] **Real service version detection** — chain in the actual
+      protocol-specific scanner modules (`scanner/http/http_version`,
+      `scanner/smb/smb_version`, `scanner/ftp/ftp_version`, etc.) for open
+      ports instead of guessing from the port number alone, so the
+      suggestion is a confirmed service, not a guess.
+- [ ] **Suggested next steps from scan results** — currently a static
+      port→keyword lookup that jumps into a module search. Upgrade to
+      actually match discovered services/versions against known exploit
+      modules (mirroring `post/multi/recon/local_exploit_suggester`'s
+      approach) and rank by rank/reliability, once real version detection
+      (above) is in place to match against.
 - [ ] **Recipes** — a small library of named, pre-filled workflows for
       common teaching/lab scenarios (e.g. "exploit a vulnerable FTP
       service"), so a first-time user has something concrete to run and
