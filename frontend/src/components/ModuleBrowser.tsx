@@ -511,6 +511,7 @@ export function ModuleBrowser({
           }
         }
       }
+      if (!mounted.current || generation !== selectionGeneration.current) return;
       setAutoOptionSources(autoSources);
       setOptionValues(defaults);
 
