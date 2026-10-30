@@ -294,19 +294,18 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
       const rows = Array.isArray(result?.services) ? result.services : [];
       // Metasploit's db.services is workspace-wide. Only include hosts inside this
       // scan's target, and only records absent from the pre-scan snapshot.
-      const open: DiscoveredService[] = baselineKeys === null ? [] : rows
-        .filter((row: any) => row && row.state === "open" && row.host != null && row.port !== undefined && row.port !== null)
+      const matching: DiscoveredService[] = rows
+        .filter((row: any) => row && String(row.state ?? "").toLowerCase() === "open" && row.host != null && row.port !== undefined && row.port !== null)
         .map((row: any) => ({
           host: String(row.host).trim(),
           port: Number(row.port),
           info: typeof row.info === "string" ? row.info.trim() : "",
         }))
-        .filter((row: DiscoveredService) =>
-          Number.isFinite(row.port) &&
-          targetMatchesHost(scanTarget, row.host) &&
-          !baselineKeys.has(serviceKey(row).toLowerCase())
-        );
-      open.sort((a, b) => (a.host === b.host ? a.port - b.port : a.host.localeCompare(b.host)));
+        .filter((row: DiscoveredService) => Number.isInteger(row.port) && row.port >= 1 && row.port <= 65535 && targetMatchesHost(scanTarget, row.host));
+      const newlyRecorded = baselineKeys === null ? [] : matching.filter((row) => !baselineKeys.has(serviceKey(row).toLowerCase()));
+      // Prefer records added during this run. If none were added, show the
+      // target's already-known open services rather than an empty result set.
+      const open = newlyRecorded.length ? newlyRecorded : matching;      open.sort((a, b) => (a.host === b.host ? a.port - b.port : a.host.localeCompare(b.host)));
       servicesRef.current = open;
       setServices(open);
       return baselineKeys !== null;
@@ -351,11 +350,11 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     setPhase("completed");
     setMessage(
       findings.length
-        ? `Scan finished. Found ${findings.length} open port${findings.length === 1 ? "" : "s"} for the requested target.${resultWarning && !scannerFindings.length ? " Scanner output was unavailable; showing verified new database records only." : ""}`
+        ? `Scan finished. Showing ${findings.length} matching open port${findings.length === 1 ? "" : "s"} for the requested target${scannerFindings.length ? " from this scan's output" : " from the workspace database"}.${resultWarning && !scannerFindings.length ? " Scanner output was unavailable; existing matching database records are shown." : ""}`
         : resultWarning
-          ? `Scan finished, but Metasploit's run output could not be retrieved and no new matching database records were found. Result lookup: ${resultWarning}`
+          ? `Scan finished, but Metasploit's run output could not be retrieved and no matching database records were found. Result lookup: ${resultWarning}`
           : resultsVerified
-            ? "Scan finished. No new open ports were recorded for the requested target."
+            ? "Scan finished. No matching open ports were found in the scan output or workspace database."
             : "Scan finished, but results could not be safely verified. No ports are displayed."
     );
   };
