@@ -3,6 +3,7 @@ import { api } from "../lib/api";
 import type { SuggestedModule } from "../lib/api";
 import { suggestForPort } from "../lib/portSuggestions";
 import { detectionModuleForPort } from "../lib/versionDetection";
+import type { TargetContext } from "./ModuleBrowser";
 
 type Phase = "idle" | "submitting" | "running" | "completed" | "timeout" | "error";
 type ConfirmPhase = "idle" | "running" | "done";
