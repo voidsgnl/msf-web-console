@@ -26,7 +26,7 @@ class ScanDetectionRegressionTests(unittest.TestCase):
     def test_running_service_is_not_a_negative_vulnerability_verdict(self):
         self.assertEqual(_check_verdict("The target service is running."), "unknown")
 
-    def test_metaspoloit_checkcode_safe_is_not_vulnerable(self):
+    def test_metasploit_checkcode_safe_is_not_vulnerable(self):
         self.assertEqual(_check_verdict("CheckCode::Safe"), "not_vulnerable")
 
     def test_metaspoloit_checkcode_vulnerable_is_vulnerable(self):
@@ -37,6 +37,24 @@ class ScanDetectionRegressionTests(unittest.TestCase):
 
     def test_connection_failure_remains_unknown(self):
         self.assertEqual(_check_verdict("Connection refused"), "unknown")
+
+    def test_apache_coyote_suggestions_search_tomcat_not_apache_projects(self):
+        from unittest.mock import patch
+
+        from app.routes.modules import suggest_modules
+
+        with patch(
+            "app.routes.modules.rpc.call",
+            side_effect=[
+                {"modules": ["scanner/http/tomcat_mgr_login", "scanner/http/apache_userdir_enum"]},
+                {"rank": 300, "description": "Tomcat manager login scanner"},
+            ],
+        ) as rpc_call:
+            result = suggest_modules("Apache-Coyote/1.1", port=8080, types="auxiliary")
+
+        self.assertEqual(result["query"], "tomcat")
+        self.assertEqual([item["name"] for item in result["candidates"]], ["scanner/http/tomcat_mgr_login"])
+        self.assertEqual(rpc_call.call_args_list[1].args, ("module.info", "auxiliary", "scanner/http/tomcat_mgr_login"))
 
 
 if __name__ == "__main__":
