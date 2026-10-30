@@ -44,7 +44,7 @@ function ipv4Number(value: string): number | null {
   if (parts.length !== 4) return null;
   let result = 0;
   for (const part of parts) {
-    if (!/^\\d{1,3}$/.test(part)) return null;
+    if (!/^\d{1,3}$/.test(part)) return null;
     const octet = Number(part);
     if (octet < 0 || octet > 255) return null;
     result = (result * 256 + octet) >>> 0;
@@ -55,12 +55,12 @@ function ipv4Number(value: string): number | null {
 function targetMatchesHost(rawTarget: string, rawHost: string): boolean {
   const host = rawHost.trim().toLowerCase();
   if (!host) return false;
-  const targets = rawTarget.split(/[\\s,]+/).map((item) => item.trim().toLowerCase()).filter(Boolean);
+  const targets = rawTarget.split(/[\s,]+/).map((item) => item.trim().toLowerCase()).filter(Boolean);
   return targets.some((target) => {
     if (target === host) return true;
     const hostNumber = ipv4Number(host);
     if (hostNumber === null) return false;
-    const cidr = /^(\\d{1,3}(?:\\.\\d{1,3}){3})\\/(\\d{1,2})$/.exec(target);
+    const cidr = /^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/.exec(target);
     if (cidr) {
       const network = ipv4Number(cidr[1]);
       const prefix = Number(cidr[2]);
@@ -68,7 +68,7 @@ function targetMatchesHost(rawTarget: string, rawHost: string): boolean {
       const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
       return (hostNumber & mask) === (network & mask);
     }
-    const range = /^(\\d{1,3}(?:\\.\\d{1,3}){3})-(\\d{1,3}(?:\\.\\d{1,3}){3})$/.exec(target);
+    const range = /^(\d{1,3}(?:\.\d{1,3}){3})-(\d{1,3}(?:\.\d{1,3}){3})$/.exec(target);
     if (range) {
       const start = ipv4Number(range[1]);
       const end = ipv4Number(range[2]);
