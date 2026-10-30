@@ -48,7 +48,7 @@ function validateCustomPorts(raw: string): { value: string; error: string | null
   for (const rawToken of tokens) {
     const token = rawToken.trim();
     if (!token) return { value: "", error: "Remove empty entries between commas." };
-    const match = /^(\\d{1,5})(?:-(\\d{1,5}))?$/.exec(token);
+    const match = /^(\d{1,5})(?:-(\d{1,5}))?$/.exec(token);
     if (!match) return { value: "", error: `"${token}" is invalid. Use ports and ranges such as 80,443,8000-8100.` };
     const start = Number(match[1]);
     const end = match[2] ? Number(match[2]) : start;
@@ -206,9 +206,11 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
 
       setPhase("running");
       setMessage(
-        scanAllPorts
+        scanMode === "all"
           ? "Scanning all 10,000 ports - this can take several minutes…"
-          : "Scanning the common ports…"
+          : scanMode === "custom"
+            ? `Scanning custom ports: ${customPortResult!.value}…`
+            : "Scanning the common ports…"
       );
 
       const deadline = Date.now() + SCAN_TIMEOUT_MS;
