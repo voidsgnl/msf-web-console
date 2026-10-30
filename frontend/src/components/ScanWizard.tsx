@@ -431,7 +431,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
       [key]: { status: "loading", query: null, candidates: [] },
     }));
     try {
-      const result = await api.modules.suggest(service.info, service.port);
+      const result = await api.modules.suggest(service.info || "", service.port);
       if (!mounted.current) return;
       setSuggestions((current) => ({
         ...current,
