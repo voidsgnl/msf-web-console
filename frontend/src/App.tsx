@@ -83,8 +83,8 @@ export default function App() {
 
   // Drives the module browser's search from outside (the scan wizard's
   // "Investigate in Modules" button) and switches to that tab.
-  const investigateModules = (type: string, query: string) => {
-    setModuleSearchRequest({ type, query, nonce: Date.now() });
+  const investigateModules = (type: string, query: string, targetContext?: TargetContext) => {
+    setModuleSearchRequest({ type, query, nonce: Date.now(), targetContext });
     visit("modules");
   };
 
