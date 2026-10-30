@@ -39,6 +39,7 @@ typed it into `msfconsole`.
 - Dedicated NOP workflow: generate an architecture-specific NOP sled with a selected Metasploit NOP module, optional bad-character exclusions and save-register hints, then download the raw binary artifact. Uses a temporary authenticated Metasploit console because standard RPC exposes NOP listing/inspection but no direct NOP-generation method
 - Target-aware compatible payload browsing and selection, including payload
   option editing before exploit execution
+- Scan-to-module target context: opening a module or a matching exploit from scan results pre-fills declared `RHOSTS`/`RHOST` and `RPORT` options; route-aware local address detection suggests `LHOST` for the selected target. Auto-filled values are labeled by source and remain editable. No module runs automatically.
 - Session list + kill + interactive session shell/meterpreter terminal
 - Jobs list + stop
 - Database explorer: hosts, services, vulnerabilities, loot, and credentials, with cross-record search, field/value filtering, record inspection, host-to-service/vulnerability navigation, and JSON metadata export; sensitive fields are redacted by default
