@@ -8,6 +8,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.msf_rpc import rpc, MsfRpcError
+from app.nvd_client import extract_cve_ids
+from app.banner_parsing import parse_banner
 
 router = APIRouter(prefix="/api/modules", tags=["modules"])
 
@@ -51,6 +53,135 @@ def search_modules(q: str, type: str | None = None):
                 if len(results) >= 200:
                     return {"query": q, "results": results}
     return {"query": q, "results": results}
+
+
+# Metasploit's own module Rank values, ordered worst to best, so suggestions
+# sort the same way local_exploit_suggester and the module browser do.
+_RANK_ORDER = [
+    "manual", "low", "average", "normal", "good", "great", "excellent",
+]
+
+# Maps a banner_parsing.py product name to the keyword(s) likely to appear
+# in a matching exploit module's path/name. This is a search-term hint, not
+# an identification: callers still see the module's own Rank/description/
+# refs and decide for themselves, same as a manual module-browser search.
+_PRODUCT_SEARCH_TERMS: dict[str, list[str]] = {
+    "OpenSSH": ["openssh", "ssh"],
+    "vsftpd": ["vsftpd"],
+    "ProFTPD": ["proftpd"],
+    "Pure-FTPd": ["pureftpd", "pure-ftpd", "pureftp"],
+    "Microsoft FTP Service": ["ftp"],
+    "Postfix": ["postfix"],
+    "Exim": ["exim"],
+    "Sendmail": ["sendmail"],
+    "Microsoft Exchange/IIS SMTP": ["exchange", "smtp"],
+    "Apache httpd": ["apache"],
+    "nginx": ["nginx"],
+    "Microsoft IIS": ["iis"],
+    "lighttpd": ["lighttpd"],
+    "Samba": ["samba"],
+    "Windows": ["windows", "smb"],
+    "MySQL": ["mysql"],
+    "MariaDB": ["mysql", "mariadb"],
+    "PostgreSQL": ["postgres"],
+    "Redis": ["redis"],
+    "Dovecot": ["dovecot"],
+    "Courier": ["courier"],
+    "RDP (TLS)": ["rdp"],
+}
+
+
+class ModuleSuggestion(BaseModel):
+    name: str
+    rank: str | None
+    description: str
+    cve_ids: list[str]
+
+
+@router.get("/suggest")
+def suggest_modules(detection_module: str, info: str, limit: int = 15):
+    """
+    Suggest candidate exploit modules for a *confirmed* service, the way
+    msfconsole's own post/multi/recon/local_exploit_suggester matches
+    confirmed services against exploit metadata - scoped here to one
+    service's banner rather than a whole host's db.services.
+
+    `detection_module` is the scanner module path that produced the
+    confirmation (e.g. "scanner/ftp/ftp_version", matching
+    versionDetection.ts), and `info` is that service's confirmed `info`
+    string from db.services. Both are parsed server-side with
+    banner_parsing.parse_banner so the frontend doesn't need to duplicate
+    that parsing logic.
+
+    This is a module-name/path search plus a sort by Metasploit's own
+    Rank, not a vulnerability determination: a suggestion appearing here
+    means "this module's name references the product that was confirmed,"
+    not "this host is exploitable." The confirmed version is returned
+    alongside each suggestion for the person to judge compatibility
+    themselves (module Info pages rarely encode affected-version ranges in
+    a machine-readable way), not used to filter results.
+    """
+    if not 1 <= limit <= 50:
+        raise HTTPException(400, "limit must be between 1 and 50.")
+
+    parsed = parse_banner(detection_module, info)
+    if parsed is None:
+        return {
+            "product": None,
+            "version": None,
+            "search_terms": [],
+            "suggestions": [],
+            "note": "Could not identify a product/version from this confirmed banner.",
+        }
+
+    product, version = parsed.product, parsed.version
+    search_terms = [term.lower() for term in _PRODUCT_SEARCH_TERMS.get(product, [product.lower()])]
+
+    try:
+        names = rpc.call("module.exploits").get("modules", [])
+    except MsfRpcError as exc:
+        raise HTTPException(502, str(exc))
+
+    candidate_names = [
+        name for name in names
+        if any(term in name.lower() for term in search_terms)
+    ]
+    # Cap how many module.info calls we make per request - msfrpcd has no
+    # bulk-info call, so this is one RPC round-trip per candidate.
+    candidate_names = candidate_names[:60]
+
+    suggestions: list[ModuleSuggestion] = []
+    for name in candidate_names:
+        try:
+            info = rpc.call("module.info", "exploit", name)
+        except MsfRpcError:
+            continue
+        if not isinstance(info, dict):
+            continue
+        description = str(info.get("description") or "").strip()
+        # Keep the description short - the full text is already available
+        # via the existing module-info panel if someone opens the module.
+        if len(description) > 300:
+            description = description[:300].rsplit(" ", 1)[0] + "…"
+        suggestions.append(ModuleSuggestion(
+            name=name,
+            rank=str(info.get("rank")) if info.get("rank") is not None else None,
+            description=description,
+            cve_ids=sorted(extract_cve_ids(info)),
+        ))
+
+    def sort_key(s: ModuleSuggestion) -> int:
+        rank = (s.rank or "").lower()
+        return _RANK_ORDER.index(rank) if rank in _RANK_ORDER else -1
+
+    suggestions.sort(key=sort_key, reverse=True)
+
+    return {
+        "product": product,
+        "version": version,
+        "search_terms": search_terms,
+        "suggestions": [s.model_dump() for s in suggestions[:limit]],
+    }
 
 
 @router.get("/compatible-payloads")
