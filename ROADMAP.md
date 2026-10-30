@@ -105,18 +105,24 @@ better module browser.
       service"), so a first-time user has something concrete to run and
       learn from rather than a blank module browser.
 
-## Phase 3 — Safety rails
+## Phase 3 — Safety rails (implemented; live verification pending)
 
 A novice using an exploitation framework without any friction is a real risk
 to themselves and to whatever they're pointed at.
 
-- [ ] Confirmation step before executing anything flagged `Privileged` or
+- [x] Confirmation step before executing anything flagged `Privileged` or
       with destructive `SideEffects` (`CONFIG_CHANGES`, `ARTIFACTS_ON_DISK`
-      etc. — already in the module metadata, currently unused by the UI)
-- [ ] A visible reminder, enforced in the UI copy (not a legal disclaimer
-      buried in a README), that targets must be owned or authorized
-- [ ] "Check first" nudging — prefer a module's `check` action over a full
-      `run` where Metasploit supports it, and explain the difference
+      etc.). The dialog lists the module's specific higher-impact flags;
+      informational side effects remain visible without triggering a
+      destructive-action confirmation.
+- [x] Visible authorization reminders in the module execution workflow and
+      Recipes view. The reminder appears beside the action, not only in docs.
+- [x] "Check first" guidance — exploit and auxiliary modules expose an
+      explicit `Check first` action where the module supports Metasploit's
+      `check` convention. The UI explains that checks still contact the
+      target, displays vulnerable / not-vulnerable / inconclusive results,
+      and keeps full execution as a separate user action. The Scan wizard's
+      per-candidate Verify action uses the same module check endpoint.
 
 ## Phase 4 — Post-exploitation guidance
 
