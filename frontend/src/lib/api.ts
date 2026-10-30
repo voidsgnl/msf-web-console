@@ -169,8 +169,8 @@ export const api = {
       request<{ waiting?: string[]; running?: string[]; results?: string[] }>("/modules/running-stats"),
     results: (runUuid: string) =>
       request<{ status?: string; result?: unknown; error?: string }>("/modules/results/" + encodeURIComponent(runUuid)),
-    // Heuristic name/description match against a CONFIRMED service banner
-    // (not a port-number guess), ranked by Metasploit's own module Rank.
+    // Match module names against a confirmed banner, or use a labelled
+    // common-port service-family hint when the scan has no banner.
     // Not a vulnerability confirmation by itself - see checkModule below.
     suggest: (serviceInfo: string, port?: number) => {
       const params = new URLSearchParams({ service_info: serviceInfo });
