@@ -118,9 +118,9 @@ function extractScannerFindings(value: unknown, target: string): DiscoveredServi
   visit(value);
   const found = new Map<string, DiscoveredService>();
   for (const text of strings) {
-    for (const line of text.split(/\\r?\\n/)) {
-      if (!/\\bopen\\b/i.test(line)) continue;
-      const match = /\\b((?:\\d{1,3}\\.){3}\\d{1,3}):(\\d{1,5})\\b/.exec(line);
+    for (const line of text.split(/\r?\n/)) {
+      if (!/\bopen\b/i.test(line)) continue;
+      const match = /\b((?:\d{1,3}\.){3}\d{1,3}):(\d{1,5})\b/.exec(line);
       if (!match) continue;
       const host = match[1];
       const port = Number(match[2]);
