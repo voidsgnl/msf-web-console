@@ -124,6 +124,26 @@ to themselves and to whatever they're pointed at.
       and keeps full execution as a separate user action. The Scan wizard's
       per-candidate Verify action uses the same module check endpoint.
 
+## Execution Reliability — foundation track (in progress)
+
+Execution tracking is a correctness requirement, not just a status indicator.
+The UI must not claim success or failure when Metasploit has not provided
+evidence for either outcome. This foundation track is being addressed before
+the next guided workflow phase; it does not renumber the planned phases below.
+
+- [x] Treat repeated result-fetch failures as **outcome unverified**, not as
+      confirmed module execution failures.
+- [x] Treat a job disappearing without a retrievable result as **outcome
+      unverified**, not as confirmed completion.
+- [x] Make the tracking time limit explicitly observational: it stops UI
+      polling only and never cancels the Metasploit job.
+- [ ] Verify behavior against the user's installed Metasploit Framework and
+      document which result-tracking RPC methods that version supports.
+- [ ] Add focused regression tests for unsupported result RPCs, transient
+      missing results, job disappearance, and long-running modules.
+- [ ] Improve fallback tracking and expose the evidence source for each
+      terminal or unverified status.
+
 ## Phase 4 — Post-exploitation guidance
 
 - [ ] A plain-language "what can I do now" panel attached to a new session
