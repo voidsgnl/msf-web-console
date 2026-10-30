@@ -64,7 +64,7 @@ function verdictBadge(state: VerifyState | undefined): { label: string; style: s
   return { label: "Unknown / unconfirmed", style: "border-warning/30 bg-warning/5 text-warning" };
 }
 
-export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, query: string, targetContext?: ScanTargetContext) => void }) {
+export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, query: string, targetContext?: TargetContext) => void }) {
   const [target, setTarget] = useState("");
   const [scanAllPorts, setScanAllPorts] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
