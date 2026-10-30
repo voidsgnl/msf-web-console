@@ -100,7 +100,7 @@ better module browser.
       same mechanism `local_exploit_suggester` uses internally) and returns
       a verdict, surfaced in the Scan wizard as a per-candidate "Verify"
       button rather than run automatically.
-- [ ] **Recipes** — a small library of named, pre-filled workflows for
+- [x] **Recipes** — a small library of named, pre-filled workflows for
       common teaching/lab scenarios (e.g. "exploit a vulnerable FTP
       service"), so a first-time user has something concrete to run and
       learn from rather than a blank module browser.
