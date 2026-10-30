@@ -585,6 +585,7 @@ export function ModuleBrowser({
           // Keep the payload's own LHOST default when route detection fails.
         }
       }
+      if (!mounted.current || generation !== selectionGeneration.current) return;
       setSelectedPayload(payloadName);
       if (!switchTab) setPayloadAutoSelected(true);
       setSelectedPayloadDescription(String(payloadInfo.info?.description ?? ""));
