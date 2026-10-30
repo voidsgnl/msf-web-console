@@ -320,6 +320,7 @@ export function ModuleBrowser({
   const [activeTab, setActiveTab] = useState<ModuleTab>("overview");
   const [executing, setExecuting] = useState(false);
   const [confirmExecuteOpen, setConfirmExecuteOpen] = useState(false);
+  const [checkState, setCheckState] = useState<{ status: "idle" | "running" | "done" | "error"; verdict?: string; output?: string; error?: string }>({ status: "idle" });
   const [progress, setProgress] = useState<ExecutionProgress | null>(null);
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -460,6 +461,7 @@ export function ModuleBrowser({
     setOptionSearch("");
     setShowAdvancedOptions(false);
     setConfirmExecuteOpen(false);
+    setCheckState({ status: "idle" });
     setLoadingInfo(true);
     try {
       const data = await api.modules.info(mod.type, mod.name);
@@ -663,6 +665,26 @@ export function ModuleBrowser({
       }
     } finally {
       if (isCurrentRun()) setExecuting(false);
+    }
+  };
+
+  const checkSelectedModule = async () => {
+    if (!selected || !["exploit", "auxiliary"].includes(selected.type) || checkState.status === "running") return;
+    const required = Object.entries<any>(info?.options ?? {}).filter(
+      ([key, option]) => option.required && !String(optionValues[key] ?? "").trim()
+    );
+    if (required.length) {
+      setValidationErrors(Object.fromEntries(required.map(([key]) => [key, "This option is required for the check."])));
+      setActiveTab("options");
+      setCheckState({ status: "error", error: "Complete the required target and module options before running Check." });
+      return;
+    }
+    setCheckState({ status: "running" });
+    try {
+      const result = await api.modules.checkModule(selected.type, selected.name, optionValues);
+      setCheckState({ status: "done", verdict: result.verdict, output: result.raw_output });
+    } catch (error: unknown) {
+      setCheckState({ status: "error", error: error instanceof Error ? error.message : String(error) });
     }
   };
 
@@ -1241,6 +1263,17 @@ export function ModuleBrowser({
                     </div>
                   )}
                 </div>
+                {(selected.type === "exploit" || selected.type === "auxiliary") && (
+                  <button
+                    type="button"
+                    onClick={() => void checkSelectedModule()}
+                    disabled={executing || loadingInfo || checkState.status === "running" || !info}
+                    className="shrink-0 rounded border border-accent/40 bg-accent/5 px-3 py-2.5 text-xs font-medium text-accent hover:bg-accent/10 disabled:opacity-50"
+                    title="Run Metasploit's non-exploit check action when this module supports it. This still sends a probe to the configured target."
+                  >
+                    {checkState.status === "running" ? "Checking…" : "Check first"}
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     if (needsExecuteConfirmation) {
@@ -1264,6 +1297,31 @@ export function ModuleBrowser({
                         : selected.type === "nop" ? "Generate NOP sled" : "Execute module"}
                 </button>
               </div>
+              {(selected.type === "exploit" || selected.type === "auxiliary") && (
+                <div className="mt-3 rounded border border-border bg-bg-primary px-3 py-2.5">
+                  <p className="text-xs font-medium text-gray-200">Check before running</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+                    Check asks the module whether the configured target appears vulnerable, without attempting the exploit. Not every module supports it, and a check still contacts the target. An inconclusive result is not proof of safety.
+                  </p>
+                  {checkState.status === "error" && <p role="alert" className="mt-2 text-xs text-danger">{checkState.error}</p>}
+                  {checkState.status === "done" && (
+                    <div className="mt-2">
+                      <p className={`text-xs font-semibold ${checkState.verdict === "vulnerable" ? "text-danger" : checkState.verdict === "not_vulnerable" ? "text-emerald-400" : "text-warning"}`}>
+                        {checkState.verdict === "vulnerable" ? "Check: appears vulnerable" : checkState.verdict === "not_vulnerable" ? "Check: not reported vulnerable" : "Check: inconclusive or unsupported"}
+                      </p>
+                      {checkState.output && <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words text-[11px] text-gray-500">{checkState.output}</pre>}
+                    </div>
+                  )}
+                </div>
+              )}
+              {(selected.type === "exploit" || selected.type === "auxiliary" || selected.type === "post") && (
+                <div className="mt-3 rounded border border-warning/30 bg-warning/5 px-3 py-2.5">
+                  <p className="text-xs font-semibold text-warning">Authorized targets only</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+                    Running this module sends actions or requests to the configured target. Continue only if you own the system or have explicit authorization to assess it. Review the target and options before proceeding.
+                  </p>
+                </div>
+              )}
               {selected.type === "encoder" && (
                 <p role="status" className="mt-3 rounded border border-accent/20 bg-accent/5 px-3 py-2 text-xs text-gray-400">
                   Provide input as text, hexadecimal bytes, or Base64. Output is saved as a raw binary artifact; encoder options from the Options tab are included when supported.
