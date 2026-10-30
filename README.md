@@ -31,8 +31,9 @@ typed it into `msfconsole`.
 - Module search/browse across exploit, auxiliary, post, payload, encoder,
   nop
 - Module info + option editing + execution for exploit, auxiliary, and post
-  modules, including required-option checks, job/UUID tracking, returned result
-  display, and new-session detection
+  modules, including required-option checks, job/UUID tracking, explicit unverified
+  outcomes when result retrieval fails, tracking timeouts that never cancel
+  the Metasploit job, returned result display, and new-session detection
 - Payload generation with a binary-safe artifact download
 - Dedicated encoder workflow: encode supplied text, hex, or Base64 input with a selected Metasploit encoder, optional bad-character filtering, architecture/platform settings, iterations, and encoder-supported options; encoded output downloads as a raw binary artifact
 - Dedicated NOP workflow: generate an architecture-specific NOP sled with a selected Metasploit NOP module, optional bad-character exclusions and save-register hints, then download the raw binary artifact. Uses a temporary authenticated Metasploit console because standard RPC exposes NOP listing/inspection but no direct NOP-generation method
@@ -51,9 +52,9 @@ typed it into `msfconsole`.
 
 The application remains single-account; multi-user accounts and roles are outside the current design.
 
-The plain-language layer and initial guided workflows are implemented. See
-[ROADMAP.md](ROADMAP.md) for the remaining safety rails, post-exploitation
-guidance, and onboarding work.
+The plain-language layer, guided workflows, and initial safety rails are
+implemented. Execution Reliability is being hardened before further workflow
+guidance; see [ROADMAP.md](ROADMAP.md) for the remaining work.
 
 ## Security boundary
 
