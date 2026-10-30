@@ -285,7 +285,8 @@ function DetailSection({
   );
 }
 
-export type TargetContext = { host: string; port?: number; serviceInfo?: string; source: "scan" };\nexport type ModuleSearchRequest = { type: string; query: string; nonce: number; targetContext?: TargetContext };
+export type TargetContext = { host: string; port?: number; serviceInfo?: string; source: "scan" };
+export type ModuleSearchRequest = { type: string; query: string; nonce: number; targetContext?: TargetContext };
 
 export function ModuleBrowser({
   onViewSessions,
@@ -313,7 +314,9 @@ export function ModuleBrowser({
   const [payloadOptionsLoading, setPayloadOptionsLoading] = useState(false);
   const [payloadOptionsError, setPayloadOptionsError] = useState<string | null>(null);
   const [payloadAutoSelected, setPayloadAutoSelected] = useState(false);
-  const [optionValues, setOptionValues] = useState<Record<string, string>>({});\n  const [autoOptionSources, setAutoOptionSources] = useState<Record<string, string>>({});\n  const [activeTargetContext, setActiveTargetContext] = useState<TargetContext | null>(null);
+  const [optionValues, setOptionValues] = useState<Record<string, string>>({});
+  const [autoOptionSources, setAutoOptionSources] = useState<Record<string, string>>({});
+  const [activeTargetContext, setActiveTargetContext] = useState<TargetContext | null>(null);
   const [optionSearch, setOptionSearch] = useState("");
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
@@ -1300,7 +1303,8 @@ export function ModuleBrowser({
                     )}
                   </div>
                   <h1 className="text-sm md:text-base font-mono text-gray-100 break-all">{textValue(moduleInfo.fullname) || `${selected.type}/${selected.name}`}</h1>
-                  <p className="text-xs text-gray-500 mt-1">Metasploit module inspector</p>\n                  {activeTargetContext && <p className="mt-1 text-[11px] text-emerald-400">Scan context · {activeTargetContext.host}{activeTargetContext.port ? `:${activeTargetContext.port}` : ""} · values are prefilled for review</p>}
+                  <p className="text-xs text-gray-500 mt-1">Metasploit module inspector</p>
+                  {activeTargetContext && <p className="mt-1 text-[11px] text-emerald-400">Scan context · {activeTargetContext.host}{activeTargetContext.port ? `:${activeTargetContext.port}` : ""} · values are prefilled for review</p>}
                   {sideEffectCodes.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {sideEffectCodes.map((code) => (
