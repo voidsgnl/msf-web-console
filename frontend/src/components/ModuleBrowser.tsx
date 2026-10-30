@@ -929,7 +929,7 @@ export function ModuleBrowser({
           ...current,
           phase: "timeout",
           message: current.sessions.length
-            ? "Still watching this run, but new session(s) are already available below - open Sessions to use them now."
+            ? "Tracking stopped after the time limit. New session(s) are available below - open Sessions to use them; the module may still be active."
             : `Tracking stopped after ${minutes} minutes. This does not stop or cancel the Metasploit module: it may still be running, or it may have finished without a retrievable result. Check Jobs and the Metasploit console for its current state.`,
         } : null);
       }
@@ -1868,7 +1868,9 @@ export function ModuleBrowser({
                       <p className={`mt-2 rounded border px-2.5 py-2 text-xs leading-relaxed ${
                         progress.phase === "error"
                           ? "border-danger/30 bg-danger/5 text-gray-200"
-                          : "border-emerald-500/30 bg-emerald-500/5 text-gray-200"
+                          : progress.phase === "unknown" || progress.phase === "timeout"
+                            ? "border-warning/30 bg-warning/5 text-gray-200"
+                            : "border-emerald-500/30 bg-emerald-500/5 text-gray-200"
                       }`}>
                         {interpretOutcome(progress, selected.type)}
                       </p>
