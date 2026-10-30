@@ -206,7 +206,7 @@ function serviceRecordKey(row: any): string {
 }
 
 function portScanTargets(raw: unknown): Set<string> {
-  return new Set(String(raw ?? "").split(/[\\s,]+/).map((value) => value.trim()).filter(Boolean));
+  return new Set(String(raw ?? "").split(/[\s,]+/).map((value) => value.trim()).filter(Boolean));
 }
 
 async function portScanDatabaseSummary(
@@ -223,16 +223,16 @@ async function portScanDatabaseSummary(
   const added = matching.filter((row: any) => !beforeKeys.has(serviceRecordKey(row)));
   const displayed = added.length ? added : matching;
   if (added.length) {
-    return "Database findings (new records from this run):\\n" + added
+    return "Database findings (new records from this run):\n" + added
       .sort((a: any, b: any) => Number(a.port) - Number(b.port))
       .map((row: any) => `- ${row.host}:${row.port}/${row.proto || "tcp"}${row.name ? ` · ${row.name}` : ""}${row.info ? ` · ${row.info}` : ""}`)
-      .join("\\n");
+      .join("\n");
   }
   if (displayed.length) {
-    return "No new service records were added by this run. Existing open services already recorded for the target(s):\\n" + displayed
+    return "No new service records were added by this run. Existing open services already recorded for the target(s):\n" + displayed
       .sort((a: any, b: any) => Number(a.port) - Number(b.port))
       .map((row: any) => `- ${row.host}:${row.port}/${row.proto || "tcp"}${row.name ? ` · ${row.name}` : ""}${row.info ? ` · ${row.info}` : ""}`)
-      .join("\\n");
+      .join("\n");
   }
   return "No open service records were found in the active Metasploit workspace for the target(s). The module run completed, but no port findings could be retrieved.";
 }
@@ -950,11 +950,11 @@ export function ModuleBrowser({
                 try {
                   const databaseSummary = await portScanDatabaseSummary(portScanTargetsSet, portScanBeforeKeys);
                   if (!isCurrentRun()) return;
-                  resultText = `${outcome.result == null ? "" : resultText + "\\n\\n"}${databaseSummary}`.trim();
+                  resultText = `${outcome.result == null ? "" : resultText + "\n\n"}${databaseSummary}`.trim();
                   completionMessage = "Port scan completed. Service findings were checked in the active Metasploit workspace.";
                 } catch (error: unknown) {
                   const detail = error instanceof Error ? error.message : String(error);
-                  resultText += `\\n\\nPort scan database lookup failed: ${detail}`;
+                  resultText += `\n\nPort scan database lookup failed: ${detail}`;
                   completionMessage = "Port scan completed, but its database findings could not be retrieved.";
                 }
               }
