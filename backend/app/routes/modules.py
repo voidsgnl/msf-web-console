@@ -53,6 +53,148 @@ def search_modules(q: str, type: str | None = None):
     return {"query": q, "results": results}
 
 
+# Metasploit's internal module Rank constants (Msf::RankingName / the
+# integers module.info's "rank" field is built from). Declared high-to-low
+# so "snap to nearest known rung" below is a simple linear scan.
+RANK_LABELS: list[tuple[int, str]] = [
+    (600, "Excellent"),
+    (500, "Great"),
+    (400, "Good"),
+    (300, "Normal"),
+    (200, "Average"),
+    (100, "Low"),
+    (0, "Manual"),
+]
+RANK_NAME_WEIGHTS = {name.lower(): weight for weight, name in RANK_LABELS}
+
+
+def _rank_weight_and_label(raw_rank: Any) -> tuple[int, str]:
+    """
+    Normalize module.info's "rank" field to (weight, label). Most msfrpcd
+    builds return the raw integer (e.g. 600 for Excellent); fall back to
+    matching a string name defensively in case a build returns that instead.
+    """
+    if isinstance(raw_rank, bool):
+        return -1, "Unknown"
+    if isinstance(raw_rank, (int, float)):
+        weight = int(raw_rank)
+        label = next((name for threshold, name in RANK_LABELS if weight >= threshold), "Unknown")
+        return weight, label
+    if isinstance(raw_rank, str):
+        weight = RANK_NAME_WEIGHTS.get(raw_rank.strip().lower())
+        if weight is not None:
+            return weight, raw_rank.strip().capitalize()
+    return -1, "Unknown"
+
+
+_SOFTWARE_NAME_RE = re.compile(r"[A-Za-z]{2,}")
+# Generic banner words that aren't useful as a module-name search term on
+# their own (protocol/transport/vendor words that show up in almost every
+# banner, regardless of which actual software is running). "Microsoft" is
+# here so a banner like "Microsoft SQL Server" falls through to "sql",
+# which actually substring-matches Metasploit's "mssql" module paths.
+_GENERIC_BANNER_WORDS = {
+    "the", "server", "service", "version", "ssh", "http", "https", "ftp",
+    "smtp", "pop3", "imap", "protocol", "running", "unknown", "open",
+    "ready", "welcome", "connection", "for", "and", "build", "via",
+    "microsoft",
+}
+
+
+def _extract_search_term(service_info: str) -> str | None:
+    """
+    Pull a plausible software-name token out of a CONFIRMED service banner
+    (e.g. "vsftpd 2.3.4" -> "vsftpd", "OpenSSH 7.2p2 Ubuntu" -> "openssh").
+    Letters-only tokenization on purpose: splitting on digits/punctuation
+    first avoids gluing version numbers onto the software name (naive
+    "keep alnum+.-_ together" tokenizing would turn "OpenSSH_7.2p2" into
+    one useless token that matches no real module name). This is
+    deliberately simple substring extraction to narrow Metasploit's own
+    module list - not a claim of parsing every banner correctly.
+    """
+    for token in _SOFTWARE_NAME_RE.findall(service_info):
+        lowered = token.lower()
+        if lowered in _GENERIC_BANNER_WORDS:
+            continue
+        return lowered
+    return None
+
+
+@router.get("/suggest")
+def suggest_modules(service_info: str, port: int | None = None, types: str | None = None):
+    """
+    Heuristically match a CONFIRMED service banner (from an actual
+    version-detection scan, not a port-number guess) against Metasploit's
+    own module names, and rank the matches by Metasploit's own module Rank.
+
+    This mirrors the spirit of post/multi/recon/local_exploit_suggester -
+    ranked, software-specific suggestions - without its most expensive and
+    most intrusive step: local_exploit_suggester actually runs every
+    candidate module's `check` against the live target. A name/description
+    match here is NOT a vulnerability confirmation. Use
+    POST /modules/{type}/{name}/check to actually verify a specific
+    candidate against the target before trusting it.
+    """
+    term = _extract_search_term(service_info)
+    if not term:
+        return {
+            "query": None,
+            "candidates": [],
+            "note": "Could not identify a usable software name in this banner.",
+        }
+
+    requested_types = [t.strip() for t in types.split(",")] if types else ["exploit", "auxiliary"]
+    search_types = [t for t in requested_types if t in MODULE_TYPES] or ["exploit", "auxiliary"]
+
+    raw_matches: list[dict[str, str]] = []
+    try:
+        for module_type in search_types:
+            names = rpc.call(f"module.{module_type}s").get("modules", [])
+            for name in names:
+                if term in name.lower():
+                    raw_matches.append({"type": module_type, "name": name})
+    except MsfRpcError as exc:
+        raise HTTPException(502, f"Could not search modules: {exc}") from exc
+
+    if not raw_matches:
+        return {"query": term, "candidates": [], "note": f"No module names matched '{term}'."}
+
+    # Exploit modules first (what someone chasing a known vulnerability is
+    # actually after), then cap how many module.info calls we make - this
+    # endpoint is meant for a handful of candidates on one confirmed
+    # service, not a full-catalog crawl.
+    raw_matches.sort(key=lambda match: 0 if match["type"] == "exploit" else 1)
+    raw_matches = raw_matches[:12]
+
+    candidates: list[dict[str, Any]] = []
+    for match in raw_matches:
+        try:
+            info = rpc.call("module.info", match["type"], match["name"])
+        except MsfRpcError:
+            continue
+        if not isinstance(info, dict):
+            continue
+        weight, label = _rank_weight_and_label(info.get("rank"))
+        description = str(info.get("description") or "").strip()
+        snippet = description.split("\n", 1)[0][:220]
+        candidates.append({
+            "type": match["type"],
+            "name": match["name"],
+            "fullname": info.get("fullname") or f"{match['type']}/{match['name']}",
+            "rank_weight": weight,
+            "rank_label": label,
+            "disclosure_date": info.get("disclosure_date"),
+            "description_snippet": snippet,
+            "match_basis": f"module name matched '{term}'",
+        })
+
+    # Stable two-pass sort: newest disclosure first within equal rank, then
+    # highest Metasploit Rank first overall.
+    candidates.sort(key=lambda c: c.get("disclosure_date") or "", reverse=True)
+    candidates.sort(key=lambda c: c["rank_weight"], reverse=True)
+    return {"query": term, "candidates": candidates[:8]}
+
+
 @router.get("/compatible-payloads")
 def compatible_payloads(name: str, target: int | None = None):
     """Return all compatible payloads or those compatible with one exploit target."""
@@ -184,6 +326,10 @@ class NopGenerateRequest(BaseModel):
     length: int = Field(default=256, ge=1, le=16384)
     badchars: str = Field(default="", max_length=512)
     save_registers: list[str] = Field(default_factory=list, max_length=16)
+
+
+class ModuleCheckRequest(BaseModel):
+    options: dict[str, Any] = Field(default_factory=dict)
 
 
 def _module_path_is_valid(name: str) -> bool:
@@ -397,6 +543,90 @@ def generate_nops(req: NopGenerateRequest):
         )
     except MsfRpcError as exc:
         raise HTTPException(502, str(exc)) from exc
+    finally:
+        if console_id is not None:
+            try:
+                rpc.call("console.destroy", console_id)
+            except MsfRpcError:
+                pass
+
+
+_CHECK_SETTABLE_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+# Order matters: "not vulnerable" also contains the substring "vulnerable",
+# so the negative pattern is always tested before the positive one.
+_CHECK_NOT_VULNERABLE_RE = re.compile(
+    r"(?i)(is not vulnerable|not vulnerable|not exploitable|cannot be exploited|"
+    r"appears (to be )?safe|the target is not)"
+)
+_CHECK_UNSUPPORTED_RE = re.compile(
+    r"(?i)(unsupported target|could not be reliably checked|cannot reliably check|"
+    r"state could not be determined|unable to check|does not support .{0,12}check|"
+    r"unknown command)"
+)
+_CHECK_VULNERABLE_RE = re.compile(
+    r"(?i)(the target is vulnerable|appears (to be )?vulnerable|is vulnerable)"
+)
+
+
+def _check_verdict(output: str) -> str:
+    if _CHECK_NOT_VULNERABLE_RE.search(output):
+        return "not_vulnerable"
+    if _CHECK_UNSUPPORTED_RE.search(output):
+        return "unknown"
+    if _CHECK_VULNERABLE_RE.search(output):
+        return "vulnerable"
+    return "unknown"
+
+
+@router.post("/{type}/{name:path}/check")
+def check_module(type: str, name: str, req: ModuleCheckRequest):
+    """
+    Actually run Metasploit's own `check` action against a target for one
+    module - the same mechanism post/multi/recon/local_exploit_suggester
+    uses internally - rather than trusting a name/description match from
+    GET /modules/suggest. `check` is Metasploit's own safe/read-only probe
+    convention (not an exploit attempt), but it still reaches out to the
+    target, so this is opt-in per module rather than run automatically for
+    every suggestion.
+    """
+    if type not in EXECUTABLE_TYPES:
+        raise HTTPException(400, f"type must be one of {sorted(EXECUTABLE_TYPES)}")
+    if not _module_path_is_valid(name):
+        raise HTTPException(400, "Invalid module name.")
+    for key in req.options:
+        if not _CHECK_SETTABLE_KEY_RE.fullmatch(key):
+            raise HTTPException(400, f"Invalid option name: {key}")
+
+    console_id: str | None = None
+    try:
+        created = rpc.call("console.create")
+        console_raw_id = created.get("id") if isinstance(created, dict) else None
+        if console_raw_id is None:
+            raise HTTPException(502, "Metasploit did not provide a console for the check.")
+        console_id = str(console_raw_id)
+        try:
+            rpc.call("console.read", console_id)
+        except MsfRpcError:
+            pass
+
+        use_output = _run_console_command(console_id, f"use {type}/{name}")
+        if re.search(r"(?i)(failed to load|could not load|invalid module|no module selected)", use_output):
+            raise HTTPException(502, f"Metasploit could not select module '{type}/{name}'.")
+
+        for key, value in req.options.items():
+            safe_value = str(value).replace("\n", " ").replace("\r", " ").strip()
+            if not safe_value:
+                continue
+            _run_console_command(console_id, f"set {key} {safe_value}")
+
+        check_output = _run_console_command(console_id, "check", timeout_seconds=30.0)
+        return {
+            "module": f"{type}/{name}",
+            "verdict": _check_verdict(check_output),
+            "raw_output": check_output[-2000:].strip(),
+        }
+    except MsfRpcError as exc:
+        raise HTTPException(502, f"Metasploit check failed: {exc}") from exc
     finally:
         if console_id is not None:
             try:
