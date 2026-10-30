@@ -7,7 +7,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 type ModuleRef = { type: string; name: string };
 type SessionSummary = { id: string; session: Record<string, any> };
 type ExecutionProgress = {
-  phase: "submitting" | "running" | "completed" | "timeout" | "error";
+  phase: "submitting" | "running" | "completed" | "timeout" | "unknown" | "error";
   message: string;
   jobId?: string;
   runUuid?: string;
@@ -869,8 +869,8 @@ export function ModuleBrowser({
             lastResultLookupError = e instanceof Error ? e.message : String(e);
             if (resultLookupFailures >= 3) {
               setProgress({
-                phase: "error",
-                message: `Metasploit lists this run as having a result, but fetching it failed after ${resultLookupFailures} attempts: ${lastResultLookupError}. Check the Metasploit console for the module outcome.`,
+                phase: "unknown",
+                message: `Metasploit lists this run as having a result, but it could not be retrieved after ${resultLookupFailures} attempts: ${lastResultLookupError}. This may be an RPC compatibility or result-retention issue; the run is not being reported as failed.`,
                 jobId,
                 runUuid,
                 sessions: latestSessions,
@@ -949,7 +949,7 @@ export function ModuleBrowser({
   const statusStyle = (phase: ExecutionProgress["phase"]) => {
     if (phase === "completed") return "text-emerald-400";
     if (phase === "error") return "text-danger";
-    if (phase === "timeout") return "text-warning";
+    if (phase === "timeout" || phase === "unknown") return "text-warning";
     return "text-accent";
   };
 
@@ -1852,12 +1852,12 @@ export function ModuleBrowser({
                         {progress.phase === "submitting" ? "Submitting" :
                           progress.phase === "running" ? "Running" :
                           progress.phase === "completed" ? "Completed" :
-                          progress.phase === "timeout" ? "Still running (in background)" : "Failed"}
+                          progress.phase === "timeout" ? "Tracking paused" : progress.phase === "unknown" ? "Outcome unverified" : "Failed"}
                       </span>
                       {(progress.phase === "submitting" || progress.phase === "running") && runStartedAt && (
                         <span className="text-[10px] text-gray-500 font-mono">· {formatElapsed(nowTick - runStartedAt)} elapsed</span>
                       )}
-                      {(progress.phase === "completed" || progress.phase === "error" || progress.phase === "timeout") && runStartedAt && (
+                      {(progress.phase === "completed" || progress.phase === "error" || progress.phase === "timeout" || progress.phase === "unknown") && runStartedAt && (
                         <span className="text-[10px] text-gray-500 font-mono">· took {formatElapsed((nowTick - runStartedAt))}</span>
                       )}
                     </div>
