@@ -11,6 +11,9 @@ from app.routes.modules import (
     encode_data,
     execute_module,
     generate_nops,
+    list_modules,
+    search_modules,
+    suggest_modules,
     module_result,
     module_running_stats,
 )
@@ -206,6 +209,44 @@ class ModuleWorkflowTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 400)
         rpc_call.assert_not_called()
 
+
+
+    def test_module_listing_uses_explicit_rpc_method_mapping(self):
+        expected_methods = {
+            "exploit": "module.exploits",
+            "auxiliary": "module.auxiliary",
+            "post": "module.post",
+            "payload": "module.payloads",
+            "encoder": "module.encoders",
+            "nop": "module.nops",
+        }
+        for module_type, rpc_method in expected_methods.items():
+            with self.subTest(module_type=module_type):
+                with patch("app.routes.modules.rpc.call", return_value={"modules": ["example/module"]}) as rpc_call:
+                    result = list_modules(type=module_type)
+                self.assertEqual(result["modules"], ["example/module"])
+                rpc_call.assert_called_once_with(rpc_method)
+
+    def test_auxiliary_module_search_uses_singular_rpc_method(self):
+        with patch(
+            "app.routes.modules.rpc.call",
+            return_value={"modules": ["scanner/ftp/ftp_version"]},
+        ) as rpc_call:
+            result = search_modules(q="ftp", type="auxiliary")
+
+        self.assertEqual(result["results"], [{"type": "auxiliary", "name": "scanner/ftp/ftp_version"}])
+        rpc_call.assert_called_once_with("module.auxiliary")
+
+    def test_auxiliary_module_suggestions_use_singular_rpc_method(self):
+        with patch(
+            "app.routes.modules.rpc.call",
+            return_value={"modules": []},
+        ) as rpc_call:
+            result = suggest_modules(service_info="vsftpd 2.3.4", types="auxiliary")
+
+        self.assertEqual(result["query"], "vsftpd")
+        self.assertEqual(result["candidates"], [])
+        rpc_call.assert_called_once_with("module.auxiliary")
 
 
 if __name__ == "__main__":
