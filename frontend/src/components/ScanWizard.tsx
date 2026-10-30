@@ -101,6 +101,36 @@ function targetMatchesHost(rawTarget: string, rawHost: string): boolean {
 const candidateKey = (service: DiscoveredService, candidate: SuggestedModule) =>
   `${serviceKey(service)}:${candidate.type}/${candidate.name}`;
 
+function extractScannerFindings(value: unknown, target: string): DiscoveredService[] {
+  const strings: string[] = [];
+  const visit = (item: unknown, depth = 0) => {
+    if (depth > 8 || item == null) return;
+    if (typeof item === "string") { strings.push(item); return; }
+    if (typeof item === "number" || typeof item === "boolean") return;
+    if (Array.isArray(item)) { item.forEach((entry) => visit(entry, depth + 1)); return; }
+    if (typeof item === "object") {
+      for (const [key, entry] of Object.entries(item as Record<string, unknown>)) {
+        if (/output|result|message|text|data/i.test(key)) visit(entry, depth + 1);
+        else if (typeof entry === "object" && entry !== null) visit(entry, depth + 1);
+      }
+    }
+  };
+  visit(value);
+  const found = new Map<string, DiscoveredService>();
+  for (const text of strings) {
+    for (const line of text.split(/\\r?\\n/)) {
+      if (!/\\bopen\\b/i.test(line)) continue;
+      const match = /\\b((?:\\d{1,3}\\.){3}\\d{1,3}):(\\d{1,5})\\b/.exec(line);
+      if (!match) continue;
+      const host = match[1];
+      const port = Number(match[2]);
+      if (port < 1 || port > 65535 || !targetMatchesHost(target, host)) continue;
+      found.set(`${host}:${port}`, { host, port, info: line.trim().slice(0, 500) });
+    }
+  }
+  return [...found.values()];
+}
+
 function formatElapsed(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   if (totalSeconds < 60) return `${totalSeconds}s`;
@@ -132,7 +162,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
   const [message, setMessage] = useState("");
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const [services, setServices] = useState<DiscoveredService[]>([]);
+  const [services, setServices] = useState<DiscoveredService[]>([]);\n  const servicesRef = useRef<DiscoveredService[]>([]);
   const [confirmPhase, setConfirmPhase] = useState<ConfirmPhase>("idle");
   const [confirmMessage, setConfirmMessage] = useState("");
   const [suggestions, setSuggestions] = useState<Record<string, SuggestionState>>({});
@@ -233,7 +263,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
         const jobFinished = jobId ? jobObserved && !activeJobIds.includes(jobId) : false;
 
         if (runHasResult || jobFinished || (!jobId && !runUuid)) {
-          await finishScan(isCurrentRun);
+          await finishScan(isCurrentRun, runUuid);
           return;
         }
       }
@@ -276,7 +306,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
           !baselineKeys.has(serviceKey(row).toLowerCase())
         );
       open.sort((a, b) => (a.host === b.host ? a.port - b.port : a.host.localeCompare(b.host)));
-      setServices(open);
+      servicesRef.current = open;\n      setServices(open);
       return baselineKeys !== null;
     } catch {
       // Non-fatal: the scan itself already ran, but results cannot be verified.
@@ -285,14 +315,45 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     }
   };
 
-  const finishScan = async (isCurrentRun: () => boolean) => {
+  const finishScan = async (isCurrentRun: () => boolean, runUuid?: string) => {
+    let scannerFindings: DiscoveredService[] = [];
+    let resultWarning = "";
+    if (runUuid) {
+      try {
+        const outcome = await api.modules.results(runUuid);
+        if (!isCurrentRun()) return;
+        const status = String(outcome?.status ?? "").toLowerCase();
+        if (["errored", "error", "failed"].includes(status)) {
+          resultWarning = String(outcome?.error || "Metasploit reported that the scan run failed.");
+        } else {
+          scannerFindings = extractScannerFindings(outcome?.result, scanContext.current?.target ?? "");
+        }
+      } catch (error: unknown) {
+        resultWarning = error instanceof Error ? error.message : String(error);
+      }
+    }
+
     const resultsVerified = await loadServices();
     if (!isCurrentRun()) return;
+
+    // Run-specific scanner output is authoritative for this execution. Merge it
+    // with newly recorded DB services; the DB remains a fallback, not the only source.
+    const merged = new Map<string, DiscoveredService>();
+    for (const service of scannerFindings) merged.set(serviceKey(service).toLowerCase(), service);
+    for (const service of servicesRef.current) merged.set(serviceKey(service).toLowerCase(), service);
+    const findings = [...merged.values()].sort((a, b) =>
+      a.host === b.host ? a.port - b.port : a.host.localeCompare(b.host)
+    );
+    setServices(findings);
     setPhase("completed");
     setMessage(
-      resultsVerified
-        ? "Scan finished. Only newly recorded open ports matching the requested target are shown."
-        : "Scan finished, but results could not be safely verified against the workspace database. No ports are displayed."
+      findings.length
+        ? `Scan finished. Found ${findings.length} open port${findings.length === 1 ? "" : "s"} for the requested target.${resultWarning && !scannerFindings.length ? " Scanner output was unavailable; showing verified new database records only." : ""}`
+        : resultWarning
+          ? `Scan finished, but Metasploit's run output could not be retrieved and no new matching database records were found. Result lookup: ${resultWarning}`
+          : resultsVerified
+            ? "Scan finished. No new open ports were recorded for the requested target."
+            : "Scan finished, but results could not be safely verified. No ports are displayed."
     );
   };
 
