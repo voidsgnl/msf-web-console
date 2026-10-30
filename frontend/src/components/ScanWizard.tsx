@@ -38,6 +38,45 @@ const SCAN_TIMEOUT_MS = 5 * 60 * 1000;
 const CONFIRM_TIMEOUT_MS = 2 * 60 * 1000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const serviceKey = (service: DiscoveredService) => `${service.host}:${service.port}`;
+
+function ipv4Number(value: string): number | null {
+  const parts = value.split(".");
+  if (parts.length !== 4) return null;
+  let result = 0;
+  for (const part of parts) {
+    if (!/^\\d{1,3}$/.test(part)) return null;
+    const octet = Number(part);
+    if (octet < 0 || octet > 255) return null;
+    result = (result * 256 + octet) >>> 0;
+  }
+  return result >>> 0;
+}
+
+function targetMatchesHost(rawTarget: string, rawHost: string): boolean {
+  const host = rawHost.trim().toLowerCase();
+  if (!host) return false;
+  const targets = rawTarget.split(/[\\s,]+/).map((item) => item.trim().toLowerCase()).filter(Boolean);
+  return targets.some((target) => {
+    if (target === host) return true;
+    const hostNumber = ipv4Number(host);
+    if (hostNumber === null) return false;
+    const cidr = /^(\\d{1,3}(?:\\.\\d{1,3}){3})\\/(\\d{1,2})$/.exec(target);
+    if (cidr) {
+      const network = ipv4Number(cidr[1]);
+      const prefix = Number(cidr[2]);
+      if (network === null || prefix < 0 || prefix > 32) return false;
+      const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+      return (hostNumber & mask) === (network & mask);
+    }
+    const range = /^(\\d{1,3}(?:\\.\\d{1,3}){3})-(\\d{1,3}(?:\\.\\d{1,3}){3})$/.exec(target);
+    if (range) {
+      const start = ipv4Number(range[1]);
+      const end = ipv4Number(range[2]);
+      return start !== null && end !== null && hostNumber >= start && hostNumber <= end;
+    }
+    return false;
+  });
+}
 const candidateKey = (service: DiscoveredService, candidate: SuggestedModule) =>
   `${serviceKey(service)}:${candidate.type}/${candidate.name}`;
 
@@ -108,6 +147,19 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     setPhase("submitting");
     setMessage("Starting the port scan…");
 
+    let baselineServiceKeys: Set<string> | null = null;
+    try {
+      const baseline = await api.db.services();
+      const rows = Array.isArray(baseline?.services) ? baseline.services : [];
+      baselineServiceKeys = new Set(
+        rows
+          .filter((row: any) => row && row.host != null && row.port != null)
+          .map((row: any) => `${String(row.host).trim().toLowerCase()}:${Number(row.port)}`)
+      );
+    } catch {
+      // Without a baseline we cannot safely distinguish this scan's findings from stale workspace data.
+    }
+
     try {
       const result = await api.modules.execute("auxiliary", "scanner/portscan/tcp", {
         RHOSTS: trimmedTarget,
@@ -147,7 +199,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
         const jobFinished = jobId ? jobObserved && !activeJobIds.includes(jobId) : false;
 
         if (runHasResult || jobFinished || (!jobId && !runUuid)) {
-          await finishScan(isCurrentRun);
+          await finishScan(isCurrentRun, trimmedTarget, baselineServiceKeys);
           return;
         }
       }
@@ -157,7 +209,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
         setMessage(
           `This panel stopped watching after ${Math.round(SCAN_TIMEOUT_MS / 60000)} minutes, but the scan may still be running. Check the Jobs tab, or check back here - results found so far are shown below once available.`
         );
-        await loadServices();
+        await loadServices(trimmedTarget, baselineServiceKeys);
       }
     } catch (e: unknown) {
       if (isCurrentRun()) {
@@ -167,31 +219,44 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     }
   };
 
-  const loadServices = async () => {
+  const loadServices = async (scanTarget: string, baselineKeys: Set<string> | null) => {
     try {
       const result = await api.db.services();
       if (!mounted.current) return;
       const rows = Array.isArray(result?.services) ? result.services : [];
-      const open: DiscoveredService[] = rows
-        .filter((row: any) => row && row.state === "open" && row.port !== undefined && row.port !== null)
+      // Metasploit's db.services is workspace-wide. Only include hosts inside this
+      // scan's target, and only records absent from the pre-scan snapshot.
+      const open: DiscoveredService[] = baselineKeys === null ? [] : rows
+        .filter((row: any) => row && row.state === "open" && row.host != null && row.port !== undefined && row.port !== null)
         .map((row: any) => ({
-          host: String(row.host ?? "unknown"),
+          host: String(row.host).trim(),
           port: Number(row.port),
           info: typeof row.info === "string" ? row.info.trim() : "",
         }))
-        .filter((row: DiscoveredService) => Number.isFinite(row.port));
+        .filter((row: DiscoveredService) =>
+          Number.isFinite(row.port) &&
+          targetMatchesHost(scanTarget, row.host) &&
+          !baselineKeys.has(serviceKey(row).toLowerCase())
+        );
       open.sort((a, b) => (a.host === b.host ? a.port - b.port : a.host.localeCompare(b.host)));
       setServices(open);
+      return baselineKeys !== null;
     } catch {
-      // Non-fatal: the scan itself already ran, this just couldn't refresh the table.
+      // Non-fatal: the scan itself already ran, but results cannot be verified.
+      setServices([]);
+      return false;
     }
   };
 
-  const finishScan = async (isCurrentRun: () => boolean) => {
-    await loadServices();
+  const finishScan = async (isCurrentRun: () => boolean, scanTarget: string, baselineKeys: Set<string> | null) => {
+    const resultsVerified = await loadServices(scanTarget, baselineKeys);
     if (!isCurrentRun()) return;
     setPhase("completed");
-    setMessage("Scan finished.");
+    setMessage(
+      resultsVerified
+        ? "Scan finished. Only newly recorded open ports matching the requested target are shown."
+        : "Scan finished, but results could not be safely verified against the workspace database. No ports are displayed."
+    );
   };
 
   const confirmServiceVersions = async () => {
