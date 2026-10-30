@@ -86,36 +86,36 @@ def _parse_smtp(info: str) -> ParsedBanner | None:
 def _parse_http(info: str) -> ParsedBanner | None:
     # Parse Tomcat signatures before Apache httpd: Apache-Coyote is Tomcat's
     # connector banner, not the Apache HTTP Server product.
-    m = _match(r"Apache-Coyote(?:/[\\d.]+)?", info)
+    m = _match(r"Apache-Coyote(?:/[\d.]+)?", info)
     if m:
         return ParsedBanner(product="Apache Tomcat", version="unknown", raw=m.group(0))
-    m = _match(r"Tomcat(?:/([\\d.]+))?", info)
+    m = _match(r"Tomcat(?:/([\d.]+))?", info)
     if m:
         return ParsedBanner(product="Apache Tomcat", version=m.group(1) or "unknown", raw=m.group(0))
 
     # http_version's info is the raw Server header or response snippet.
-    m = _match(r"\\bApache(?:/([\\d.]+))?(?=\\s|\\(|$|;)", info)
+    m = _match(r"\bApache(?:/([\d.]+))?(?=\s|\(|$|;)", info)
     if m:
         return ParsedBanner(product="Apache httpd", version=m.group(1) or "unknown", raw=m.group(0))
-    m = _match(r"nginx(?:/([\\d.]+))?", info)
+    m = _match(r"nginx(?:/([\d.]+))?", info)
     if m:
         return ParsedBanner(product="nginx", version=m.group(1) or "unknown", raw=m.group(0))
-    m = _match(r"Microsoft-IIS(?:/([\\d.]+))?", info)
+    m = _match(r"Microsoft-IIS(?:/([\d.]+))?", info)
     if m:
         return ParsedBanner(product="Microsoft IIS", version=m.group(1) or "unknown", raw=m.group(0))
-    m = _match(r"lighttpd(?:/([\\d.]+))?", info)
+    m = _match(r"lighttpd(?:/([\d.]+))?", info)
     if m:
         return ParsedBanner(product="lighttpd", version=m.group(1) or "unknown", raw=m.group(0))
     m = _match(r"uvicorn", info)
     if m:
         return ParsedBanner(product="uvicorn", version="unknown", raw=m.group(0))
-    m = _match(r"Werkzeug(?:/([\\d.]+))?", info)
+    m = _match(r"Werkzeug(?:/([\d.]+))?", info)
     if m:
         return ParsedBanner(product="Werkzeug", version=m.group(1) or "unknown", raw=m.group(0))
-    m = _match(r"gunicorn(?:/([\\d.]+))?", info)
+    m = _match(r"gunicorn(?:/([\d.]+))?", info)
     if m:
         return ParsedBanner(product="gunicorn", version=m.group(1) or "unknown", raw=m.group(0))
-    m = _match(r"Node\\.js|Express", info)
+    m = _match(r"Node\.js|Express", info)
     if m:
         return ParsedBanner(product="Node.js Express", version="unknown", raw=m.group(0))
     return None
