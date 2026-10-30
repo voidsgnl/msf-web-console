@@ -1,18 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { suggestForPort } from "../lib/portSuggestions";
+import { detectionModuleForPort } from "../lib/versionDetection";
 
 type Phase = "idle" | "submitting" | "running" | "completed" | "timeout" | "error";
+type ConfirmPhase = "idle" | "running" | "done";
 
 type DiscoveredService = {
   host: string;
   port: number;
+  info: string;
 };
 
 const COMMON_PORTS =
   "21,22,23,25,53,80,110,135,139,143,443,445,1433,1521,2049,3306,3389,5432,5900,6379,8080,8443,27017";
 const POLL_INTERVAL_MS = 2000;
 const SCAN_TIMEOUT_MS = 5 * 60 * 1000;
+const CONFIRM_TIMEOUT_MS = 2 * 60 * 1000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function formatElapsed(ms: number): string {
@@ -30,6 +34,8 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [services, setServices] = useState<DiscoveredService[]>([]);
+  const [confirmPhase, setConfirmPhase] = useState<ConfirmPhase>("idle");
+  const [confirmMessage, setConfirmMessage] = useState("");
   const mounted = useRef(true);
   const runGeneration = useRef(0);
 
@@ -54,6 +60,8 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     const isCurrentRun = () => mounted.current && runGeneration.current === generation;
 
     setServices([]);
+    setConfirmPhase("idle");
+    setConfirmMessage("");
     setStartedAt(Date.now());
     setPhase("submitting");
     setMessage("Starting the port scan…");
@@ -124,7 +132,11 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
       const rows = Array.isArray(result?.services) ? result.services : [];
       const open: DiscoveredService[] = rows
         .filter((row: any) => row && row.state === "open" && row.port !== undefined && row.port !== null)
-        .map((row: any) => ({ host: String(row.host ?? "unknown"), port: Number(row.port) }))
+        .map((row: any) => ({
+          host: String(row.host ?? "unknown"),
+          port: Number(row.port),
+          info: typeof row.info === "string" ? row.info.trim() : "",
+        }))
         .filter((row: DiscoveredService) => Number.isFinite(row.port));
       open.sort((a, b) => (a.host === b.host ? a.port - b.port : a.host.localeCompare(b.host)));
       setServices(open);
@@ -140,6 +152,70 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     setMessage("Scan finished.");
   };
 
+  const confirmServiceVersions = async () => {
+    if (confirmPhase === "running") return;
+
+    const targets = services
+      .map((service) => ({ service, detection: detectionModuleForPort(service.port) }))
+      .filter((entry): entry is { service: DiscoveredService; detection: NonNullable<ReturnType<typeof detectionModuleForPort>> } =>
+        Boolean(entry.detection)
+      );
+
+    if (targets.length === 0) {
+      setConfirmMessage("None of the discovered ports have a known version-detection module yet.");
+      return;
+    }
+
+    setConfirmPhase("running");
+    setConfirmMessage(
+      `Confirming ${targets.length} service${targets.length === 1 ? "" : "s"} by actually connecting to ${
+        targets.length === 1 ? "it" : "them"
+      } and reading the banner/version response…`
+    );
+
+    const jobIds: string[] = [];
+    for (const { service, detection } of targets) {
+      try {
+        const result = await api.modules.execute("auxiliary", detection.module, {
+          RHOSTS: service.host,
+          RPORT: String(service.port),
+          ...(detection.options ?? {}),
+        });
+        const rawJobId = result?.job_id ?? result?.jobId;
+        if (rawJobId !== undefined && rawJobId !== null) jobIds.push(String(rawJobId));
+      } catch {
+        // One module failing to queue (e.g. target unreachable) shouldn't block the rest.
+      }
+    }
+
+    if (!mounted.current) return;
+
+    if (jobIds.length === 0) {
+      setConfirmPhase("done");
+      setConfirmMessage("Couldn't start any version checks - the backend may be unreachable.");
+      return;
+    }
+
+    const deadline = Date.now() + CONFIRM_TIMEOUT_MS;
+    while (mounted.current && Date.now() < deadline) {
+      await sleep(POLL_INTERVAL_MS);
+      if (!mounted.current) return;
+      try {
+        const jobs = await api.jobs.list();
+        const activeIds = Object.keys(jobs ?? {}).map(String);
+        if (!jobIds.some((id) => activeIds.includes(id))) break;
+      } catch {
+        break;
+      }
+    }
+
+    if (!mounted.current) return;
+    await loadServices();
+    if (!mounted.current) return;
+    setConfirmPhase("done");
+    setConfirmMessage("Version checks finished. Confirmed services are labeled below.");
+  };
+
   const busy = phase === "submitting" || phase === "running";
 
   return (
@@ -150,7 +226,8 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
           Enter an IP, hostname, range (10.0.0.1-10.0.0.254), or CIDR block (10.0.0.0/24) you are authorized to test.
           This runs Metasploit's own TCP port scanner against it and lists what's open, with a plain-language guess at
           what each port is likely running - based only on the port number, not a confirmed scan of the service
-          itself. Use the suggestion to jump into the module browser and investigate further.
+          itself. Use the suggestion to jump into the module browser and investigate further, or confirm a subset of
+          services automatically below.
         </p>
       </div>
 
@@ -203,21 +280,45 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
 
       {services.length > 0 && (
         <div className="mt-4">
-          <h3 className="text-xs uppercase tracking-widest text-gray-400 mb-2">
-            {services.length} open port{services.length === 1 ? "" : "s"} found
-          </h3>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <h3 className="text-xs uppercase tracking-widest text-gray-400">
+              {services.length} open port{services.length === 1 ? "" : "s"} found
+            </h3>
+            <button
+              onClick={() => void confirmServiceVersions()}
+              disabled={confirmPhase === "running"}
+              className="shrink-0 rounded border border-accent/30 bg-accent/5 px-3 py-1.5 text-[11px] text-accent hover:bg-accent/10 disabled:cursor-wait disabled:opacity-50"
+            >
+              {confirmPhase === "running" ? "Confirming…" : "Confirm service versions"}
+            </button>
+          </div>
+          {confirmMessage && <p className="text-[11px] text-gray-500 mb-3">{confirmMessage}</p>}
           <div className="space-y-2">
             {services.map((service) => {
               const suggestion = suggestForPort(service.port);
+              const detection = detectionModuleForPort(service.port);
+              const confirmed = Boolean(service.info);
               return (
                 <div key={`${service.host}:${service.port}`} className="rounded border border-border bg-bg-secondary/50 p-3 flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-mono text-xs text-accent">{service.host}:{service.port}</span>
                       <span className="rounded border border-border px-2 py-0.5 text-[10px] text-gray-300">{suggestion.label}</span>
-                      <span className="text-[10px] text-gray-600">(guessed from port number, not confirmed)</span>
+                      {confirmed ? (
+                        <span className="rounded border border-emerald-500/30 bg-emerald-500/5 px-2 py-0.5 text-[10px] text-emerald-400">
+                          Confirmed
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-gray-600">
+                          {detection ? "(not yet confirmed)" : "(guessed from port number, not confirmed)"}
+                        </span>
+                      )}
                     </div>
-                    <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">{suggestion.note}</p>
+                    {confirmed ? (
+                      <p className="text-[11px] text-gray-300 mt-1 leading-relaxed font-mono break-all">{service.info}</p>
+                    ) : (
+                      <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">{suggestion.note}</p>
+                    )}
                   </div>
                   <button
                     onClick={() => onInvestigate("auxiliary", suggestion.keyword)}
