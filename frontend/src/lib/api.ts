@@ -96,6 +96,9 @@ export const api = {
   },
 
   status: () => request<{ connected: boolean; version?: unknown; error?: string }>("/system/status"),
+  system: {
+    networkContext: (target: string) => request<{ target: string; resolved_target?: string | null; local_ip?: string | null; method?: string; error?: string | null }>(`/system/network-context?target=${encodeURIComponent(target)}`),
+  },
 
   modules: {
     list: (type: string) => request<{ type: string; modules: string[] }>(`/modules?type=${type}`),
