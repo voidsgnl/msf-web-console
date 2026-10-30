@@ -74,17 +74,28 @@ better module browser.
       labeled as port-number-based, not a confirmed service identification
       (the port scanner alone doesn't fingerprint services - see note
       below).
-- [ ] **Real service version detection** — chain in the actual
-      protocol-specific scanner modules (`scanner/http/http_version`,
-      `scanner/smb/smb_version`, `scanner/ftp/ftp_version`, etc.) for open
-      ports instead of guessing from the port number alone, so the
-      suggestion is a confirmed service, not a guess.
+- [x] **Real service version detection** — a "Confirm service versions"
+      action chains in the actual protocol-specific scanner modules
+      (`scanner/ftp/ftp_version`, `scanner/ssh/ssh_version`,
+      `scanner/smtp/smtp_version`, `scanner/http/http_version`,
+      `scanner/pop3/pop3_version`, `scanner/imap/imap_version`,
+      `scanner/smb/smb_version`, `scanner/mysql/mysql_version`,
+      `scanner/rdp/rdp_scanner`, `scanner/postgres/postgres_version`,
+      `scanner/redis/redis_server`, `scanner/telnet/telnet_version`) for
+      each open port with a known mapping, and labels the result
+      "Confirmed" with the actual banner/version text once the module
+      reports it - replacing the port-number guess rather than hiding it.
+      Ports without a reliable single-module mapping (e.g. MSSQL, whose
+      version check queries a different UDP port; or services with no
+      dedicated version-scanner module) keep the existing guess, clearly
+      labeled as unconfirmed.
 - [ ] **Suggested next steps from scan results** — currently a static
       port→keyword lookup that jumps into a module search. Upgrade to
       actually match discovered services/versions against known exploit
       modules (mirroring `post/multi/recon/local_exploit_suggester`'s
-      approach) and rank by rank/reliability, once real version detection
-      (above) is in place to match against.
+      approach) and rank by rank/reliability, now that confirmed service
+      versions (above) are available to match against for the ports that
+      have one.
 - [ ] **Recipes** — a small library of named, pre-filled workflows for
       common teaching/lab scenarios (e.g. "exploit a vulnerable FTP
       service"), so a first-time user has something concrete to run and
