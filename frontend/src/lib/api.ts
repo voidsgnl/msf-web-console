@@ -57,7 +57,7 @@ export type ModuleSuggestions = {
 
 export type ModuleCheckResult = {
   module: string;
-  verdict: "vulnerable" | "not_vulnerable" | "unknown";
+  verdict: "vulnerable" | "not_vulnerable" | "unknown" | "unsupported";
   raw_output: string;
 };
 

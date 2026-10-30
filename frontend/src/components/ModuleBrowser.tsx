@@ -429,9 +429,15 @@ export function ModuleBrowser({
   useEffect(() => {
     if (!externalSearchRequest || externalSearchRequest.nonce === lastAppliedSearchNonce.current) return;
     lastAppliedSearchNonce.current = externalSearchRequest.nonce;
-    setType(externalSearchRequest.type);
+    const reqType = externalSearchRequest.type;
+    setType(reqType);
     setActiveTargetContext(externalSearchRequest.targetContext ?? null);
-    void search(externalSearchRequest.query, externalSearchRequest.type);
+    void (async () => {
+      await search(externalSearchRequest.query, reqType);
+      if (externalSearchRequest.query.includes("/")) {
+        void select({ type: reqType, name: externalSearchRequest.query });
+      }
+    })();
   }, [externalSearchRequest]);
 
   const loadCompatiblePayloads = async (
@@ -541,6 +547,10 @@ export function ModuleBrowser({
         if (context.port && declaredOptions.RPORT) {
           defaults.RPORT = String(context.port);
           autoSources.RPORT = "Scan";
+        }
+        if (declaredOptions.SSL && (context.port === 443 || context.port === 8443 || context.port === 9443 || /ssl|https/i.test(context.serviceInfo || ""))) {
+          defaults.SSL = "true";
+          autoSources.SSL = "Scan";
         }
         if (Object.prototype.hasOwnProperty.call(declaredOptions, "LHOST")) {
           try {

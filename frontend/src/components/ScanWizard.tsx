@@ -26,7 +26,7 @@ type SuggestionState = {
 
 type VerifyState = {
   status: VerifyStatus;
-  verdict?: "vulnerable" | "not_vulnerable" | "unknown";
+  verdict?: "vulnerable" | "not_vulnerable" | "unknown" | "unsupported";
   rawOutput?: string;
   error?: string;
 };
@@ -73,12 +73,21 @@ function ipv4Number(value: string): number | null {
   return result >>> 0;
 }
 
-function targetMatchesHost(rawTarget: string, rawHost: string): boolean {
+function targetMatchesHost(rawTarget: string, rawHost: string, resolvedTarget?: string | null): boolean {
   const host = rawHost.trim().toLowerCase();
   if (!host) return false;
+
+  if (resolvedTarget && host === resolvedTarget.trim().toLowerCase()) return true;
+
+  // Localhost aliases
+  const isTargetLocal = /^(localhost|127\.0\.0\.1|::1|0\.0\.0\.0)$/i.test(rawTarget.trim());
+  const isHostLocal = /^(localhost|127\.0\.0\.1|::1|0\.0\.0\.0)$/i.test(host);
+  if (isTargetLocal && isHostLocal) return true;
+
   const targets = rawTarget.split(/[\s,]+/).map((item) => item.trim().toLowerCase()).filter(Boolean);
   return targets.some((target) => {
     if (target === host) return true;
+    if (target === "localhost" && (host === "127.0.0.1" || host === "::1" || host === "0.0.0.0")) return true;
     const hostNumber = ipv4Number(host);
     if (hostNumber === null) return false;
     const cidr = /^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/.exec(target);
@@ -98,10 +107,32 @@ function targetMatchesHost(rawTarget: string, rawHost: string): boolean {
     return false;
   });
 }
+
+function parsePortSpecification(portsStr: string): (port: number) => boolean {
+  const ranges: [number, number][] = [];
+  const parts = portsStr.split(/[\s,]+/).filter(Boolean);
+  for (const part of parts) {
+    const rangeMatch = /^(\d{1,5})-(\d{1,5})$/.exec(part);
+    if (rangeMatch) {
+      const s = Number(rangeMatch[1]);
+      const e = Number(rangeMatch[2]);
+      if (s >= 1 && e <= 65535 && s <= e) {
+        ranges.push([s, e]);
+      }
+    } else {
+      const p = Number(part);
+      if (Number.isInteger(p) && p >= 1 && p <= 65535) {
+        ranges.push([p, p]);
+      }
+    }
+  }
+  return (port: number) => ranges.some(([start, end]) => port >= start && port <= end);
+}
+
 const candidateKey = (service: DiscoveredService, candidate: SuggestedModule) =>
   `${serviceKey(service)}:${candidate.type}/${candidate.name}`;
 
-function extractScannerFindings(value: unknown, target: string): DiscoveredService[] {
+function extractScannerFindings(value: unknown, target: string, resolvedTarget?: string | null): DiscoveredService[] {
   const strings: string[] = [];
   const visit = (item: unknown, depth = 0) => {
     if (depth > 8 || item == null) return;
@@ -124,7 +155,7 @@ function extractScannerFindings(value: unknown, target: string): DiscoveredServi
       if (!match) continue;
       const host = match[1];
       const port = Number(match[2]);
-      if (port < 1 || port > 65535 || !targetMatchesHost(target, host)) continue;
+      if (port < 1 || port > 65535 || !targetMatchesHost(target, host, resolvedTarget)) continue;
       found.set(`${host}:${port}`, { host, port, info: line.trim().slice(0, 500) });
     }
   }
@@ -151,6 +182,7 @@ function verdictBadge(state: VerifyState | undefined): { label: string; style: s
   if (state.status === "error") return { label: "Check failed", style: "border-danger/30 bg-danger/5 text-danger" };
   if (state.verdict === "vulnerable") return { label: "Appears vulnerable", style: "border-danger/30 bg-danger/5 text-danger" };
   if (state.verdict === "not_vulnerable") return { label: "Not vulnerable", style: "border-emerald-500/30 bg-emerald-500/5 text-emerald-400" };
+  if (state.verdict === "unsupported") return { label: "No check method", style: "border-border text-gray-400" };
   return { label: "Unknown / unconfirmed", style: "border-warning/30 bg-warning/5 text-warning" };
 }
 
@@ -170,7 +202,12 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
   const [verifications, setVerifications] = useState<Record<string, VerifyState>>({});
   const mounted = useRef(true);
   const runGeneration = useRef(0);
-  const scanContext = useRef<{ target: string; baselineKeys: Set<string> | null } | null>(null);
+  const scanContext = useRef<{
+    target: string;
+    resolvedTarget: string | null;
+    portsSpec: string;
+    baselineKeys: Set<string> | null;
+  } | null>(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -196,6 +233,8 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
       return;
     }
 
+    const portsSpec = scanMode === "all" ? "1-10000" : scanMode === "custom" ? customPortResult!.value : COMMON_PORTS;
+
     const generation = ++runGeneration.current;
     const isCurrentRun = () => mounted.current && runGeneration.current === generation;
 
@@ -207,6 +246,16 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     setStartedAt(Date.now());
     setPhase("submitting");
     setMessage("Starting the port scan…");
+
+    let resolvedTarget: string | null = null;
+    try {
+      const net = await api.system.networkContext(trimmedTarget);
+      if (net?.resolved_target) {
+        resolvedTarget = net.resolved_target;
+      }
+    } catch {
+      // Non-fatal resolution attempt
+    }
 
     let baselineServiceKeys: Set<string> | null = null;
     try {
@@ -221,12 +270,17 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
       // Without a baseline we cannot safely distinguish this scan's findings from stale workspace data.
     }
 
-    scanContext.current = { target: trimmedTarget, baselineKeys: baselineServiceKeys };
+    scanContext.current = {
+      target: trimmedTarget,
+      resolvedTarget,
+      portsSpec,
+      baselineKeys: baselineServiceKeys,
+    };
 
     try {
       const result = await api.modules.execute("auxiliary", "scanner/portscan/tcp", {
         RHOSTS: trimmedTarget,
-        PORTS: scanMode === "all" ? "1-10000" : scanMode === "custom" ? customPortResult!.value : COMMON_PORTS,
+        PORTS: portsSpec,
       });
       if (!isCurrentRun()) return;
 
@@ -240,12 +294,13 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
         scanMode === "all"
           ? "Scanning all 10,000 ports - this can take several minutes…"
           : scanMode === "custom"
-            ? `Scanning custom ports: ${customPortResult!.value}…`
+            ? `Scanning custom ports: ${portsSpec}…`
             : "Scanning the common ports…"
       );
 
       const deadline = Date.now() + SCAN_TIMEOUT_MS;
       let jobObserved = false;
+      let consecutiveIdleTicks = 0;
 
       while (isCurrentRun() && Date.now() < deadline) {
         await sleep(POLL_INTERVAL_MS);
@@ -254,16 +309,26 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
         const [jobsResult, statsResult] = await Promise.allSettled([api.jobs.list(), api.modules.runningStats()]);
         const jobs = jobsResult.status === "fulfilled" ? jobsResult.value ?? {} : {};
         const activeJobIds = Object.keys(jobs).map(String);
-        if (jobId && activeJobIds.includes(jobId)) jobObserved = true;
+        if (jobId && activeJobIds.includes(jobId)) {
+          jobObserved = true;
+          consecutiveIdleTicks = 0;
+        } else if (jobId && jobObserved && !activeJobIds.includes(jobId)) {
+          await finishScan(isCurrentRun, runUuid);
+          return;
+        } else if (jobId && !jobObserved && !activeJobIds.includes(jobId)) {
+          consecutiveIdleTicks++;
+          if (consecutiveIdleTicks >= 2) {
+            await finishScan(isCurrentRun, runUuid);
+            return;
+          }
+        }
 
         const stats = statsResult.status === "fulfilled" ? statsResult.value : null;
         const asIds = (value: unknown) => (Array.isArray(value) ? value.map(String) : []);
         const resultIds = asIds(stats?.results);
         const runHasResult = Boolean(runUuid && resultIds.includes(runUuid));
 
-        const jobFinished = jobId ? jobObserved && !activeJobIds.includes(jobId) : false;
-
-        if (runHasResult || jobFinished || (!jobId && !runUuid)) {
+        if (runHasResult || (!jobId && !runUuid)) {
           await finishScan(isCurrentRun, runUuid);
           return;
         }
@@ -287,13 +352,15 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
   const loadServices = async () => {
     const context = scanContext.current;
     if (!context) return false;
-    const { target: scanTarget, baselineKeys } = context;
+    const { target: scanTarget, resolvedTarget, portsSpec, baselineKeys } = context;
+    const isPortScanned = parsePortSpecification(portsSpec);
+
     try {
       const result = await api.db.services();
-      if (!mounted.current) return;
+      if (!mounted.current) return false;
       const rows = Array.isArray(result?.services) ? result.services : [];
-      // Metasploit's db.services is workspace-wide. Restrict all records to the
-      // requested target, preferring newly recorded rows when available.
+
+      // Filter: only consider open rows that match the target AND match the scanned port list
       const matching: DiscoveredService[] = rows
         .filter((row: any) => row && String(row.state ?? "").toLowerCase() === "open" && row.host != null && row.port !== undefined && row.port !== null)
         .map((row: any) => ({
@@ -301,17 +368,32 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
           port: Number(row.port),
           info: typeof row.info === "string" ? row.info.trim() : "",
         }))
-        .filter((row: DiscoveredService) => Number.isInteger(row.port) && row.port >= 1 && row.port <= 65535 && targetMatchesHost(scanTarget, row.host));
-      const newlyRecorded = baselineKeys === null ? [] : matching.filter((row) => !baselineKeys.has(serviceKey(row).toLowerCase()));
-      // Prefer records added during this run. If none were added, show the
-      // target's already-known open services rather than an empty result set.
-      const open = newlyRecorded.length ? newlyRecorded : matching;
-      open.sort((a, b) => (a.host === b.host ? a.port - b.port : a.host.localeCompare(b.host)));
+        .filter((row: DiscoveredService) =>
+          Number.isInteger(row.port) &&
+          row.port >= 1 &&
+          row.port <= 65535 &&
+          isPortScanned(row.port) &&
+          targetMatchesHost(scanTarget, row.host, resolvedTarget)
+        );
+
+      // Clean de-duplication by host:port, keeping the record with non-empty info
+      const deduped = new Map<string, DiscoveredService>();
+      for (const service of matching) {
+        const key = serviceKey(service).toLowerCase();
+        const existing = deduped.get(key);
+        if (!existing || (!existing.info && service.info)) {
+          deduped.set(key, service);
+        }
+      }
+
+      const open = [...deduped.values()].sort((a, b) =>
+        a.host === b.host ? a.port - b.port : a.host.localeCompare(b.host)
+      );
+
       servicesRef.current = open;
       setServices(open);
       return baselineKeys !== null;
     } catch {
-      // Non-fatal: the scan itself already ran, but results cannot be verified.
       servicesRef.current = [];
       setServices([]);
       return false;
@@ -329,7 +411,11 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
         if (["errored", "error", "failed"].includes(status)) {
           resultWarning = String(outcome?.error || "Metasploit reported that the scan run failed.");
         } else {
-          scannerFindings = extractScannerFindings(outcome?.result, scanContext.current?.target ?? "");
+          scannerFindings = extractScannerFindings(
+            outcome?.result,
+            scanContext.current?.target ?? "",
+            scanContext.current?.resolvedTarget
+          );
         }
       } catch (error: unknown) {
         resultWarning = error instanceof Error ? error.message : String(error);
@@ -343,7 +429,13 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     // with newly recorded DB services; the DB remains a fallback, not the only source.
     const merged = new Map<string, DiscoveredService>();
     for (const service of scannerFindings) merged.set(serviceKey(service).toLowerCase(), service);
-    for (const service of servicesRef.current) merged.set(serviceKey(service).toLowerCase(), service);
+    for (const service of servicesRef.current) {
+      const key = serviceKey(service).toLowerCase();
+      const existing = merged.get(key);
+      if (!existing || (!existing.info && service.info)) {
+        merged.set(key, service);
+      }
+    }
     const findings = [...merged.values()].sort((a, b) =>
       a.host === b.host ? a.port - b.port : a.host.localeCompare(b.host)
     );
@@ -420,6 +512,15 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     if (!mounted.current) return;
     await loadServices();
     if (!mounted.current) return;
+    setSuggestions((current) => {
+      const next = { ...current };
+      for (const s of servicesRef.current) {
+        if (s.info) {
+          delete next[serviceKey(s)];
+        }
+      }
+      return next;
+    });
     setConfirmPhase("done");
     setConfirmMessage("Version checks finished. Confirmed services are labeled below.");
   };
@@ -455,10 +556,14 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     const key = candidateKey(service, candidate);
     setVerifications((current) => ({ ...current, [key]: { status: "running" } }));
     try {
-      const result = await api.modules.checkModule(candidate.type, candidate.name, {
+      const options: Record<string, string> = {
         RHOSTS: service.host,
         RPORT: String(service.port),
-      });
+      };
+      if (service.port === 443 || service.port === 8443 || service.port === 9443 || /ssl|https/i.test(service.info)) {
+        options.SSL = "true";
+      }
+      const result = await api.modules.checkModule(candidate.type, candidate.name, options);
       if (!mounted.current) return;
       setVerifications((current) => ({
         ...current,
@@ -610,7 +715,10 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                         {suggestionState?.status === "loading" ? "Searching…" : "Find matching exploits"}
                       </button>
                       <button
-                        onClick={() => onInvestigate("auxiliary", suggestion.keyword, { host: service.host, port: service.port, serviceInfo: service.info, source: "scan" })}
+                        onClick={() => {
+                          const targetType = suggestion.defaultType ?? (confirmed ? "exploit" : "auxiliary");
+                          onInvestigate(targetType, suggestion.keyword, { host: service.host, port: service.port, serviceInfo: service.info, source: "scan" });
+                        }}
                         className="rounded border border-accent/30 bg-accent/5 px-3 py-1.5 text-[11px] text-accent hover:bg-accent/10"
                       >
                         Investigate in Modules
@@ -630,12 +738,17 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                       )}
                       {suggestionState.status === "done" && suggestionState.candidates.length > 0 && (
                         <>
+                          {suggestionState.note && (
+                            <div className="mb-2 rounded border border-border/80 bg-bg-tertiary/60 px-2.5 py-1.5 text-[11px] text-gray-300">
+                              {suggestionState.note}
+                            </div>
+                          )}
                           <p className="text-[10px] text-gray-500 mb-2 leading-relaxed">
                             Candidates matched against <span className="font-mono text-gray-400">{suggestionState.query}</span>,
                             ranked by Metasploit's reliability Rank. {service.info
-                              ? "This is a module-name match, not a confirmed vulnerability."
+                              ? "This is a software-specific match, not proof of a confirmed vulnerability."
                               : "No software banner was identified; these are port-based service-family guesses, not proof of the software or a vulnerability."}
-                            {" "}Use "Verify" to run the module's own <span className="font-mono text-gray-400">check</span> against this target.
+                            {" "}Use "Verify" to run the module's own <span className="font-mono text-gray-400">check</span> where supported.
                           </p>
                           <div className="space-y-1.5">
                             {suggestionState.candidates.map((candidate) => {

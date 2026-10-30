@@ -39,7 +39,10 @@ def _match(pattern: str, info: str, flags: int = re.IGNORECASE) -> re.Match | No
 
 
 def _parse_ssh(info: str) -> ParsedBanner | None:
-    # e.g. "SSH-2.0-OpenSSH_7.4" or "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5"
+    # e.g. "SSH-2.0-OpenSSH_7.4", "OpenSSH 9.6p1 Ubuntu 3ubuntu13.20", or "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5"
+    m = _match(r"(?:SSH-\d\.\d-)?(OpenSSH|dropbear|libssh)[_ ]([\d.]+\w*)", info)
+    if m:
+        return ParsedBanner(product=m.group(1), version=m.group(2), raw=m.group(0))
     m = _match(r"SSH-\d\.\d-([A-Za-z0-9_.-]+?)_([\w.]+)", info)
     if not m:
         return None
@@ -81,7 +84,7 @@ def _parse_smtp(info: str) -> ParsedBanner | None:
 
 
 def _parse_http(info: str) -> ParsedBanner | None:
-    # http_version's info is the raw Server header, e.g.
+    # http_version's info is the raw Server header or response snippet, e.g.
     # "Apache/2.4.49 (Unix)" or "nginx/1.18.0 (Ubuntu)" or "Microsoft-IIS/10.0"
     m = _match(r"Apache(?:/([\d.]+))?", info)
     if m:
@@ -95,6 +98,21 @@ def _parse_http(info: str) -> ParsedBanner | None:
     m = _match(r"lighttpd(?:/([\d.]+))?", info)
     if m:
         return ParsedBanner(product="lighttpd", version=m.group(1) or "unknown", raw=m.group(0))
+    m = _match(r"Tomcat(?:/([\d.]+))?", info) or _match(r"Apache-Coyote(?:/([\d.]+))?", info)
+    if m:
+        return ParsedBanner(product="Apache Tomcat", version=m.group(1) or "unknown", raw=m.group(0))
+    m = _match(r"uvicorn", info)
+    if m:
+        return ParsedBanner(product="uvicorn", version="unknown", raw=m.group(0))
+    m = _match(r"Werkzeug(?:/([\d.]+))?", info)
+    if m:
+        return ParsedBanner(product="Werkzeug", version=m.group(1) or "unknown", raw=m.group(0))
+    m = _match(r"gunicorn(?:/([\d.]+))?", info)
+    if m:
+        return ParsedBanner(product="gunicorn", version=m.group(1) or "unknown", raw=m.group(0))
+    m = _match(r"Node\.js|Express", info)
+    if m:
+        return ParsedBanner(product="Node.js Express", version="unknown", raw=m.group(0))
     return None
 
 
@@ -205,3 +223,59 @@ def parse_banner(module_path: str, info: str) -> ParsedBanner | None:
     if parser is None:
         return None
     return parser(info)
+
+
+_FAMILY_BY_PORT: dict[int, str] = {
+    21: "ftp",
+    22: "ssh",
+    23: "telnet",
+    25: "smtp",
+    465: "smtp",
+    587: "smtp",
+    80: "http",
+    110: "pop3",
+    139: "smb",
+    143: "imap",
+    443: "http",
+    445: "smb",
+    3000: "http",
+    3306: "mysql",
+    3389: "rdp",
+    5000: "http",
+    5432: "postgres",
+    6379: "redis",
+    8000: "http",
+    8008: "http",
+    8080: "http",
+    8081: "http",
+    8443: "http",
+    8888: "http",
+    9000: "http",
+    9200: "http",
+}
+
+
+def parse_service_banner(info: str, port: int | None = None) -> ParsedBanner | None:
+    """
+    Parse a service banner string into a structured ParsedBanner.
+    If a port is provided, tries the parser for that port's service family first.
+    If that fails or port is not given, tries the other registered parsers.
+    """
+    if not info or not info.strip():
+        return None
+
+    if port is not None and port in _FAMILY_BY_PORT:
+        family = _FAMILY_BY_PORT[port]
+        parser = _PARSERS_BY_MODULE_FAMILY.get(family)
+        if parser:
+            parsed = parser(info)
+            if parsed is not None:
+                return parsed
+
+    for parser in _PARSERS_BY_MODULE_FAMILY.values():
+        parsed = parser(info)
+        if parsed is not None:
+            return parsed
+
+    return None
+

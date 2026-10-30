@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.msf_rpc import rpc, MsfRpcError
+from app.banner_parsing import parse_service_banner
 
 router = APIRouter(prefix="/api/modules", tags=["modules"])
 
@@ -144,6 +145,8 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     candidate against the target before trusting it.
     """
     term = _extract_search_term(service_info)
+    parsed = parse_service_banner(service_info, port)
+
     # Port-based hints are lower-confidence fallbacks when no service banner
     # is available. They identify likely service families, not vulnerabilities.
     port_hints = {
@@ -158,17 +161,49 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
         8000: ["http"], 8080: ["http"], 8081: ["http"],
         8443: ["http"], 9200: ["elasticsearch"], 27017: ["mongodb"],
     }
-    terms = [term] if term else port_hints.get(port or 0, [])
+
+    terms: list[str] = []
+    prod_lower = parsed.product.lower() if parsed and parsed.product else ""
+    if prod_lower:
+        if "apache httpd" in prod_lower or "apache" in prod_lower:
+            terms.extend(["apache", "httpd"])
+        elif "apache tomcat" in prod_lower or "tomcat" in prod_lower:
+            terms.extend(["tomcat", "coyote"])
+        elif "iis" in prod_lower:
+            terms.extend(["iis"])
+        elif "nginx" in prod_lower:
+            terms.extend(["nginx"])
+        elif "samba" in prod_lower:
+            terms.extend(["samba", "smb"])
+        elif "openssh" in prod_lower or "ssh" in prod_lower:
+            terms.extend(["ssh"])
+        elif "postgres" in prod_lower:
+            terms.extend(["postgres", "postgresql"])
+        elif "mysql" in prod_lower or "mariadb" in prod_lower:
+            terms.extend(["mysql", "mariadb"])
+        elif "redis" in prod_lower:
+            terms.extend(["redis"])
+        else:
+            clean_tokens = [t.lower() for t in _SOFTWARE_NAME_RE.findall(parsed.product) if t.lower() not in _GENERIC_BANNER_WORDS]
+            terms.extend(clean_tokens)
+
+    if term and term not in terms and term not in ("openssh",):
+        terms.append(term)
+
+    if not terms:
+        terms = port_hints.get(port or 0, [])
+
     if not terms:
         return {
             "query": None,
             "candidates": [],
             "note": "No banner was identified and this port has no built-in service-family hint. Confirm the service version or investigate manually.",
         }
-    query_label = term or f"port {port} ({terms[0]})"
+
+    query_label = term or terms[0]
     match_basis = (
-        f"confirmed service banner matched '{term}'"
-        if term else f"common service mapping for TCP port {port} ({terms[0]})"
+        f"confirmed service banner matched '{parsed.product if parsed else term}'"
+        if (parsed or term) else f"common service mapping for TCP port {port} ({terms[0]})"
     )
 
     requested_types = [t.strip() for t in types.split(",")] if types else ["exploit", "auxiliary"]
@@ -179,7 +214,8 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
         for module_type in search_types:
             names = rpc.call(MODULE_LIST_RPC_METHODS[module_type]).get("modules", [])
             for name in names:
-                if any(search_term in name.lower() for search_term in terms):
+                name_lower = name.lower()
+                if any(search_term in name_lower for search_term in terms):
                     raw_matches.append({"type": module_type, "name": name})
     except MsfRpcError as exc:
         raise HTTPException(502, f"Could not search modules: {exc}") from exc
@@ -187,15 +223,84 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     if not raw_matches:
         return {"query": query_label, "candidates": [], "note": f"No module names matched {query_label}."}
 
-    # Exploit modules first (what someone chasing a known vulnerability is
-    # actually after), then cap how many module.info calls we make - this
-    # endpoint is meant for a handful of candidates on one confirmed
-    # service, not a full-catalog crawl.
-    raw_matches.sort(key=lambda match: 0 if match["type"] == "exploit" else 1)
-    raw_matches = raw_matches[:12]
+    # Version tokens for relevance scoring
+    version_tokens: list[str] = []
+    if parsed and parsed.version and parsed.version != "unknown":
+        v = parsed.version.lower()
+        version_tokens.append(v)
+        v_no_dot = v.replace(".", "")
+        if v_no_dot != v:
+            version_tokens.append(v_no_dot)
+        v_under = v.replace(".", "_")
+        if v_under != v:
+            version_tokens.append(v_under)
+        parts = v.split(".")
+        if len(parts) >= 2:
+            version_tokens.append(f"{parts[0]}.{parts[1]}")
+            version_tokens.append(f"{parts[0]}_{parts[1]}")
+
+    other_apache_projects = (
+        'airflow', 'couchdb', 'druid', 'solr', 'spark', 'nifi', 'ofbiz', 'activemq',
+        'continuum', 'hugegraph', 'flink', 'superset', 'struts', 'tika', 'myfaces',
+        'wicket', 'jspwiki', 'jackrabbit', 'apisix', 'roller', 'jetspeed', 'rocketmq', 'james'
+    )
+
+    def score_match(match: dict[str, str]) -> int:
+        score = 0
+        m_name = match["name"].lower()
+        m_type = match["type"]
+
+        # OpenSSH / SSH family scoring
+        if "openssh" in prod_lower or "ssh" in prod_lower or port == 22:
+            if any(k in m_name for k in ['ssh_login', 'ssh_enumusers', 'ssh_identify_pubkeys']):
+                score += 450
+            elif m_type == "auxiliary":
+                score += 200
+            elif any(k in m_name for k in ['cisco', 'ceragon', 'f5_bigip', 'exagrid', 'quantum', 'solarwinds']):
+                score -= 150
+            return score
+
+        # Apache HTTP Server filtering
+        if "apache httpd" in prod_lower or (port in (80, 443, 8080, 8443) and "apache" in prod_lower):
+            if any(proj in m_name for proj in other_apache_projects):
+                score -= 500
+            if any(k in m_name for k in ['normalize_path', 'mod_cgi', 'optionsbleed', 'userdir_enum', 'chunked', 'httpd']):
+                score += 300
+
+        # General exploit priority
+        if m_type == "exploit":
+            score += 150
+
+        # Version substring matching in module path
+        for vt in version_tokens:
+            if vt in m_name:
+                score += 400
+                break
+
+        # Preferred platforms
+        if any(m_name.startswith(p) for p in ("multi/", "linux/", "windows/", "unix/")):
+            score += 60
+
+        # Penalize legacy/rare architectures
+        if any(m_name.startswith(p) for p in ("aix/", "solaris/", "netware/", "hpux/", "irix/", "bsdi/", "osx/")):
+            score -= 200
+
+        # Service family affinity
+        if port in (80, 443, 8000, 8080, 8081, 8443) and "/http/" in m_name:
+            score += 80
+        elif port == 21 and "/ftp/" in m_name:
+            score += 80
+        elif port in (139, 445) and "/smb/" in m_name:
+            score += 80
+
+        return score
+
+    raw_matches.sort(key=score_match, reverse=True)
+    candidate_pool = [m for m in raw_matches if score_match(m) > -100][:25]
 
     candidates: list[dict[str, Any]] = []
-    for match in raw_matches:
+    has_version_match = False
+    for match in candidate_pool:
         try:
             info = rpc.call("module.info", match["type"], match["name"])
         except MsfRpcError:
@@ -205,22 +310,39 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
         weight, label = _rank_weight_and_label(info.get("rank"))
         description = str(info.get("description") or "").strip()
         snippet = description.split("\n", 1)[0][:220]
+        # Boost weight if description mentions exact version
+        adjusted_weight = weight
+        if any(vt in description.lower() for vt in version_tokens):
+            adjusted_weight += 50
+            has_version_match = True
         candidates.append({
             "type": match["type"],
             "name": match["name"],
             "fullname": info.get("fullname") or f"{match['type']}/{match['name']}",
-            "rank_weight": weight,
+            "rank_weight": adjusted_weight,
             "rank_label": label,
             "disclosure_date": info.get("disclosure_date"),
             "description_snippet": snippet,
             "match_basis": match_basis,
         })
 
-    # Stable two-pass sort: newest disclosure first within equal rank, then
-    # highest Metasploit Rank first overall.
     candidates.sort(key=lambda c: c.get("disclosure_date") or "", reverse=True)
     candidates.sort(key=lambda c: c["rank_weight"], reverse=True)
-    return {"query": query_label, "candidates": candidates[:8]}
+
+    # Dynamic plain-language note describing the findings
+    if parsed and "openssh" in prod_lower:
+        note = f"Confirmed {parsed.product} {parsed.version if parsed.version != 'unknown' else ''}. SSH services are typically tested via credential login and enumeration modules rather than direct exploits."
+    elif parsed and parsed.version and parsed.version != "unknown":
+        if has_version_match:
+            note = f"Confirmed {parsed.product} {parsed.version} with specific version-matched module."
+        else:
+            note = f"Confirmed {parsed.product} {parsed.version}. Showing service verification and reconnaissance modules."
+    elif parsed:
+        note = f"Confirmed {parsed.product}. Showing relevant service modules."
+    else:
+        note = f"Service on port {port} (inferred {terms[0]}). Showing relevant modules."
+
+    return {"query": query_label, "candidates": candidates[:8], "note": note}
 
 
 @router.get("/compatible-payloads")
@@ -475,6 +597,9 @@ def encode_data(req: EncodeRequest):
         raise HTTPException(502, str(exc)) from exc
 
 
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\([a-zA-Z]")
+
+
 def _run_console_command(console_id: str, command: str, timeout_seconds: float = 12.0) -> str:
     """Run one fixed-form command in a temporary Metasploit console and collect its output."""
     try:
@@ -490,7 +615,8 @@ def _run_console_command(console_id: str, command: str, timeout_seconds: float =
 
             chunk = result.get("data")
             if chunk:
-                output = (output + str(chunk))[-200_000:]
+                clean_chunk = ANSI_ESCAPE_RE.sub("", str(chunk))
+                output = (output + clean_chunk)[-200_000:]
             if result.get("busy"):
                 idle_reads = 0
             elif output:
@@ -584,15 +710,20 @@ _CHECK_SETTABLE_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 # so the negative pattern is always tested before the positive one.
 _CHECK_NOT_VULNERABLE_RE = re.compile(
     r"(?i)(is not vulnerable|not vulnerable|not exploitable|cannot be exploited|"
-    r"appears (to be )?safe|the target is not)"
+    r"appears (to be )?safe|the target is not|the target service is running|"
+    r"checkcode::safe)"
 )
 _CHECK_UNSUPPORTED_RE = re.compile(
+    r"(?i)(does not support .{0,12}check|unknown command: check)"
+)
+_CHECK_UNKNOWN_RE = re.compile(
     r"(?i)(unsupported target|could not be reliably checked|cannot reliably check|"
-    r"state could not be determined|unable to check|does not support .{0,12}check|"
-    r"unknown command)"
+    r"state could not be determined|unable to check|connection refused|"
+    r"unreachable|check failed|checkcode::unknown|checkcode::unsupported)"
 )
 _CHECK_VULNERABLE_RE = re.compile(
-    r"(?i)(the target is vulnerable|appears (to be )?vulnerable|is vulnerable)"
+    r"(?i)(the target is vulnerable|appears (to be )?vulnerable|is vulnerable|"
+    r"checkcode::vulnerable|checkcode::appears)"
 )
 
 
@@ -600,6 +731,8 @@ def _check_verdict(output: str) -> str:
     if _CHECK_NOT_VULNERABLE_RE.search(output):
         return "not_vulnerable"
     if _CHECK_UNSUPPORTED_RE.search(output):
+        return "unsupported"
+    if _CHECK_UNKNOWN_RE.search(output):
         return "unknown"
     if _CHECK_VULNERABLE_RE.search(output):
         return "vulnerable"
