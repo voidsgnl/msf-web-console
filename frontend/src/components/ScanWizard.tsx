@@ -162,7 +162,8 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
   const [message, setMessage] = useState("");
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const [services, setServices] = useState<DiscoveredService[]>([]);\n  const servicesRef = useRef<DiscoveredService[]>([]);
+  const [services, setServices] = useState<DiscoveredService[]>([]);
+  const servicesRef = useRef<DiscoveredService[]>([]);
   const [confirmPhase, setConfirmPhase] = useState<ConfirmPhase>("idle");
   const [confirmMessage, setConfirmMessage] = useState("");
   const [suggestions, setSuggestions] = useState<Record<string, SuggestionState>>({});
@@ -306,7 +307,8 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
           !baselineKeys.has(serviceKey(row).toLowerCase())
         );
       open.sort((a, b) => (a.host === b.host ? a.port - b.port : a.host.localeCompare(b.host)));
-      servicesRef.current = open;\n      setServices(open);
+      servicesRef.current = open;
+      setServices(open);
       return baselineKeys !== null;
     } catch {
       // Non-fatal: the scan itself already ran, but results cannot be verified.
