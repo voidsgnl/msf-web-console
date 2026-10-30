@@ -144,12 +144,32 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     candidate against the target before trusting it.
     """
     term = _extract_search_term(service_info)
-    if not term:
+    # Port-based hints are lower-confidence fallbacks when no service banner
+    # is available. They identify likely service families, not vulnerabilities.
+    port_hints = {
+        21: ["ftp"], 22: ["ssh"], 23: ["telnet"], 25: ["smtp"],
+        53: ["dns"], 80: ["http"], 110: ["pop3"], 111: ["rpc"],
+        135: ["msrpc"], 139: ["smb"], 143: ["imap"], 161: ["snmp"],
+        389: ["ldap"], 443: ["http"], 445: ["smb"], 465: ["smtp"],
+        587: ["smtp"], 631: ["cups"], 993: ["imap"], 995: ["pop3"],
+        1433: ["mssql"], 1521: ["oracle"], 2049: ["nfs"],
+        2375: ["docker"], 3306: ["mysql"], 3389: ["rdp"],
+        5432: ["postgres"], 5900: ["vnc"], 6379: ["redis"],
+        8000: ["http"], 8080: ["http"], 8081: ["http"],
+        8443: ["http"], 9200: ["elasticsearch"], 27017: ["mongodb"],
+    }
+    terms = [term] if term else port_hints.get(port or 0, [])
+    if not terms:
         return {
             "query": None,
             "candidates": [],
-            "note": "Could not identify a usable software name in this banner.",
+            "note": "No banner was identified and this port has no built-in service-family hint. Confirm the service version or investigate manually.",
         }
+    query_label = term or f"port {port} ({terms[0]})"
+    match_basis = (
+        f"confirmed service banner matched '{term}'"
+        if term else f"common service mapping for TCP port {port} ({terms[0]})"
+    )
 
     requested_types = [t.strip() for t in types.split(",")] if types else ["exploit", "auxiliary"]
     search_types = [t for t in requested_types if t in MODULE_TYPES] or ["exploit", "auxiliary"]
@@ -159,13 +179,13 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
         for module_type in search_types:
             names = rpc.call(MODULE_LIST_RPC_METHODS[module_type]).get("modules", [])
             for name in names:
-                if term in name.lower():
+                if any(search_term in name.lower() for search_term in terms):
                     raw_matches.append({"type": module_type, "name": name})
     except MsfRpcError as exc:
         raise HTTPException(502, f"Could not search modules: {exc}") from exc
 
     if not raw_matches:
-        return {"query": term, "candidates": [], "note": f"No module names matched '{term}'."}
+        return {"query": query_label, "candidates": [], "note": f"No module names matched {query_label}."}
 
     # Exploit modules first (what someone chasing a known vulnerability is
     # actually after), then cap how many module.info calls we make - this
@@ -193,14 +213,14 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
             "rank_label": label,
             "disclosure_date": info.get("disclosure_date"),
             "description_snippet": snippet,
-            "match_basis": f"module name matched '{term}'",
+            "match_basis": match_basis,
         })
 
     # Stable two-pass sort: newest disclosure first within equal rank, then
     # highest Metasploit Rank first overall.
     candidates.sort(key=lambda c: c.get("disclosure_date") or "", reverse=True)
     candidates.sort(key=lambda c: c["rank_weight"], reverse=True)
-    return {"query": term, "candidates": candidates[:8]}
+    return {"query": query_label, "candidates": candidates[:8]}
 
 
 @router.get("/compatible-payloads")
