@@ -56,7 +56,7 @@ export function RecipesView({onOpenModule}:{onOpenModule:(type:string,query:stri
       </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(240px,0.8fr)_minmax(0,1.5fr)]">
         <div className="space-y-2">{RECIPES.map(recipe=><button key={recipe.id} type="button" onClick={()=>setSelectedId(recipe.id)}
-          className={\`w-full rounded-lg border p-3 text-left transition-colors \${selectedId===recipe.id?"border-accent/50 bg-accent/5":"border-border bg-bg-secondary hover:border-gray-500"}\`}>
+          className={"w-full rounded-lg border p-3 text-left transition-colors " + (selectedId===recipe.id ? "border-accent/50 bg-accent/5" : "border-border bg-bg-secondary hover:border-gray-500")}>
           <span className="block text-[10px] uppercase tracking-widest text-gray-500">{recipe.category}</span>
           <span className="mt-1 block text-sm font-medium text-gray-100">{recipe.title}</span>
           <span className="mt-1 block text-xs leading-relaxed text-gray-400">{recipe.summary}</span>
