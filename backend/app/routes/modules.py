@@ -12,6 +12,14 @@ from app.msf_rpc import rpc, MsfRpcError
 router = APIRouter(prefix="/api/modules", tags=["modules"])
 
 MODULE_TYPES = ["exploit", "auxiliary", "post", "payload", "encoder", "nop"]
+MODULE_LIST_RPC_METHODS = {
+    "exploit": "module.exploits",
+    "auxiliary": "module.auxiliary",
+    "post": "module.post",
+    "payload": "module.payloads",
+    "encoder": "module.encoders",
+    "nop": "module.nops",
+}
 EXECUTABLE_TYPES = {"exploit", "auxiliary", "post", "payload"}
 RUN_UUID_RE = re.compile(r"^[A-Za-z0-9]{12,64}$")
 
@@ -22,7 +30,7 @@ def list_modules(type: str = "exploit"):
     if type not in MODULE_TYPES:
         raise HTTPException(400, f"type must be one of {MODULE_TYPES}")
     try:
-        names = rpc.call(f"module.{type}s")
+        names = rpc.call(MODULE_LIST_RPC_METHODS[type])
         return {"type": type, "modules": names.get("modules", [])}
     except MsfRpcError as exc:
         raise HTTPException(502, str(exc))
@@ -42,7 +50,7 @@ def search_modules(q: str, type: str | None = None):
     q_lower = q.lower()
     for module_type in types:
         try:
-            names = rpc.call(f"module.{module_type}s").get("modules", [])
+            names = rpc.call(MODULE_LIST_RPC_METHODS[module_type]).get("modules", [])
         except MsfRpcError as exc:
             raise HTTPException(502, f"Could not search {module_type} modules: {exc}") from exc
         for name in names:
@@ -149,7 +157,7 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     raw_matches: list[dict[str, str]] = []
     try:
         for module_type in search_types:
-            names = rpc.call(f"module.{module_type}s").get("modules", [])
+            names = rpc.call(MODULE_LIST_RPC_METHODS[module_type]).get("modules", [])
             for name in names:
                 if term in name.lower():
                     raw_matches.append({"type": module_type, "name": name})
