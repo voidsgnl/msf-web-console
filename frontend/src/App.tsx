@@ -3,6 +3,7 @@ import { Sidebar, View } from "./components/Sidebar";
 import { ConsoleView } from "./components/ConsoleView";
 import { ModuleBrowser, ModuleSearchRequest } from "./components/ModuleBrowser";
 import { ScanWizard } from "./components/ScanWizard";
+import { RecipesView } from "./components/RecipesView";
 import { SessionsView } from "./components/SessionsView";
 import { HostsView } from "./components/HostsView";
 import { JobsView } from "./components/JobsView";
@@ -160,6 +161,11 @@ export default function App() {
           {visitedViews.has("scan") && (
             <div className="absolute inset-0 overflow-y-auto" style={{ display: view === "scan" ? "block" : "none" }}>
               <ScanWizard onInvestigate={investigateModules} />
+            </div>
+          )}
+          {visitedViews.has("recipes") && (
+            <div className="absolute inset-0 overflow-y-auto" style={{ display: view === "recipes" ? "block" : "none" }}>
+              <RecipesView onOpenModule={investigateModules} />
             </div>
           )}
           {visitedViews.has("modules") && (
