@@ -631,10 +631,11 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                       {suggestionState.status === "done" && suggestionState.candidates.length > 0 && (
                         <>
                           <p className="text-[10px] text-gray-500 mb-2 leading-relaxed">
-                            Module names matched against <span className="font-mono text-gray-400">{suggestionState.query}</span>, ranked by
-                            Metasploit's own reliability Rank. This is a NAME match, not a confirmed vulnerability - use
-                            "Verify" to actually run the module's own <span className="font-mono text-gray-400">check</span> against
-                            this target before trusting it.
+                            Candidates matched against <span className="font-mono text-gray-400">{suggestionState.query}</span>,
+                            ranked by Metasploit's reliability Rank. {service.info
+                              ? "This is a module-name match, not a confirmed vulnerability."
+                              : "No software banner was identified; these are port-based service-family guesses, not proof of the software or a vulnerability."}
+                            {" "}Use "Verify" to run the module's own <span className="font-mono text-gray-400">check</span> against this target.
                           </p>
                           <div className="space-y-1.5">
                             {suggestionState.candidates.map((candidate) => {
