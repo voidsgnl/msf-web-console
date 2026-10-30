@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { api } from "../lib/api";
 import { glossaryFor } from "../lib/glossary";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 type ModuleRef = { type: string; name: string };
 type SessionSummary = { id: string; session: Record<string, any> };
@@ -128,6 +129,18 @@ const SIDE_EFFECT_LABELS: Record<string, string> = {
 function formatSideEffectCode(code: string): string {
   return SIDE_EFFECT_LABELS[code] ?? code.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 }
+// SideEffects codes that justify an extra confirmation step before running
+// the module, since they can change or damage the target rather than just
+// leaving a forensic trace (IOC_IN_LOGS) or a cosmetic effect (SCREEN/AUDIO).
+// Matches Phase 3's "Privileged or destructive SideEffects" roadmap item.
+const DESTRUCTIVE_SIDE_EFFECT_CODES = new Set([
+  "ARTIFACTS_ON_DISK",
+  "CONFIG_CHANGES",
+  "ACCOUNT_LOCKOUTS",
+  "ACCOUNT_CHANGES",
+  "PHYSICAL_EFFECTS",
+  "PERMANENT_DENIAL_OF_SERVICE",
+]);
 // A short, prominent lead-in pulled from the module's OWN description (never
 // invented) - its first sentence, cleaned of the line-wrapping/indentation
 // Metasploit descriptions are typically written with.
@@ -306,6 +319,7 @@ export function ModuleBrowser({
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<ModuleTab>("overview");
   const [executing, setExecuting] = useState(false);
+  const [confirmExecuteOpen, setConfirmExecuteOpen] = useState(false);
   const [progress, setProgress] = useState<ExecutionProgress | null>(null);
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -445,6 +459,7 @@ export function ModuleBrowser({
     setValidationErrors({});
     setOptionSearch("");
     setShowAdvancedOptions(false);
+    setConfirmExecuteOpen(false);
     setLoadingInfo(true);
     try {
       const data = await api.modules.info(mod.type, mod.name);
@@ -957,6 +972,28 @@ export function ModuleBrowser({
     info?.info && typeof info.info === "object" ? info.info : {};
   const moduleOptions: Record<string, any> =
     info?.options && typeof info.options === "object" ? info.options : {};
+  // SideEffects codes this module declares (computed once here so both the
+  // header badges and the pre-execution confirmation dialog agree on the
+  // same list), split into destructive ones that warrant a confirmation
+  // step versus purely informational/cosmetic ones that don't.
+  const sideEffectCodes = listEntries(moduleInfo.notes?.SideEffects).map(([, value]) => String(value));
+  const destructiveSideEffects = sideEffectCodes.filter((code) => DESTRUCTIVE_SIDE_EFFECT_CODES.has(code));
+  const isPrivilegedModule = Boolean(moduleInfo.privileged);
+  const needsExecuteConfirmation =
+    Boolean(selected) &&
+    selected?.type !== "encoder" &&
+    selected?.type !== "nop" &&
+    (isPrivilegedModule || destructiveSideEffects.length > 0);
+  const confirmExecuteDescription = selected
+    ? [
+        `This ${selected.type} module is flagged as higher-impact:`,
+        "",
+        ...(isPrivilegedModule ? ["• Can grant elevated (SYSTEM/root-level) access if it succeeds."] : []),
+        ...destructiveSideEffects.map((code) => `• ${formatSideEffectCode(code)}.`),
+        "",
+        "Only run this against a target you are authorized to test.",
+      ].join("\n")
+    : "";
   const optionEntries = sortOptionEntries(
     Object.entries<any>(moduleOptions).filter(([key, option]) => {
       const term = optionSearch.toLowerCase().trim();
@@ -1082,6 +1119,7 @@ export function ModuleBrowser({
   const visibleModules = showingPopular ? popularRefs : results;
 
   return (
+    <>
     <div className="flex h-full min-w-0">
       <aside className="w-64 md:w-72 shrink-0 border-r border-border flex flex-col bg-bg-secondary">
         <div className="p-3 border-b border-border space-y-2.5">
@@ -1185,22 +1223,32 @@ export function ModuleBrowser({
                   </div>
                   <h1 className="text-sm md:text-base font-mono text-gray-100 break-all">{textValue(moduleInfo.fullname) || `${selected.type}/${selected.name}`}</h1>
                   <p className="text-xs text-gray-500 mt-1">Metasploit module inspector</p>
-                  {(() => {
-                    const sideEffects = listEntries(moduleInfo.notes?.SideEffects).map(([, v]) => String(v));
-                    if (sideEffects.length === 0) return null;
-                    return (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {sideEffects.map((code) => (
-                          <span key={code} className="rounded border border-warning/20 bg-warning/5 px-2 py-0.5 text-[10px] text-warning/90" title={code}>
-                            {formatSideEffectCode(code)}
-                          </span>
-                        ))}
-                      </div>
-                    );
-                  })()}
+                  {sideEffectCodes.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {sideEffectCodes.map((code) => (
+                        <span
+                          key={code}
+                          className={`rounded border px-2 py-0.5 text-[10px] ${
+                            DESTRUCTIVE_SIDE_EFFECT_CODES.has(code)
+                              ? "border-danger/30 bg-danger/5 text-danger"
+                              : "border-warning/20 bg-warning/5 text-warning/90"
+                          }`}
+                          title={code}
+                        >
+                          {formatSideEffectCode(code)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <button
-                  onClick={() => void execute()}
+                  onClick={() => {
+                    if (needsExecuteConfirmation) {
+                      setConfirmExecuteOpen(true);
+                    } else {
+                      void execute();
+                    }
+                  }}
                   disabled={executing || loadingInfo || payloadOptionsLoading || !info}
                   title={selected.type === "encoder"
                     ? "Encode input data with this Metasploit encoder."
@@ -1816,5 +1864,17 @@ export function ModuleBrowser({
         )}
       </div>
     </div>
+    <ConfirmDialog
+      open={confirmExecuteOpen}
+      title="Confirm execution"
+      description={confirmExecuteDescription}
+      confirmLabel="Execute anyway"
+      onConfirm={async () => {
+        setConfirmExecuteOpen(false);
+        await execute();
+      }}
+      onCancel={() => setConfirmExecuteOpen(false)}
+    />
+    </>
   );
 }
