@@ -602,15 +602,13 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                       )}
                     </div>
                     <div className="shrink-0 flex items-center gap-2">
-                      {confirmed && (
-                        <button
-                          onClick={() => void loadSuggestions(service)}
-                          disabled={suggestionState?.status === "loading"}
-                          className="rounded border border-accent/30 bg-accent/5 px-3 py-1.5 text-[11px] text-accent hover:bg-accent/10 disabled:cursor-wait disabled:opacity-50"
-                        >
-                          {suggestionState?.status === "loading" ? "Searching…" : "Find matching exploits"}
-                        </button>
-                      )}
+                      <button
+                        onClick={() => void loadSuggestions(service)}
+                        disabled={suggestionState?.status === "loading"}
+                        className="rounded border border-accent/30 bg-accent/5 px-3 py-1.5 text-[11px] text-accent hover:bg-accent/10 disabled:cursor-wait disabled:opacity-50"
+                      >
+                        {suggestionState?.status === "loading" ? "Searching…" : "Find matching exploits"}
+                      </button>
                       <button
                         onClick={() => onInvestigate("auxiliary", suggestion.keyword, { host: service.host, port: service.port, serviceInfo: service.info, source: "scan" })}
                         className="rounded border border-accent/30 bg-accent/5 px-3 py-1.5 text-[11px] text-accent hover:bg-accent/10"
