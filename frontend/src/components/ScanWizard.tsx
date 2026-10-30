@@ -1,15 +1,33 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
+import type { SuggestedModule } from "../lib/api";
 import { suggestForPort } from "../lib/portSuggestions";
 import { detectionModuleForPort } from "../lib/versionDetection";
 
 type Phase = "idle" | "submitting" | "running" | "completed" | "timeout" | "error";
 type ConfirmPhase = "idle" | "running" | "done";
+type SuggestionStatus = "idle" | "loading" | "done" | "error";
+type VerifyStatus = "idle" | "running" | "done" | "error";
 
 type DiscoveredService = {
   host: string;
   port: number;
   info: string;
+};
+
+type SuggestionState = {
+  status: SuggestionStatus;
+  query: string | null;
+  candidates: SuggestedModule[];
+  note?: string;
+  error?: string;
+};
+
+type VerifyState = {
+  status: VerifyStatus;
+  verdict?: "vulnerable" | "not_vulnerable" | "unknown";
+  rawOutput?: string;
+  error?: string;
 };
 
 const COMMON_PORTS =
@@ -18,12 +36,31 @@ const POLL_INTERVAL_MS = 2000;
 const SCAN_TIMEOUT_MS = 5 * 60 * 1000;
 const CONFIRM_TIMEOUT_MS = 2 * 60 * 1000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const serviceKey = (service: DiscoveredService) => `${service.host}:${service.port}`;
+const candidateKey = (service: DiscoveredService, candidate: SuggestedModule) =>
+  `${serviceKey(service)}:${candidate.type}/${candidate.name}`;
 
 function formatElapsed(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   if (totalSeconds < 60) return `${totalSeconds}s`;
   const minutes = Math.floor(totalSeconds / 60);
   return `${minutes}m ${totalSeconds % 60}s`;
+}
+
+function rankBadgeStyle(rankWeight: number): string {
+  if (rankWeight >= 500) return "border-emerald-500/30 bg-emerald-500/5 text-emerald-400";
+  if (rankWeight >= 300) return "border-accent/30 bg-accent/5 text-accent";
+  if (rankWeight < 0) return "border-border text-gray-500";
+  return "border-warning/30 bg-warning/5 text-warning";
+}
+
+function verdictBadge(state: VerifyState | undefined): { label: string; style: string } | null {
+  if (!state || state.status === "idle") return null;
+  if (state.status === "running") return { label: "Checking…", style: "border-border text-gray-400" };
+  if (state.status === "error") return { label: "Check failed", style: "border-danger/30 bg-danger/5 text-danger" };
+  if (state.verdict === "vulnerable") return { label: "Appears vulnerable", style: "border-danger/30 bg-danger/5 text-danger" };
+  if (state.verdict === "not_vulnerable") return { label: "Not vulnerable", style: "border-emerald-500/30 bg-emerald-500/5 text-emerald-400" };
+  return { label: "Unknown / unconfirmed", style: "border-warning/30 bg-warning/5 text-warning" };
 }
 
 export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, query: string) => void }) {
@@ -36,6 +73,8 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
   const [services, setServices] = useState<DiscoveredService[]>([]);
   const [confirmPhase, setConfirmPhase] = useState<ConfirmPhase>("idle");
   const [confirmMessage, setConfirmMessage] = useState("");
+  const [suggestions, setSuggestions] = useState<Record<string, SuggestionState>>({});
+  const [verifications, setVerifications] = useState<Record<string, VerifyState>>({});
   const mounted = useRef(true);
   const runGeneration = useRef(0);
 
@@ -60,6 +99,8 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     const isCurrentRun = () => mounted.current && runGeneration.current === generation;
 
     setServices([]);
+    setSuggestions({});
+    setVerifications({});
     setConfirmPhase("idle");
     setConfirmMessage("");
     setStartedAt(Date.now());
@@ -216,6 +257,55 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     setConfirmMessage("Version checks finished. Confirmed services are labeled below.");
   };
 
+  const loadSuggestions = async (service: DiscoveredService) => {
+    const key = serviceKey(service);
+    setSuggestions((current) => ({
+      ...current,
+      [key]: { status: "loading", query: null, candidates: [] },
+    }));
+    try {
+      const result = await api.modules.suggest(service.info, service.port);
+      if (!mounted.current) return;
+      setSuggestions((current) => ({
+        ...current,
+        [key]: { status: "done", query: result.query, candidates: result.candidates, note: result.note },
+      }));
+    } catch (e: unknown) {
+      if (!mounted.current) return;
+      setSuggestions((current) => ({
+        ...current,
+        [key]: {
+          status: "error",
+          query: null,
+          candidates: [],
+          error: e instanceof Error ? e.message : String(e),
+        },
+      }));
+    }
+  };
+
+  const verifyCandidate = async (service: DiscoveredService, candidate: SuggestedModule) => {
+    const key = candidateKey(service, candidate);
+    setVerifications((current) => ({ ...current, [key]: { status: "running" } }));
+    try {
+      const result = await api.modules.checkModule(candidate.type, candidate.name, {
+        RHOSTS: service.host,
+        RPORT: String(service.port),
+      });
+      if (!mounted.current) return;
+      setVerifications((current) => ({
+        ...current,
+        [key]: { status: "done", verdict: result.verdict, rawOutput: result.raw_output },
+      }));
+    } catch (e: unknown) {
+      if (!mounted.current) return;
+      setVerifications((current) => ({
+        ...current,
+        [key]: { status: "error", error: e instanceof Error ? e.message : String(e) },
+      }));
+    }
+  };
+
   const busy = phase === "submitting" || phase === "running";
 
   return (
@@ -298,34 +388,127 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
               const suggestion = suggestForPort(service.port);
               const detection = detectionModuleForPort(service.port);
               const confirmed = Boolean(service.info);
+              const key = serviceKey(service);
+              const suggestionState = suggestions[key];
               return (
-                <div key={`${service.host}:${service.port}`} className="rounded border border-border bg-bg-secondary/50 p-3 flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-xs text-accent">{service.host}:{service.port}</span>
-                      <span className="rounded border border-border px-2 py-0.5 text-[10px] text-gray-300">{suggestion.label}</span>
+                <div key={key} className="rounded border border-border bg-bg-secondary/50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-xs text-accent">{service.host}:{service.port}</span>
+                        <span className="rounded border border-border px-2 py-0.5 text-[10px] text-gray-300">{suggestion.label}</span>
+                        {confirmed ? (
+                          <span className="rounded border border-emerald-500/30 bg-emerald-500/5 px-2 py-0.5 text-[10px] text-emerald-400">
+                            Confirmed
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-gray-600">
+                            {detection ? "(not yet confirmed)" : "(guessed from port number, not confirmed)"}
+                          </span>
+                        )}
+                      </div>
                       {confirmed ? (
-                        <span className="rounded border border-emerald-500/30 bg-emerald-500/5 px-2 py-0.5 text-[10px] text-emerald-400">
-                          Confirmed
-                        </span>
+                        <p className="text-[11px] text-gray-300 mt-1 leading-relaxed font-mono break-all">{service.info}</p>
                       ) : (
-                        <span className="text-[10px] text-gray-600">
-                          {detection ? "(not yet confirmed)" : "(guessed from port number, not confirmed)"}
-                        </span>
+                        <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">{suggestion.note}</p>
                       )}
                     </div>
-                    {confirmed ? (
-                      <p className="text-[11px] text-gray-300 mt-1 leading-relaxed font-mono break-all">{service.info}</p>
-                    ) : (
-                      <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">{suggestion.note}</p>
-                    )}
+                    <div className="shrink-0 flex items-center gap-2">
+                      {confirmed && (
+                        <button
+                          onClick={() => void loadSuggestions(service)}
+                          disabled={suggestionState?.status === "loading"}
+                          className="rounded border border-accent/30 bg-accent/5 px-3 py-1.5 text-[11px] text-accent hover:bg-accent/10 disabled:cursor-wait disabled:opacity-50"
+                        >
+                          {suggestionState?.status === "loading" ? "Searching…" : "Find matching exploits"}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => onInvestigate("auxiliary", suggestion.keyword)}
+                        className="rounded border border-accent/30 bg-accent/5 px-3 py-1.5 text-[11px] text-accent hover:bg-accent/10"
+                      >
+                        Investigate in Modules
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => onInvestigate("auxiliary", suggestion.keyword)}
-                    className="shrink-0 rounded border border-accent/30 bg-accent/5 px-3 py-1.5 text-[11px] text-accent hover:bg-accent/10"
-                  >
-                    Investigate in Modules
-                  </button>
+
+                  {suggestionState && suggestionState.status !== "idle" && (
+                    <div className="mt-3 border-t border-border/60 pt-3">
+                      {suggestionState.status === "error" && (
+                        <p className="text-[11px] text-danger">Couldn't look up matching modules: {suggestionState.error}</p>
+                      )}
+                      {suggestionState.status === "done" && suggestionState.candidates.length === 0 && (
+                        <p className="text-[11px] text-gray-500">
+                          {suggestionState.note ?? `No module names matched this service.`}
+                        </p>
+                      )}
+                      {suggestionState.status === "done" && suggestionState.candidates.length > 0 && (
+                        <>
+                          <p className="text-[10px] text-gray-500 mb-2 leading-relaxed">
+                            Module names matched against <span className="font-mono text-gray-400">{suggestionState.query}</span>, ranked by
+                            Metasploit's own reliability Rank. This is a NAME match, not a confirmed vulnerability - use
+                            "Verify" to actually run the module's own <span className="font-mono text-gray-400">check</span> against
+                            this target before trusting it.
+                          </p>
+                          <div className="space-y-1.5">
+                            {suggestionState.candidates.map((candidate) => {
+                              const vKey = candidateKey(service, candidate);
+                              const verifyState = verifications[vKey];
+                              const badge = verdictBadge(verifyState);
+                              return (
+                                <div key={vKey} className="rounded border border-border/60 bg-bg-primary/40 p-2.5">
+                                  <div className="flex flex-wrap items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="font-mono text-[11px] text-gray-200 break-all">{candidate.fullname}</span>
+                                        <span className={`rounded border px-1.5 py-0.5 text-[9px] uppercase ${rankBadgeStyle(candidate.rank_weight)}`}>
+                                          {candidate.rank_label}
+                                        </span>
+                                        {candidate.disclosure_date && (
+                                          <span className="text-[9px] text-gray-600">{candidate.disclosure_date}</span>
+                                        )}
+                                        {badge && (
+                                          <span className={`rounded border px-1.5 py-0.5 text-[9px] uppercase ${badge.style}`}>
+                                            {badge.label}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {candidate.description_snippet && (
+                                        <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">{candidate.description_snippet}</p>
+                                      )}
+                                      {verifyState?.status === "done" && verifyState.rawOutput && (
+                                        <pre className="mt-1.5 max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded bg-bg-secondary/60 p-1.5 text-[10px] text-gray-400 font-mono">
+                                          {verifyState.rawOutput}
+                                        </pre>
+                                      )}
+                                      {verifyState?.status === "error" && (
+                                        <p className="text-[10px] text-danger mt-1">{verifyState.error}</p>
+                                      )}
+                                    </div>
+                                    <div className="shrink-0 flex items-center gap-1.5">
+                                      <button
+                                        onClick={() => void verifyCandidate(service, candidate)}
+                                        disabled={verifyState?.status === "running"}
+                                        className="rounded border border-border px-2 py-1 text-[10px] text-gray-300 hover:border-accent hover:text-accent disabled:cursor-wait disabled:opacity-50"
+                                      >
+                                        {verifyState?.status === "running" ? "Checking…" : "Verify"}
+                                      </button>
+                                      <button
+                                        onClick={() => onInvestigate(candidate.type, candidate.name)}
+                                        className="rounded border border-border px-2 py-1 text-[10px] text-gray-300 hover:border-accent hover:text-accent"
+                                      >
+                                        Open
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

@@ -38,6 +38,29 @@ export type WorkspaceCveEnrichment = {
   remaining_cves: string[];
 };
 
+export type SuggestedModule = {
+  type: string;
+  name: string;
+  fullname: string;
+  rank_weight: number;
+  rank_label: string;
+  disclosure_date?: string | null;
+  description_snippet: string;
+  match_basis: string;
+};
+
+export type ModuleSuggestions = {
+  query: string | null;
+  candidates: SuggestedModule[];
+  note?: string;
+};
+
+export type ModuleCheckResult = {
+  module: string;
+  verdict: "vulnerable" | "not_vulnerable" | "unknown";
+  raw_output: string;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     credentials: "same-origin",
@@ -143,6 +166,22 @@ export const api = {
       request<{ waiting?: string[]; running?: string[]; results?: string[] }>("/modules/running-stats"),
     results: (runUuid: string) =>
       request<{ status?: string; result?: unknown; error?: string }>("/modules/results/" + encodeURIComponent(runUuid)),
+    // Heuristic name/description match against a CONFIRMED service banner
+    // (not a port-number guess), ranked by Metasploit's own module Rank.
+    // Not a vulnerability confirmation by itself - see checkModule below.
+    suggest: (serviceInfo: string, port?: number) => {
+      const params = new URLSearchParams({ service_info: serviceInfo });
+      if (port !== undefined) params.set("port", String(port));
+      return request<ModuleSuggestions>(`/modules/suggest?${params.toString()}`);
+    },
+    // Actually runs Metasploit's own `check` action for one module against
+    // a target - the same mechanism local_exploit_suggester uses - rather
+    // than trusting the name/description match from suggest() above.
+    checkModule: (type: string, name: string, options: Record<string, unknown>) =>
+      request<ModuleCheckResult>(`/modules/${type}/${encodeURIComponent(name)}/check`, {
+        method: "POST",
+        body: JSON.stringify({ options }),
+      }),
   },
 
   sessions: {
