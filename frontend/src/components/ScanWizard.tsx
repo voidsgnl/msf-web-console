@@ -63,7 +63,7 @@ function verdictBadge(state: VerifyState | undefined): { label: string; style: s
   return { label: "Unknown / unconfirmed", style: "border-warning/30 bg-warning/5 text-warning" };
 }
 
-export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, query: string) => void }) {
+export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, query: string, targetContext?: ScanTargetContext) => void }) {
   const [target, setTarget] = useState("");
   const [scanAllPorts, setScanAllPorts] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -424,7 +424,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                         </button>
                       )}
                       <button
-                        onClick={() => onInvestigate("auxiliary", suggestion.keyword)}
+                        onClick={() => onInvestigate("auxiliary", suggestion.keyword, { host: service.host, port: service.port, serviceInfo: service.info, source: "scan" })}
                         className="rounded border border-accent/30 bg-accent/5 px-3 py-1.5 text-[11px] text-accent hover:bg-accent/10"
                       >
                         Investigate in Modules
@@ -494,7 +494,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                                         {verifyState?.status === "running" ? "Checking…" : "Verify"}
                                       </button>
                                       <button
-                                        onClick={() => onInvestigate(candidate.type, candidate.name)}
+                                        onClick={() => onInvestigate(candidate.type, candidate.name, { host: service.host, port: service.port, serviceInfo: service.info, source: "scan" })}
                                         className="rounded border border-border px-2 py-1 text-[10px] text-gray-300 hover:border-accent hover:text-accent"
                                       >
                                         Open
