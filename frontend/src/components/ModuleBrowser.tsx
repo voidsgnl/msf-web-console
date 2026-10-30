@@ -902,10 +902,10 @@ export function ModuleBrowser({
 
         if (jobId && jobObserved && !activeJobIds.includes(jobId) && !runIsWaiting && !runIsActive && !runHasResult) {
           setProgress({
-            phase: "completed",
+            phase: "unknown",
             message: latestSessions.length
-              ? "The background job ended and new session(s) were detected. No detailed module result was available from this Framework API."
-              : "The background job is no longer active. This Framework API did not provide a detailed result for the run.",
+              ? "The background job is no longer listed and new session(s) were detected. The session is confirmed, but the final module outcome is unavailable."
+              : "The background job is no longer listed, but no final result was retrieved. The job may have completed, failed, or been removed; check the Metasploit console or Jobs history.",
             jobId,
             runUuid,
             sessions: latestSessions,
@@ -930,7 +930,7 @@ export function ModuleBrowser({
           phase: "timeout",
           message: current.sessions.length
             ? "Still watching this run, but new session(s) are already available below - open Sessions to use them now."
-            : `This panel stopped watching after ${minutes} minutes, but the module itself is very likely still running in Metasploit (long scans and waiting handlers are normal). Open the Jobs tab to see it live - it keeps updating even while you're not looking at it.`,
+            : `Tracking stopped after ${minutes} minutes. This does not stop or cancel the Metasploit module: it may still be running, or it may have finished without a retrievable result. Check Jobs and the Metasploit console for its current state.`,
         } : null);
       }
     } catch (e: unknown) {
@@ -984,8 +984,11 @@ export function ModuleBrowser({
       }
       return "The module finished running. See the result below for what it did.";
     }
+    if (current.phase === "unknown") {
+      return "Outcome unverified — the available Metasploit RPC data was not enough to confirm success or failure. Check Jobs, Sessions, and the Metasploit console before drawing a conclusion.";
+    }
     if (current.phase === "error") {
-      return "This run failed before producing a result. Common causes: the target is unreachable, the port is closed, or the target isn't actually vulnerable to this module. See the message below for the specific reason.";
+      return "Metasploit reported an execution or submission error. See the message below for the specific reason.";
     }
     return null;
   }
