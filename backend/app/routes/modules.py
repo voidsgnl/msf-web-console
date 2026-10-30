@@ -165,10 +165,10 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     terms: list[str] = []
     prod_lower = parsed.product.lower() if parsed and parsed.product else ""
     if prod_lower:
-        if "apache httpd" in prod_lower or "apache" in prod_lower:
-            terms.extend(["apache", "httpd"])
-        elif "apache tomcat" in prod_lower or "tomcat" in prod_lower:
+        if "apache tomcat" in prod_lower or "tomcat" in prod_lower:
             terms.extend(["tomcat", "coyote"])
+        elif "apache httpd" in prod_lower or "apache" in prod_lower:
+            terms.extend(["apache", "httpd"])
         elif "iis" in prod_lower:
             terms.extend(["iis"])
         elif "nginx" in prod_lower:
@@ -187,7 +187,10 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
             clean_tokens = [t.lower() for t in _SOFTWARE_NAME_RE.findall(parsed.product) if t.lower() not in _GENERIC_BANNER_WORDS]
             terms.extend(clean_tokens)
 
-    if term and term not in terms and term not in ("openssh",):
+    # Once a banner parser has identified the product, trust those product
+    # terms rather than re-adding the first raw token (e.g. "apache" from an
+    # Apache-Coyote Tomcat banner).
+    if term and term not in terms and term not in ("openssh",) and not parsed:
         terms.append(term)
 
     if not terms:
@@ -200,7 +203,7 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
             "note": "No banner was identified and this port has no built-in service-family hint. Confirm the service version or investigate manually.",
         }
 
-    query_label = term or terms[0]
+    query_label = terms[0] if parsed else (term or terms[0])
     match_basis = (
         f"confirmed service banner matched '{parsed.product if parsed else term}'"
         if (parsed or term) else f"common service mapping for TCP port {port} ({terms[0]})"
@@ -261,7 +264,7 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
             return score
 
         # Apache HTTP Server filtering
-        if "apache httpd" in prod_lower or (port in (80, 443, 8080, 8443) and "apache" in prod_lower):
+        if "apache httpd" in prod_lower or (port in (80, 443, 8080, 8443) and "apache" in prod_lower and "tomcat" not in prod_lower):
             if any(proj in m_name for proj in other_apache_projects):
                 score -= 500
             if any(k in m_name for k in ['normalize_path', 'mod_cgi', 'optionsbleed', 'userdir_enum', 'chunked', 'httpd']):
