@@ -292,8 +292,8 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
       const result = await api.db.services();
       if (!mounted.current) return;
       const rows = Array.isArray(result?.services) ? result.services : [];
-      // Metasploit's db.services is workspace-wide. Only include hosts inside this
-      // scan's target, and only records absent from the pre-scan snapshot.
+      // Metasploit's db.services is workspace-wide. Restrict all records to the
+      // requested target, preferring newly recorded rows when available.
       const matching: DiscoveredService[] = rows
         .filter((row: any) => row && String(row.state ?? "").toLowerCase() === "open" && row.host != null && row.port !== undefined && row.port !== null)
         .map((row: any) => ({
@@ -305,7 +305,8 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
       const newlyRecorded = baselineKeys === null ? [] : matching.filter((row) => !baselineKeys.has(serviceKey(row).toLowerCase()));
       // Prefer records added during this run. If none were added, show the
       // target's already-known open services rather than an empty result set.
-      const open = newlyRecorded.length ? newlyRecorded : matching;      open.sort((a, b) => (a.host === b.host ? a.port - b.port : a.host.localeCompare(b.host)));
+      const open = newlyRecorded.length ? newlyRecorded : matching;
+      open.sort((a, b) => (a.host === b.host ? a.port - b.port : a.host.localeCompare(b.host)));
       servicesRef.current = open;
       setServices(open);
       return baselineKeys !== null;
