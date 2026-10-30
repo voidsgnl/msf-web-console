@@ -710,16 +710,15 @@ _CHECK_SETTABLE_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 # so the negative pattern is always tested before the positive one.
 _CHECK_NOT_VULNERABLE_RE = re.compile(
     r"(?i)(is not vulnerable|not vulnerable|not exploitable|cannot be exploited|"
-    r"appears (to be )?safe|the target is not|the target service is running|"
-    r"checkcode::safe)"
+    r"appears (to be )?safe|the target is not vulnerable)"
 )
 _CHECK_UNSUPPORTED_RE = re.compile(
-    r"(?i)(does not support .{0,12}check|unknown command: check)"
+    r"(?i)(does not support .{0,12}check|unknown command: check|checkcode::unsupported)"
 )
 _CHECK_UNKNOWN_RE = re.compile(
     r"(?i)(unsupported target|could not be reliably checked|cannot reliably check|"
     r"state could not be determined|unable to check|connection refused|"
-    r"unreachable|check failed|checkcode::unknown|checkcode::unsupported)"
+    r"unreachable|check failed|checkcode::unknown)"
 )
 _CHECK_VULNERABLE_RE = re.compile(
     r"(?i)(the target is vulnerable|appears (to be )?vulnerable|is vulnerable|"
@@ -728,12 +727,19 @@ _CHECK_VULNERABLE_RE = re.compile(
 
 
 def _check_verdict(output: str) -> str:
-    if _CHECK_NOT_VULNERABLE_RE.search(output):
+    # Explicit Metasploit CheckCode values are authoritative. A service being
+    # reachable/running is only evidence of service availability, never a
+    # vulnerability verdict.
+    if re.search(r"(?i)checkcode::vulnerable|checkcode::appears", output):
+        return "vulnerable"
+    if re.search(r"(?i)checkcode::safe", output):
         return "not_vulnerable"
     if _CHECK_UNSUPPORTED_RE.search(output):
         return "unsupported"
     if _CHECK_UNKNOWN_RE.search(output):
         return "unknown"
+    if _CHECK_NOT_VULNERABLE_RE.search(output):
+        return "not_vulnerable"
     if _CHECK_VULNERABLE_RE.search(output):
         return "vulnerable"
     return "unknown"
