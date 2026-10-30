@@ -389,6 +389,7 @@ export function ModuleBrowser({
     if (!externalSearchRequest || externalSearchRequest.nonce === lastAppliedSearchNonce.current) return;
     lastAppliedSearchNonce.current = externalSearchRequest.nonce;
     setType(externalSearchRequest.type);
+    setActiveTargetContext(externalSearchRequest.targetContext ?? null);
     void search(externalSearchRequest.query, externalSearchRequest.type);
   }, [externalSearchRequest]);
 
@@ -434,6 +435,7 @@ export function ModuleBrowser({
     setExecuting(false);
     payloadRequestGeneration.current += 1;
     setSelected(mod);
+    setAutoOptionSources({});
     setActiveTab("overview");
     setProgress(null);
     setRunStartedAt(null);
