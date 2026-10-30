@@ -39,6 +39,27 @@ const CONFIRM_TIMEOUT_MS = 2 * 60 * 1000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const serviceKey = (service: DiscoveredService) => `${service.host}:${service.port}`;
 
+function validateCustomPorts(raw: string): { value: string; error: string | null } {
+  const input = raw.trim();
+  if (!input) return { value: "", error: "Enter at least one port or range." };
+
+  const tokens = input.split(",");
+  const normalized: string[] = [];
+  for (const rawToken of tokens) {
+    const token = rawToken.trim();
+    if (!token) return { value: "", error: "Remove empty entries between commas." };
+    const match = /^(\\d{1,5})(?:-(\\d{1,5}))?$/.exec(token);
+    if (!match) return { value: "", error: `"${token}" is invalid. Use ports and ranges such as 80,443,8000-8100.` };
+    const start = Number(match[1]);
+    const end = match[2] ? Number(match[2]) : start;
+    if (start < 1 || end > 65535 || start > end) {
+      return { value: "", error: `"${token}" must be within 1-65535, with the range start no greater than its end.` };
+    }
+    normalized.push(start === end ? String(start) : `${start}-${end}`);
+  }
+  return { value: normalized.join(","), error: null };
+}
+
 function ipv4Number(value: string): number | null {
   const parts = value.split(".");
   if (parts.length !== 4) return null;
@@ -105,7 +126,8 @@ function verdictBadge(state: VerifyState | undefined): { label: string; style: s
 
 export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, query: string, targetContext?: TargetContext) => void }) {
   const [target, setTarget] = useState("");
-  const [scanAllPorts, setScanAllPorts] = useState(false);
+  const [scanMode, setScanMode] = useState<"common" | "all" | "custom">("common");
+  const [customPorts, setCustomPorts] = useState("3306,5173,5433,8000,8081");
   const [phase, setPhase] = useState<Phase>("idle");
   const [message, setMessage] = useState("");
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -135,6 +157,13 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
   const startScan = async () => {
     const trimmedTarget = target.trim();
     if (!trimmedTarget || phase === "submitting" || phase === "running") return;
+
+    const customPortResult = scanMode === "custom" ? validateCustomPorts(customPorts) : null;
+    if (customPortResult?.error) {
+      setPhase("error");
+      setMessage(customPortResult.error);
+      return;
+    }
 
     const generation = ++runGeneration.current;
     const isCurrentRun = () => mounted.current && runGeneration.current === generation;
@@ -166,7 +195,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     try {
       const result = await api.modules.execute("auxiliary", "scanner/portscan/tcp", {
         RHOSTS: trimmedTarget,
-        PORTS: scanAllPorts ? "1-10000" : COMMON_PORTS,
+        PORTS: scanMode === "all" ? "1-10000" : scanMode === "custom" ? customPortResult!.value : COMMON_PORTS,
       });
       if (!isCurrentRun()) return;
 
@@ -405,16 +434,37 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
             className="w-full bg-bg-tertiary border border-border rounded px-2.5 py-2 text-xs text-gray-100 font-mono placeholder:text-gray-600 focus:outline-none focus:border-accent disabled:opacity-50"
           />
         </div>
-        <label className="flex items-center gap-2 text-xs text-gray-300">
-          <input
-            type="checkbox"
-            checked={scanAllPorts}
-            onChange={(event) => setScanAllPorts(event.target.checked)}
+        <div>
+          <label htmlFor="scan-mode" className="block text-[11px] text-gray-400 mb-1.5">Port selection</label>
+          <select
+            id="scan-mode"
+            value={scanMode}
+            onChange={(event) => setScanMode(event.target.value as "common" | "all" | "custom")}
             disabled={busy}
-            className="accent-accent"
-          />
-          Scan all 10,000 ports instead of the ~25 common ones (slower, more thorough)
-        </label>
+            className="w-full bg-bg-tertiary border border-border rounded px-2.5 py-2 text-xs text-gray-100 focus:outline-none focus:border-accent disabled:opacity-50"
+          >
+            <option value="common">Common ports (recommended)</option>
+            <option value="all">All ports 1-10,000</option>
+            <option value="custom">Custom ports and ranges</option>
+          </select>
+        </div>
+        {scanMode === "custom" && (
+          <div>
+            <label htmlFor="scan-custom-ports" className="block text-[11px] text-gray-400 mb-1.5">Custom ports</label>
+            <input
+              id="scan-custom-ports"
+              value={customPorts}
+              onChange={(event) => setCustomPorts(event.target.value)}
+              placeholder="e.g. 3306,5173,5433,8000-8100,55553"
+              disabled={busy}
+              aria-describedby="scan-custom-ports-help"
+              className="w-full bg-bg-tertiary border border-border rounded px-2.5 py-2 text-xs text-gray-100 font-mono placeholder:text-gray-600 focus:outline-none focus:border-accent disabled:opacity-50"
+            />
+            <p id="scan-custom-ports-help" className="mt-1 text-[10px] text-gray-500">
+              Comma-separated ports or ranges, from 1 to 65535. Example: 3306,5173,5433,8000-8100,55553,33060.
+            </p>
+          </div>
+        )}
         <button
           onClick={() => void startScan()}
           disabled={busy || !target.trim()}
@@ -590,8 +640,8 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
 
       {phase === "completed" && services.length === 0 && (
         <div className="mt-4 rounded border border-border bg-bg-secondary/50 p-4 text-xs text-gray-500">
-          No open ports found among the ones checked. Try "Scan all 10,000 ports" if the service might be on an
-          uncommon port, or double-check the target is reachable from this machine.
+          No open ports found among the selected ports. Try a custom port list if the service uses an uncommon port,
+          or double-check the target is reachable from this machine.
         </div>
       )}
     </div>
