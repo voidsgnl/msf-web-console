@@ -6,12 +6,12 @@
  * found, so after running one, re-reading db.services for that host:port
  * returns a confirmed `info` string instead of nothing.
  *
- * This list is deliberately conservative: it only includes ports where a
- * single scanner module reliably confirms version info over the same TCP
- * port the scan found open. Ports without an entry here fall back to the
- * existing port-number guess - that's intentional, not a bug, for cases
- * like MSSQL (whose version-detection module queries a different UDP
- * port) or services without a dedicated version-scanner module.
+ * This list is deliberately conservative: it only includes modules intended
+ * to fingerprint a service over the discovered TCP port. It excludes modules
+ * that test credentials or authentication posture (for example SNMP login
+ * and VNC no-auth checks), and MSSQL browser discovery (UDP 1434 rather than
+ * the discovered TCP 1433 service). Those checks must be selected explicitly
+ * as security tests, not presented as passive version detection.
  */
 export type VersionDetectionModule = {
   /** Module path under auxiliary/, as accepted by api.modules.execute("auxiliary", ...). */
@@ -30,16 +30,13 @@ const VERSION_DETECTION_MODULES: Record<number, VersionDetectionModule> = {
   110: { module: "scanner/pop3/pop3_version" },
   139: { module: "scanner/smb/smb_version" },
   143: { module: "scanner/imap/imap_version" },
-  161: { module: "scanner/snmp/snmp_login" },
   443: { module: "scanner/http/http_version", options: { SSL: "true" } },
   445: { module: "scanner/smb/smb_version" },
-  1433: { module: "scanner/mssql/mssql_ping" },
   3000: { module: "scanner/http/http_version" },
   3306: { module: "scanner/mysql/mysql_version" },
   3389: { module: "scanner/rdp/rdp_scanner" },
   5000: { module: "scanner/http/http_version" },
   5432: { module: "scanner/postgres/postgres_version" },
-  5900: { module: "scanner/vnc/vnc_none_auth" },
   6379: { module: "scanner/redis/redis_server" },
   8000: { module: "scanner/http/http_version" },
   8008: { module: "scanner/http/http_version" },
