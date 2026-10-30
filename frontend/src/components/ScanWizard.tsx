@@ -312,6 +312,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
       return baselineKeys !== null;
     } catch {
       // Non-fatal: the scan itself already ran, but results cannot be verified.
+      servicesRef.current = [];
       setServices([]);
       return false;
     }
