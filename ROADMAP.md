@@ -1,1 +1,138 @@
-IyBSb2FkbWFwOiBtYWtpbmcgdGhpcyB1c2FibGUgd2l0aG91dCBNZXRhc3Bsb2l0IGV4cGVyaWVuY2UKCiMjIFRoZSBnb2FsCgpUaGUgcG9pbnQgb2YgYSB3ZWIgVUkgb3ZlciBNZXRhc3Bsb2l0IGlzbid0IGp1c3QgImNsaWNraW5nIGluc3RlYWQgb2YgdHlwaW5nCmNvbW1hbmRzIiDigJQgbXNmY29uc29sZSBhbHJlYWR5IGhhcyB0YWItY29tcGxldGlvbiwgYGluZm9gLCBgc2hvdyBvcHRpb25zYCwKYW5kIGhlbHAgdGV4dC4gVGhlIGFjdHVhbCBnb2FsIGlzIHRvIHJlbW92ZSB0aGUgbmVlZCB0byBhbHJlYWR5ICprbm93KgpNZXRhc3Bsb2l0IChhbmQgb2ZmZW5zaXZlIHNlY3VyaXR5IGNvbmNlcHRzIGluIGdlbmVyYWwpIHRvIGdldCBzb21ldGhpbmcKdXNlZnVsIGRvbmUgd2l0aCBpdC4KClRvZGF5IChzZWUgW1N0YXR1c10oUkVBRE1FLm1kI3N0YXR1cykpIHRoZSB0b29sIGRvZXMgdGhlIGZpcnN0IHBhcnQgd2VsbDoKYnJvd3NlIG1vZHVsZXMsIGZpbGwgaW4gb3B0aW9ucywgZXhlY3V0ZSwgdHJhY2sgam9icy9zZXNzaW9ucywgcmVhZCByZXN1bHRzLApleHBsb3JlIHRoZSBkYXRhYmFzZS4gVGhhdCdzIHJlYWwgcHJvZ3Jlc3MgYW5kIHRoZSBVSSBtZWNoYW5pY3MgYXJlIHNvbGlkLgpJdCBkb2VzICoqbm90KiogeWV0IGRvIHRoZSBzZWNvbmQgcGFydC4gQSBwZXJzb24gd2hvIGRvZXNuJ3Qga25vdyB3aGF0CmBSSE9TVFNgLCBgTEhPU1RgLCAicGF5bG9hZCIsIG9yICJzZXNzaW9uIiBtZWFuIHdpbGwgaGl0IGEgd2FsbCBpbW1lZGlhdGVseQrigJQgdGhlIHRvb2wgaGFuZHMgdGhlbSBNZXRhc3Bsb2l0J3Mgb3duIHZvY2FidWxhcnkgYW5kIGFzc3VtZXMgdGhleSBhbHJlYWR5CmhhdmUgdGhlIG1lbnRhbCBtb2RlbCBvZiBob3cgYW4gZXhwbG9pdCwgYSBsaXN0ZW5lciwgYW5kIGEgcmV2ZXJzZQpjb25uZWN0aW9uIGZpdCB0b2dldGhlci4KClRoaXMgcm9hZG1hcCBpcyBhYm91dCBjbG9zaW5nIHRoYXQgZ2FwLCBpbiBwaGFzZXMsIHdpdGhvdXQgdHVybmluZyB0aGUgdG9vbAppbnRvIGEgdG95IHRoYXQgaGlkZXMgd2hhdCdzIGFjdHVhbGx5IGhhcHBlbmluZyAoYSBzZWN1cml0eSB0b29sIHRoYXQgbGllcwphYm91dCB3aGF0IGl0J3MgZG9pbmcgaXMgd29yc2UgdGhhbiBvbmUgdGhhdCdzIGhhcmQgdG8gdXNlKS4KCiMjIFBoYXNlIDAg4oCUIEZvdW5kYXRpb24gKGRvbmUpCgpUaGUgVUkgc2hlbGwgbmVlZGVkIHRvIGJlIHRydXN0d29ydGh5IGJlZm9yZSBhbnl0aGluZyBidWlsdCBvbiB0b3Agb2YgaXQKd291bGQgbWF0dGVyOgoKLSBNb2R1bGUgYnJvd3Nlciwgb3B0aW9ucyBlZGl0b3IsIHBheWxvYWQgc2VsZWN0aW9uLCBqb2Ivc2Vzc2lvbiB0cmFja2luZwotIFZpZXdzIHBlcnNpc3QgYWNyb3NzIG5hdmlnYXRpb24gaW5zdGVhZCBvZiByZXNldHRpbmcgKGEgbW9kdWxlIHJ1biwgYSBqb2IKICBkZXRhaWwgcGFuZWwsIGFuZCBzZWFyY2ggc3RhdGUgbm93IHN1cnZpdmUgc3dpdGNoaW5nIHRhYnMpCi0gTGl2ZSBydW4tc3RhdHVzIHdpdGggYW4gZWxhcHNlZCB0aW1lciBhbmQgYSBkaXJlY3QgbGluayB0byBKb2JzLCBpbnN0ZWFkIG9mCiAgYSBmbGF0IDkwcyB0aW1lb3V0IHRoYXQgcmVhZCBsaWtlIGEgZmFpbHVyZQotIEpvYnMgdmlldyBzdXJmYWNlcyB3aGVuIGEgam9iIGRpc2FwcGVhcnMgKGNvbXBsZXRlZC9zdG9wcGVkKSBpbnN0ZWFkIG9mCiAgc2lsZW50bHkgdmFuaXNoaW5nCi0gU2Vzc2lvbnMgdmlldyBleHBsYWlucyAqd2h5KiBub3RoaW5nIHNob3dzIHVwIHlldCBpbnN0ZWFkIG9mIGEgYmFyZSBlbXB0eQogIHN0YXRlCi0gU3R5bGVkIGNvbmZpcm1hdGlvbiBkaWFsb2dzIGluc3RlYWQgb2YgbmF0aXZlIGJyb3dzZXIgYGNvbmZpcm0oKWAgcG9wdXBzCgojIyBQaGFzZSAxIOKAlCBQbGFpbi1sYW5ndWFnZSBsYXllciAoZG9uZSkKCk1ha2UgdGhlICpleGlzdGluZyogZmxvdyAoYnJvd3NlIOKGkiBjb25maWd1cmUg4oaSIHJ1biDihpIgcmVhZCByZXN1bHQpCnVuZGVyc3RhbmRhYmxlIHdpdGhvdXQgYWxyZWFkeSBrbm93aW5nIE1ldGFzcGxvaXQncyB2b2NhYnVsYXJ5LiBObyBuZXcKd29ya2Zsb3dzIHlldCDigJQganVzdCB0cmFuc2xhdGUgd2hhdCdzIGFscmVhZHkgdGhlcmUuCgotIFt4XSAqKk9wdGlvbiBnbG9zc2FyeSoqIOKAlCBhIHBsYWluLUVuZ2xpc2ggZXhwbGFuYXRpb24gZm9yIHRoZSBjb21tb24KICAgICAgZGF0YXN0b3JlIG9wdGlvbnMgKGBSSE9TVFNgLCBgTEhPU1RgLCBgTFBPUlRgLCBgU1JWUE9SVGAsIGBUQVJHRVRVUklgLAogICAgICBgU1NMYCwgY3JlZGVudGlhbHMsIOKApikgc2hvd24gYWxvbmdzaWRlIE1ldGFzcGxvaXQncyBvd24gZGVzY3JpcHRpb24sCiAgICAgIG5vdCByZXBsYWNpbmcgaXQuIFNvbWVvbmUgY2FuIGxlYXJuIHdoYXQgYExIT1NUYCAqbWVhbnMqIGluc3RlYWQgb2YKICAgICAganVzdCBiZWluZyB0b2xkIGl0J3MgcmVxdWlyZWQuCi0gW3hdICoqUmVzdWx0IGludGVycHJldGVyKiog4oCUIHRyYW5zbGF0ZSB0aGUgcmF3ICJjb21wbGV0ZWQiIC8gam9iLWlkIC8KICAgICAgc2Vzc2lvbi1saXN0IG91dGNvbWUgb2YgYSBydW4gaW50byBhIG9uZS1saW5lIHBsYWluLUVuZ2xpc2ggdmVyZGljdAogICAgICAoIkEgbmV3IHNlc3Npb24gb3BlbmVkIC0geW91IG5vdyBoYXZlIHJlbW90ZSBhY2Nlc3MgdG8gdGhlIHRhcmdldCIpCiAgICAgIGluc3RlYWQgb2YgbGVhdmluZyB0aGUgdXNlciB0byBpbmZlciBzdWNjZXNzIGZyb20gYSBzdGF0dXMgcGlsbC4KLSBbeF0gKipNb2R1bGUgb25lLWxpbmVycyoqIOKAlCBhICJRdWljayBzdW1tYXJ5IiBib3ggY29tYmluaW5nIGEgZ2VuZXJpYywKICAgICAgYWNjdXJhdGUgZXhwbGFuYXRpb24gb2YgdGhlIG1vZHVsZSAqdHlwZSogd2l0aCB0aGUgbW9kdWxlJ3Mgb3duIGZpcnN0CiAgICAgIHNlbnRlbmNlIG9mIGRlc2NyaXB0aW9uIChwdWxsZWQgdmVyYmF0aW0sIG5vdCBmYWJyaWNhdGVkKSwgc2hvd24KICAgICAgYmVmb3JlIHRoZSBmdWxsIGRlbnNlIGRlc2NyaXB0aW9uLgotIFt4XSAqKklubGluZSByaXNrL2ltcGFjdCBsYWJlbHMqKiDigJQgYSBtb2R1bGUncyBgUmFua2AgKGNvbG9yLWNvZGVkIGJ5CiAgICAgIHJlbGlhYmlsaXR5KSwgYFByaXZpbGVnZWRgLCBhbmQgYFNpZGVFZmZlY3RzYCBub3RlcyAoYWxyZWFkeSByZXR1cm5lZAogICAgICBieSB0aGUgUlBDLCBwcmV2aW91c2x5IGJ1cmllZCBpbiB0aGUgQWR2YW5jZWQgdGFiKSBub3cgc2hvdyBhcyB2aXNpYmxlCiAgICAgIGJhZGdlcyBpbiB0aGUgbW9kdWxlIGhlYWRlciwgYmVmb3JlIGV4ZWN1dGlvbiByYXRoZXIgdGhhbiBhZnRlci4KCiMjIFBoYXNlIDIg4oCUIEd1aWRlZCB3b3JrZmxvd3MKClRoZSByZWFsIHNraWxsIGdhcCBpbiBNZXRhc3Bsb2l0IGlzbid0ICJ3aGljaCBidXR0b24gZG8gSSBjbGljayIg4oCUIGl0J3MKIndoaWNoIG1vZHVsZSBkbyBJIGV2ZW4gbmVlZC4iIFRoYXQgcmVxdWlyZXMgYSBndWlkZWQgcGF0aCwgbm90IGp1c3QgYQpiZXR0ZXIgbW9kdWxlIGJyb3dzZXIuCgotIFt4XSAqKiJTY2FuIGEgdGFyZ2V0IiB3aXphcmQgKHYxKSoqIOKAlCBlbnRlciBhbiBJUC9yYW5nZS9DSURSLCB0aGUgdG9vbAogICAgICBydW5zIE1ldGFzcGxvaXQncyBUQ1AgcG9ydCBzY2FubmVyIGF1dG9tYXRpY2FsbHkgYW5kIGxpc3RzIG9wZW4gcG9ydHMKICAgICAgd2l0aCBhIHBsYWluLWxhbmd1YWdlIGd1ZXNzIGF0IHdoYXQncyBsaWtlbHkgcnVubmluZyBvbiB3ZWxsLWtub3duCiAgICAgIG9uZXMgLSBubyBzY2FubmVyIG1vZHVsZSBwaWNraW5nIHJlcXVpcmVkLiBUaGUgZ3Vlc3MgaXMgZXhwbGljaXRseQogICAgICBsYWJlbGVkIGFzIHBvcnQtbnVtYmVyLWJhc2VkLCBub3QgYSBjb25maXJtZWQgc2VydmljZSBpZGVudGlmaWNhdGlvbgogICAgICAodGhlIHBvcnQgc2Nhbm5lciBhbG9uZSBkb2Vzbid0IGZpbmdlcnByaW50IHNlcnZpY2VzIC0gc2VlIG5vdGUKICAgICAgYmVsb3cpLgotIFt4XSAqKlJlYWwgc2VydmljZSB2ZXJzaW9uIGRldGVjdGlvbioqIOKAlCBhICJDb25maXJtIHNlcnZpY2UgdmVyc2lvbnMiCiAgICAgIGFjdGlvbiBjaGFpbnMgaW4gdGhlIGFjdHVhbCBwcm90b2NvbC1zcGVjaWZpYyBzY2FubmVyIG1vZHVsZXMKICAgICAgKGBzY2FubmVyL2Z0cC9mdHBfdmVyc2lvbmAsIGBzY2FubmVyL3NzaC9zc2hfdmVyc2lvbmAsCiAgICAgIGBzY2FubmVyL3NtdHAvc210cF92ZXJzaW9uYCwgYHNjYW5uZXIvaHR0cC9odHRwX3ZlcnNpb25gLAogICAgICBgc2Nhbm5lci9wb3AzL3BvcDNfdmVyc2lvbmAsIGBzY2FubmVyL2ltYXAvaW1hcF92ZXJzaW9uYCwKICAgICAgYHNjYW5uZXIvc21iL3NtYl92ZXJzaW9uYCwgYHNjYW5uZXIvbXlzcWwvbXlzcWxfdmVyc2lvbmAsCiAgICAgIGBzY2FubmVyL3JkcC9yZHBfc2Nhbm5lcmAsIGBzY2FubmVyL3Bvc3RncmVzL3Bvc3RncmVzX3ZlcnNpb25gLAogICAgICBgc2Nhbm5lci9yZWRpcy9yZWRpc19zZXJ2ZXJgLCBgc2Nhbm5lci90ZWxuZXQvdGVsbmV0X3ZlcnNpb25gKSBmb3IKICAgICAgZWFjaCBvcGVuIHBvcnQgd2l0aCBhIGtub3duIG1hcHBpbmcsIGFuZCBsYWJlbHMgdGhlIHJlc3VsdAogICAgICAiQ29uZmlybWVkIiB3aXRoIHRoZSBhY3R1YWwgYmFubmVyL3ZlcnNpb24gdGV4dCBvbmNlIHRoZSBtb2R1bGUKICAgICAgcmVwb3J0cyBpdCAtIHJlcGxhY2luZyB0aGUgcG9ydC1udW1iZXIgZ3Vlc3MgcmF0aGVyIHRoYW4gaGlkaW5nIGl0LgogICAgICBQb3J0cyB3aXRob3V0IGEgcmVsaWFibGUgc2luZ2xlLW1vZHVsZSBtYXBwaW5nIChlLmcuIE1TU1FMLCB3aG9zZQogICAgICB2ZXJzaW9uIGNoZWNrIHF1ZXJpZXMgYSBkaWZmZXJlbnQgVURQIHBvcnQ7IG9yIHNlcnZpY2VzIHdpdGggbm8KICAgICAgZGVkaWNhdGVkIHZlcnNpb24tc2Nhbm5lciBtb2R1bGUpIGtlZXAgdGhlIGV4aXN0aW5nIGd1ZXNzLCBjbGVhcmx5CiAgICAgIGxhYmVsZWQgYXMgdW5jb25maXJtZWQuCi0gW3hdICoqU3VnZ2VzdGVkIG5leHQgc3RlcHMgZnJvbSBzY2FuIHJlc3VsdHMqKiDigJQgYEdFVCAvYXBpL21vZHVsZXMvc3VnZ2VzdGAKICAgICAgbWF0Y2hlcyBhIENPTkZJUk1FRCBzZXJ2aWNlIGJhbm5lciAobm90IHRoZSBwb3J0LW51bWJlciBndWVzcykgYWdhaW5zdAogICAgICBNZXRhc3Bsb2l0J3Mgb3duIG1vZHVsZSBuYW1lcyBhbmQgcmFua3MgdGhlIGNhbmRpZGF0ZXMgYnkgTWV0YXNwbG9pdCdzCiAgICAgIG93biBSYW5rIC0gbWlycm9yaW5nIHRoZSBzcGlyaXQgb2YKICAgICAgYHBvc3QvbXVsdGkvcmVjb24vbG9jYWxfZXhwbG9pdF9zdWdnZXN0ZXJgIHdpdGhvdXQgaXRzIG1vc3QgaW50cnVzaXZlCiAgICAgIHN0ZXAuIEEgbmFtZS9kZXNjcmlwdGlvbiBtYXRjaCBpcyBsYWJlbGVkIGFzIGp1c3QgdGhhdCwgbm90IGEKICAgICAgY29uZmlybWVkIHZ1bG5lcmFiaWxpdHkgLSBgUE9TVCAvYXBpL21vZHVsZXMve3R5cGV9L3tuYW1lfS9jaGVja2AKICAgICAgYWN0dWFsbHkgcnVucyB0aGUgbW9kdWxlJ3Mgb3duIGBjaGVja2AgYWdhaW5zdCB0aGUgbGl2ZSB0YXJnZXQgKHRoZQogICAgICBzYW1lIG1lY2hhbmlzbSBgbG9jYWxfZXhwbG9pdF9zdWdnZXN0ZXJgIHVzZXMgaW50ZXJuYWxseSkgYW5kIHJldHVybnMKICAgICAgYSB2ZXJkaWN0LCBzdXJmYWNlZCBpbiB0aGUgU2NhbiB3aXphcmQgYXMgYSBwZXItY2FuZGlkYXRlICJWZXJpZnkiCiAgICAgIGJ1dHRvbiByYXRoZXIgdGhhbiBydW4gYXV0b21hdGljYWxseS4KLSBbIF0gKipSZWNpcGVzKiogLSBhIHNtYWxsIGxpYnJhcnkgb2YgbmFtZWQsIHByZS1maWxsZWQgd29ya2Zsb3dzIGZvcgogICAgICBjb21tb24gdGVhY2hpbmcvbGFiIHNjZW5hcmlvcyAoZS5nLiAiZXhwbG9pdCBhIHZ1bG5lcmFibGUgRlRQCiAgICAgIHNlcnZpY2UiKSwgc28gYSBmaXJzdC10aW1lIHVzZXIgaGFzIHNvbWV0aGluZyBjb25jcmV0ZSB0byBydW4gYW5kCiAgICAgIGxlYXJuIGZyb20gcmF0aGVyIHRoYW4gYSBibGFuayBtb2R1bGUgYnJvd3Nlci4KCiMjIFBoYXNlIDMg4oCUIFNhZmV0eSByYWlscwoKQSBub3ZpY2UgdXNpbmcgYW4gZXhwbG9pdGF0aW9uIGZyYW1ld29yayB3aXRob3V0IGFueSBmcmljdGlvbiBpcyBhIHJlYWwgcmlzawp0byB0aGVtc2VsdmVzIGFuZCB0byB3aGF0ZXZlciB0aGV5J3JlIHBvaW50ZWQgYXQuCgotIFsgXSBDb25maXJtYXRpb24gc3RlcCBiZWZvcmUgZXhlY3V0aW5nIGFueXRoaW5nIGZsYWdnZWQgYFByaXZpbGVnZWRgIG9yCiAgICAgIHdpdGggZGVzdHJ1Y3RpdmUgYFNpZGVFZmZlY3RzYCAoYENPTkZJR19DSEFOR0VTYCwgYEFSVElGQUNUU19PTl9ESVNLYAogICAgICBldGMuIC0gYWxyZWFkeSBpbiB0aGUgbW9kdWxlIG1ldGFkYXRhLCBjdXJyZW50bHkgdW51c2VkIGJ5IHRoZSBVSSkKLSBbIF0gQSB2aXNpYmxlIHJlbWluZGVyLCBlbmZvcmNlZCBpbiB0aGUgVUkgY29weSAobm90IGEgbGVnYWwgZGlzY2xhaW1lcgogICAgICBidXJpZWQgaW4gYSBSRUFETUUpLCB0aGF0IHRhcmdldHMgbXVzdCBiZSBvd25lZCBvciBhdXRob3JpemVkCi0gWyBdICJDaGVjayBmaXJzdCIgbnVkZ2luZyAtIHByZWZlciBhIG1vZHVsZSdzIGBjaGVja2AgYWN0aW9uIG92ZXIgYSBmdWxsCiAgICAgIGBydW5gIHdoZXJlIE1ldGFzcGxvaXQgc3VwcG9ydHMgaXQsIGFuZCBleHBsYWluIHRoZSBkaWZmZXJlbmNlCgojIyBQaGFzZSA0IOKAlCBQb3N0LWV4cGxvaXRhdGlvbiBndWlkYW5jZQoKLSBbIF0gQSBwbGFpbi1sYW5ndWFnZSAid2hhdCBjYW4gSSBkbyBub3ciIHBhbmVsIGF0dGFjaGVkIHRvIGEgbmV3IHNlc3Npb24KICAgICAgKG1ldGVycHJldGVyIHZzLiBzaGVsbCBnZXQgZGlmZmVyZW50IHN1Z2dlc3RlZCBuZXh0IGFjdGlvbnMpCi0gWyBdIFNlc3Npb24gdHlwZSBleHBsYWluZXIgKHdoYXQgKmlzKiBhIG1ldGVycHJldGVyIHNlc3Npb24gdnMuIGEgc2hlbGwsCiAgICAgIHNob3duIG9uY2UsIGNvbnRleHR1YWxseSwgbm90IGFzIGEgd2FsbCBvZiBkb2NzKQoKIyMgUGhhc2UgNSDigJQgT25ib2FyZGluZyBwb2xpc2gKCi0gWyBdIEZpcnN0LXJ1biB3YWxrdGhyb3VnaCBvZiB0aGUgZml2ZSB2aWV3cyBhbmQgd2hhdCBlYWNoIGlzIGZvcgotIFsgXSBBIHBlcnNpc3RlbnQgImdsb3NzYXJ5IiBwYW5lbCByZWFjaGFibGUgZnJvbSBhbnl3aGVyZSBpbiB0aGUgVUkKCi0tLQoKUGhhc2VzIGFyZSBzZXF1ZW50aWFsIGJ5IGRlc2lnbiDigJQgcGxhaW4gbGFuZ3VhZ2UgaGFzIHRvIGxhbmQgYmVmb3JlIGd1aWRlZAp3b3JrZmxvd3MgYXJlIHdvcnRoIGJ1aWxkaW5nIG9uIHRvcCBvZiBpdCwgYW5kIGd1aWRlZCB3b3JrZmxvd3MgaGF2ZSB0bwpleGlzdCBiZWZvcmUgc2FmZXR5IHJhaWxzIGFyb3VuZCAid2hpY2ggYWN0aW9uIGlzIHJpc2t5IiBtYWtlIHNlbnNlLiBFYWNoCnBoYXNlIHNoaXBzIGFzIGl0cyBvd24gUFIocyk7IGNoZWNrYm94ZXMgYWJvdmUgdHJhY2sgcHJvZ3Jlc3MuCg==
+# Roadmap: making this usable without Metasploit experience
+
+## The goal
+
+The point of a web UI over Metasploit isn't just "clicking instead of typing
+commands" — msfconsole already has tab-completion, `info`, `show options`,
+and help text. The actual goal is to remove the need to already *know*
+Metasploit (and offensive security concepts in general) to get something
+useful done with it.
+
+Today (see [Status](README.md#status)) the tool does the first part well:
+browse modules, fill in options, execute, track jobs/sessions, read results,
+explore the database. That's real progress and the UI mechanics are solid.
+It does **not** yet do the second part. A person who doesn't know what
+`RHOSTS`, `LHOST`, "payload", or "session" mean will hit a wall immediately
+— the tool hands them Metasploit's own vocabulary and assumes they already
+have the mental model of how an exploit, a listener, and a reverse
+connection fit together.
+
+This roadmap is about closing that gap, in phases, without turning the tool
+into a toy that hides what's actually happening (a security tool that lies
+about what it's doing is worse than one that's hard to use).
+
+## Phase 0 — Foundation (done)
+
+The UI shell needed to be trustworthy before anything built on top of it
+would matter:
+
+- Module browser, options editor, payload selection, job/session tracking
+- Views persist across navigation instead of resetting (a module run, a job
+  detail panel, and search state now survive switching tabs)
+- Live run-status with an elapsed timer and a direct link to Jobs, instead of
+  a flat 90s timeout that read like a failure
+- Jobs view surfaces when a job disappears (completed/stopped) instead of
+  silently vanishing
+- Sessions view explains *why* nothing shows up yet instead of a bare empty
+  state
+- Styled confirmation dialogs instead of native browser `confirm()` popups
+
+## Phase 1 — Plain-language layer (done)
+
+Make the *existing* flow (browse → configure → run → read result)
+understandable without already knowing Metasploit's vocabulary. No new
+workflows yet — just translate what's already there.
+
+- [x] **Option glossary** — a plain-English explanation for the common
+      datastore options (`RHOSTS`, `LHOST`, `LPORT`, `SRVPORT`, `TARGETURI`,
+      `SSL`, credentials, …) shown alongside Metasploit's own description,
+      not replacing it. Someone can learn what `LHOST` *means* instead of
+      just being told it's required.
+- [x] **Result interpreter** — translate the raw "completed" / job-id /
+      session-list outcome of a run into a one-line plain-English verdict
+      ("A new session opened - you now have remote access to the target")
+      instead of leaving the user to infer success from a status pill.
+- [x] **Module one-liners** — a "Quick summary" box combining a generic,
+      accurate explanation of the module *type* with the module's own first
+      sentence of description (pulled verbatim, not fabricated), shown
+      before the full dense description.
+- [x] **Inline risk/impact labels** — a module's `Rank` (color-coded by
+      reliability), `Privileged`, and `SideEffects` notes (already returned
+      by the RPC, previously buried in the Advanced tab) now show as visible
+      badges in the module header, before execution rather than after.
+
+## Phase 2 — Guided workflows
+
+The real skill gap in Metasploit isn't "which button do I click" — it's
+"which module do I even need." That requires a guided path, not just a
+better module browser.
+
+- [x] **"Scan a target" wizard (v1)** — enter an IP/range/CIDR, the tool
+      runs Metasploit's TCP port scanner automatically and lists open ports
+      with a plain-language guess at what's likely running on well-known
+      ones - no scanner module picking required. The guess is explicitly
+      labeled as port-number-based, not a confirmed service identification
+      (the port scanner alone doesn't fingerprint services - see note
+      below).
+- [x] **Real service version detection** — a "Confirm service versions"
+      action chains in the actual protocol-specific scanner modules
+      (`scanner/ftp/ftp_version`, `scanner/ssh/ssh_version`,
+      `scanner/smtp/smtp_version`, `scanner/http/http_version`,
+      `scanner/pop3/pop3_version`, `scanner/imap/imap_version`,
+      `scanner/smb/smb_version`, `scanner/mysql/mysql_version`,
+      `scanner/rdp/rdp_scanner`, `scanner/postgres/postgres_version`,
+      `scanner/redis/redis_server`, `scanner/telnet/telnet_version`) for
+      each open port with a known mapping, and labels the result
+      "Confirmed" with the actual banner/version text once the module
+      reports it - replacing the port-number guess rather than hiding it.
+      Ports without a reliable single-module mapping (e.g. MSSQL, whose
+      version check queries a different UDP port; or services with no
+      dedicated version-scanner module) keep the existing guess, clearly
+      labeled as unconfirmed.
+- [x] **Suggested next steps from scan results** — `GET /api/modules/suggest`
+      matches a CONFIRMED service banner (not the port-number guess) against
+      Metasploit's own module names and ranks the candidates by Metasploit's
+      own Rank - mirroring the spirit of
+      `post/multi/recon/local_exploit_suggester` without its most intrusive
+      step. A name/description match is labeled as just that, not a
+      confirmed vulnerability - `POST /api/modules/{type}/{name}/check`
+      actually runs the module's own `check` against the live target (the
+      same mechanism `local_exploit_suggester` uses internally) and returns
+      a verdict, surfaced in the Scan wizard as a per-candidate "Verify"
+      button rather than run automatically.
+- [ ] **Recipes** — a small library of named, pre-filled workflows for
+      common teaching/lab scenarios (e.g. "exploit a vulnerable FTP
+      service"), so a first-time user has something concrete to run and
+      learn from rather than a blank module browser.
+
+## Phase 3 — Safety rails
+
+A novice using an exploitation framework without any friction is a real risk
+to themselves and to whatever they're pointed at.
+
+- [ ] Confirmation step before executing anything flagged `Privileged` or
+      with destructive `SideEffects` (`CONFIG_CHANGES`, `ARTIFACTS_ON_DISK`
+      etc. — already in the module metadata, currently unused by the UI)
+- [ ] A visible reminder, enforced in the UI copy (not a legal disclaimer
+      buried in a README), that targets must be owned or authorized
+- [ ] "Check first" nudging — prefer a module's `check` action over a full
+      `run` where Metasploit supports it, and explain the difference
+
+## Phase 4 — Post-exploitation guidance
+
+- [ ] A plain-language "what can I do now" panel attached to a new session
+      (meterpreter vs. shell get different suggested next actions)
+- [ ] Session type explainer (what *is* a meterpreter session vs. a shell,
+      shown once, contextually, not as a wall of docs)
+
+## Phase 5 — Onboarding polish
+
+- [ ] First-run walkthrough of the five views and what each is for
+- [ ] A persistent "glossary" panel reachable from anywhere in the UI
+
+---
+
+Phases are sequential by design — plain language has to land before guided
+workflows are worth building on top of it, and guided workflows have to
+exist before safety rails around "which action is risky" make sense. Each
+phase ships as its own PR(s); checkboxes above track progress.
