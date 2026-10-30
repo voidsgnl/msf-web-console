@@ -1,4 +1,6 @@
-import socket\n\nfrom fastapi import APIRouter, HTTPException
+import socket
+
+from fastapi import APIRouter, HTTPException
 
 from app.msf_rpc import rpc, MsfRpcError
 
@@ -13,7 +15,9 @@ def status():
         return {"connected": True, "version": version}
     except MsfRpcError as exc:
         return {"connected": False, "error": str(exc)}
-\n\n@router.get("/network-context")
+
+
+@router.get("/network-context")
 def network_context(target: str):
     """Resolve the local source address the OS would use to reach a target.
 
