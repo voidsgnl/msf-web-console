@@ -1,10 +1,11 @@
 import { useState } from "react";
 
-export type View = "console" | "scan" | "modules" | "sessions" | "hosts" | "jobs";
+export type View = "console" | "scan" | "recipes" | "modules" | "sessions" | "hosts" | "jobs";
 
 const NAV: { id: View; label: string; icon: string }[] = [
   { id: "console", label: "Console", icon: "❯_" },
   { id: "scan", label: "Scan", icon: "◎" },
+  { id: "recipes", label: "Recipes", icon: "▤" },
   { id: "modules", label: "Modules", icon: "▦" },
   { id: "sessions", label: "Sessions", icon: "⬡" },
   { id: "hosts", label: "Hosts / DB", icon: "⛁" },
