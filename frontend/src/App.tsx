@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Sidebar, View } from "./components/Sidebar";
 import { ConsoleView } from "./components/ConsoleView";
-import { ModuleBrowser, ModuleSearchRequest } from "./components/ModuleBrowser";
+import { ModuleBrowser, ModuleSearchRequest, TargetContext } from "./components/ModuleBrowser";
 import { ScanWizard } from "./components/ScanWizard";
 import { RecipesView } from "./components/RecipesView";
 import { SessionsView } from "./components/SessionsView";
