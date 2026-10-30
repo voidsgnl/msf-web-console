@@ -43,18 +43,16 @@ typed it into `msfconsole`.
 - Database explorer: hosts, services, vulnerabilities, loot, and credentials, with cross-record search, field/value filtering, record inspection, host-to-service/vulnerability navigation, and JSON metadata export; sensitive fields are redacted by default
 - CVE/NVD enrichment: vulnerability records are scanned for CVE identifiers (in `refs` or elsewhere in the record), which can be looked up against the National Vulnerability Database for CVSS score, severity, description, and reference links. Lookups are self-throttled to stay under NVD's public rate limit and cached server-side; set `NVD_API_KEY` in `backend/.env` for a higher limit. Requires outbound network access from the backend to `services.nvd.nist.gov`.
 - Assessment report for the active workspace: executive summary, severity counts, database-record-based vulnerability findings, affected-host summary, remediation guidance, open-service exposure observations, and sanitized inventory tables. Export a native PDF directly from the backend or download the HTML snapshot. Credential values, common filesystem paths, artifact bytes, and download references are filtered.
+- Guided Recipes view with four documented lab workflows: TCP discovery and FTP, HTTP, and SMB service identification. Each explains the workflow and opens the relevant module for review; recipes never execute automatically.
 - Loot evidence browser: search records, inspect all returned metadata, copy a record, and export one or filtered records as JSON
 - Loot artifact download: retrieve inline artifact data from the Framework `db.loots` RPC response or, when RPC returns metadata only, read the associated file only when its exact path or containing directory is allowlisted in backend configuration; browser-supplied filesystem paths are never accepted
 - Workspace management: list, switch, create, rename and delete workspaces; rename uses Metasploit's native `workspace -r` console command and retains the existing workspace records; deleting the active workspace switches back to the default workspace, and the default workspace is protected from rename/delete
 
 The application remains single-account; multi-user accounts and roles are outside the current design.
 
-This covers the UI mechanics of driving Metasploit - it does not yet make
-the tool usable *without* already knowing Metasploit's concepts and
-vocabulary (RHOSTS, LHOST, payloads, sessions, etc.). See
-[ROADMAP.md](ROADMAP.md) for the plan to close that gap: a plain-language
-layer is in progress, followed by guided scan/exploit workflows and safety
-rails.
+The plain-language layer and initial guided workflows are implemented. See
+[ROADMAP.md](ROADMAP.md) for the remaining safety rails, post-exploitation
+guidance, and onboarding work.
 
 ## Security boundary
 
