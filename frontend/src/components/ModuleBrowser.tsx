@@ -285,7 +285,7 @@ function DetailSection({
   );
 }
 
-export type ModuleSearchRequest = { type: string; query: string; nonce: number };
+export type TargetContext = { host: string; port?: number; serviceInfo?: string; source: "scan" };\nexport type ModuleSearchRequest = { type: string; query: string; nonce: number; targetContext?: TargetContext };
 
 export function ModuleBrowser({
   onViewSessions,
@@ -313,7 +313,7 @@ export function ModuleBrowser({
   const [payloadOptionsLoading, setPayloadOptionsLoading] = useState(false);
   const [payloadOptionsError, setPayloadOptionsError] = useState<string | null>(null);
   const [payloadAutoSelected, setPayloadAutoSelected] = useState(false);
-  const [optionValues, setOptionValues] = useState<Record<string, string>>({});
+  const [optionValues, setOptionValues] = useState<Record<string, string>>({});\n  const [autoOptionSources, setAutoOptionSources] = useState<Record<string, string>>({});\n  const [activeTargetContext, setActiveTargetContext] = useState<TargetContext | null>(null);
   const [optionSearch, setOptionSearch] = useState("");
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
@@ -477,6 +477,38 @@ export function ModuleBrowser({
         defaults.TARGET = String(defaultTarget);
         setSelectedTargetId(String(defaultTarget));
       }
+
+      // A scan-selected host/service becomes the initial configuration context.
+      // Only options declared by this module are populated; the user can edit
+      // every value before Check or Execute.
+      const autoSources: Record<string, string> = {};
+      const declaredOptions = data.options ?? {};
+      const context = activeTargetContext;
+      if (context?.host) {
+        if (declaredOptions.RHOSTS) {
+          defaults.RHOSTS = context.host;
+          autoSources.RHOSTS = "Scan";
+        } else if (declaredOptions.RHOST) {
+          defaults.RHOST = context.host;
+          autoSources.RHOST = "Scan";
+        }
+        if (context.port && declaredOptions.RPORT) {
+          defaults.RPORT = String(context.port);
+          autoSources.RPORT = "Scan";
+        }
+        if (Object.prototype.hasOwnProperty.call(declaredOptions, "LHOST")) {
+          try {
+            const network = await api.system.networkContext(context.host);
+            if (network.local_ip) {
+              defaults.LHOST = network.local_ip;
+              autoSources.LHOST = "Network";
+            }
+          } catch {
+            // LHOST remains at the module default if route detection is unavailable.
+          }
+        }
+      }
+      setAutoOptionSources(autoSources);
       setOptionValues(defaults);
 
       if (mod.type === "exploit") {
@@ -534,6 +566,17 @@ export function ModuleBrowser({
       for (const [key, option] of Object.entries<any>(payloadInfo.options || {})) {
         if (option.default !== undefined && option.default !== null) {
           defaults[key] = String(option.default);
+        }
+      }
+      if (activeTargetContext?.host && Object.prototype.hasOwnProperty.call(payloadInfo.options ?? {}, "LHOST")) {
+        try {
+          const network = await api.system.networkContext(activeTargetContext.host);
+          if (network.local_ip) {
+            defaults.LHOST = network.local_ip;
+            setAutoOptionSources((current) => ({ ...current, "PAYLOAD.LHOST": "Network" }));
+          }
+        } catch {
+          // Keep the payload's own LHOST default when route detection fails.
         }
       }
       setSelectedPayload(payloadName);
@@ -1075,6 +1118,13 @@ export function ModuleBrowser({
       } else {
         setOptionValues((current) => ({ ...current, [key]: nextValue }));
       }
+      const sourceKey = scope === "payload" ? `PAYLOAD.${key}` : key;
+      setAutoOptionSources((current) => {
+        if (!(sourceKey in current)) return current;
+        const next = { ...current };
+        delete next[sourceKey];
+        return next;
+      });
       setValidationErrors((current) => {
         const next = { ...current };
         delete next[validationKey];
@@ -1088,6 +1138,9 @@ export function ModuleBrowser({
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="font-mono text-xs text-gray-200 break-all">{key}</span>
             {option.required && <span className="text-[10px] text-danger uppercase">Required</span>}
+            {autoOptionSources[scope === "payload" ? `PAYLOAD.${key}` : key] && (
+              <span className="text-[10px] text-emerald-400 uppercase">Auto · {autoOptionSources[scope === "payload" ? `PAYLOAD.${key}` : key]}</span>
+            )}
             {isEssential && <span className="text-[10px] text-accent uppercase">Common</span>}
             {(option.advanced || option.evasion) && <span className="text-[10px] text-gray-500 uppercase">Advanced</span>}
           </div>
@@ -1247,7 +1300,7 @@ export function ModuleBrowser({
                     )}
                   </div>
                   <h1 className="text-sm md:text-base font-mono text-gray-100 break-all">{textValue(moduleInfo.fullname) || `${selected.type}/${selected.name}`}</h1>
-                  <p className="text-xs text-gray-500 mt-1">Metasploit module inspector</p>
+                  <p className="text-xs text-gray-500 mt-1">Metasploit module inspector</p>\n                  {activeTargetContext && <p className="mt-1 text-[11px] text-emerald-400">Scan context · {activeTargetContext.host}{activeTargetContext.port ? `:${activeTargetContext.port}` : ""} · values are prefilled for review</p>}
                   {sideEffectCodes.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {sideEffectCodes.map((code) => (
