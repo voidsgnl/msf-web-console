@@ -30,7 +30,7 @@ def network_context(target: str):
         raise HTTPException(400, "target is required")
 
     try:
-        addresses = socket.getaddrinfo(target, None, type=socket.SOCK_DGRAM)
+        addresses = socket.getaddrinfo(target, 1, type=socket.SOCK_DGRAM)
     except OSError as exc:
         return {"target": target, "local_ip": None, "error": str(exc)}
 
@@ -39,7 +39,7 @@ def network_context(target: str):
             continue
         try:
             with socket.socket(family, socktype, proto) as probe:
-                probe.connect((sockaddr[0], 1))
+                probe.connect(sockaddr)
                 local_ip = probe.getsockname()[0]
                 if local_ip and local_ip not in ("0.0.0.0", "::"):
                     return {
