@@ -196,6 +196,47 @@ function runResultText(value: unknown): string {
     : rendered;
 }
 
+// The TCP port scanner commonly completes without a module.results payload.
+// Its useful output is persisted as db.services records instead, so take a
+// before/after snapshot and surface only records added by this execution.
+function serviceRecordKey(row: any): string {
+  return [row?.host, row?.port, row?.proto, row?.state, row?.name, row?.info]
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .join("|");
+}
+
+function portScanTargets(raw: unknown): Set<string> {
+  return new Set(String(raw ?? "").split(/[\\s,]+/).map((value) => value.trim()).filter(Boolean));
+}
+
+async function portScanDatabaseSummary(
+  targets: Set<string>,
+  beforeKeys: Set<string>
+): Promise<string> {
+  const result = await api.db.services();
+  const rows = Array.isArray(result?.services) ? result.services : [];
+  const matching = rows.filter((row: any) =>
+    row && targets.has(String(row.host ?? "")) &&
+    String(row.state ?? "").toLowerCase() === "open" &&
+    Number.isFinite(Number(row.port))
+  );
+  const added = matching.filter((row: any) => !beforeKeys.has(serviceRecordKey(row)));
+  const displayed = added.length ? added : matching;
+  if (added.length) {
+    return "Database findings (new records from this run):\\n" + added
+      .sort((a: any, b: any) => Number(a.port) - Number(b.port))
+      .map((row: any) => `- ${row.host}:${row.port}/${row.proto || "tcp"}${row.name ? ` · ${row.name}` : ""}${row.info ? ` · ${row.info}` : ""}`)
+      .join("\\n");
+  }
+  if (displayed.length) {
+    return "No new service records were added by this run. Existing open services already recorded for the target(s):\\n" + displayed
+      .sort((a: any, b: any) => Number(a.port) - Number(b.port))
+      .map((row: any) => `- ${row.host}:${row.port}/${row.proto || "tcp"}${row.name ? ` · ${row.name}` : ""}${row.info ? ` · ${row.info}` : ""}`)
+      .join("\\n");
+  }
+  return "No open service records were found in the active Metasploit workspace for the target(s). The module run completed, but no port findings could be retrieved.";
+}
+
 function formatArtifactSize(value: number): string {
   if (!Number.isFinite(value) || value < 0) return "size unavailable";
   if (value < 1024) return `${value} B`;
@@ -800,6 +841,20 @@ export function ModuleBrowser({
         runOptions.PAYLOAD = selectedPayload;
         Object.assign(runOptions, payloadOptionValues);
       }
+      let portScanTargetsSet = new Set<string>();
+      let portScanBeforeKeys = new Set<string>();
+      const isTcpPortScanner = selected.type === "auxiliary" && selected.name === "scanner/portscan/tcp";
+      if (isTcpPortScanner) {
+        portScanTargetsSet = portScanTargets(runOptions.RHOSTS ?? runOptions.RHOST);
+        try {
+          const before = await api.db.services();
+          const rows = Array.isArray(before?.services) ? before.services : [];
+          portScanBeforeKeys = new Set(rows.map(serviceRecordKey));
+        } catch {
+          // The scan can still run; the final result will report DB lookup failure.
+        }
+      }
+
       const result = await api.modules.execute(selected.type, selected.name, runOptions);
       if (!isCurrentRun()) return;
 
@@ -887,14 +942,28 @@ export function ModuleBrowser({
             lastResultLookupError = "";
             const outcomeStatus = String(outcome.status ?? "").toLowerCase();
             if (["completed", "complete", "success"].includes(outcomeStatus)) {
+              let resultText = runResultText(outcome.result);
+              let completionMessage = latestSessions.length
+                ? "Module run completed and new session(s) were detected."
+                : "Metasploit reports that the module run completed.";
+              if (isTcpPortScanner) {
+                try {
+                  const databaseSummary = await portScanDatabaseSummary(portScanTargetsSet, portScanBeforeKeys);
+                  if (!isCurrentRun()) return;
+                  resultText = `${outcome.result == null ? "" : resultText + "\\n\\n"}${databaseSummary}`.trim();
+                  completionMessage = "Port scan completed. Service findings were checked in the active Metasploit workspace.";
+                } catch (error: unknown) {
+                  const detail = error instanceof Error ? error.message : String(error);
+                  resultText += `\\n\\nPort scan database lookup failed: ${detail}`;
+                  completionMessage = "Port scan completed, but its database findings could not be retrieved.";
+                }
+              }
               setProgress({
                 phase: "completed",
-                message: latestSessions.length
-                  ? "Module run completed and new session(s) were detected."
-                  : "Metasploit reports that the module run completed.",
+                message: completionMessage,
                 jobId,
                 runUuid,
-                resultText: runResultText(outcome.result),
+                resultText,
                 sessions: latestSessions,
               });
               return;
