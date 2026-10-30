@@ -117,6 +117,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
   const [verifications, setVerifications] = useState<Record<string, VerifyState>>({});
   const mounted = useRef(true);
   const runGeneration = useRef(0);
+  const scanContext = useRef<{ target: string; baselineKeys: Set<string> | null } | null>(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -160,6 +161,8 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
       // Without a baseline we cannot safely distinguish this scan's findings from stale workspace data.
     }
 
+    scanContext.current = { target: trimmedTarget, baselineKeys: baselineServiceKeys };
+
     try {
       const result = await api.modules.execute("auxiliary", "scanner/portscan/tcp", {
         RHOSTS: trimmedTarget,
@@ -199,7 +202,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
         const jobFinished = jobId ? jobObserved && !activeJobIds.includes(jobId) : false;
 
         if (runHasResult || jobFinished || (!jobId && !runUuid)) {
-          await finishScan(isCurrentRun, trimmedTarget, baselineServiceKeys);
+          await finishScan(isCurrentRun);
           return;
         }
       }
@@ -209,7 +212,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
         setMessage(
           `This panel stopped watching after ${Math.round(SCAN_TIMEOUT_MS / 60000)} minutes, but the scan may still be running. Check the Jobs tab, or check back here - results found so far are shown below once available.`
         );
-        await loadServices(trimmedTarget, baselineServiceKeys);
+        await loadServices();
       }
     } catch (e: unknown) {
       if (isCurrentRun()) {
@@ -219,7 +222,10 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     }
   };
 
-  const loadServices = async (scanTarget: string, baselineKeys: Set<string> | null) => {
+  const loadServices = async () => {
+    const context = scanContext.current;
+    if (!context) return false;
+    const { target: scanTarget, baselineKeys } = context;
     try {
       const result = await api.db.services();
       if (!mounted.current) return;
@@ -248,8 +254,8 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     }
   };
 
-  const finishScan = async (isCurrentRun: () => boolean, scanTarget: string, baselineKeys: Set<string> | null) => {
-    const resultsVerified = await loadServices(scanTarget, baselineKeys);
+  const finishScan = async (isCurrentRun: () => boolean) => {
+    const resultsVerified = await loadServices();
     if (!isCurrentRun()) return;
     setPhase("completed");
     setMessage(
