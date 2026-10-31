@@ -300,3 +300,24 @@ def list_assessment_executions(assessment_id: int):
             (assessment_id,),
         ).fetchall()
     return {"executions": [dict(row) for row in rows]}
+
+@router.get("/{assessment_id}/executions/{execution_id}")
+def get_assessment_execution(assessment_id: int, execution_id: int):
+    _initialise()
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        row = connection.execute(
+            """
+            SELECT id, assessment_id, target_id, tool_id, target_url,
+                   started_at, finished_at, exit_code, output_truncated,
+                   result_json, stderr
+            FROM tool_executions WHERE id = ? AND assessment_id = ?
+            """,
+            (execution_id, assessment_id),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(404, "Execution not found in this assessment.")
+    result = dict(row)
+    result["output_truncated"] = bool(result["output_truncated"])
+    result["records"] = json.loads(result.pop("result_json"))
+    return result
