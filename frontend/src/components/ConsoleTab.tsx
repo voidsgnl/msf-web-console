@@ -20,12 +20,37 @@ export function ConsoleTab() {
     let inputBuffer = "";
 
     const term = new Terminal({
-      fontFamily: "'JetBrains Mono', monospace",
+      fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, monospace",
       fontSize: 13,
+      lineHeight: 1.3,
+      scrollback: 10000,
+      cursorStyle: "bar",
+      cursorWidth: 2,
+      // Full ANSI palette tuned to the app's dark theme so msfconsole's
+      // coloured output ([+] green, [-] red, [*] blue, warnings yellow) reads
+      // clearly instead of falling back to xterm's harsh defaults.
       theme: {
         background: "#0d1117",
         foreground: "#c9d1d9",
         cursor: "#3fb950",
+        cursorAccent: "#0d1117",
+        selectionBackground: "rgba(56, 139, 253, 0.35)",
+        black: "#484f58",
+        red: "#ff7b72",
+        green: "#3fb950",
+        yellow: "#d29922",
+        blue: "#58a6ff",
+        magenta: "#bc8cff",
+        cyan: "#39c5cf",
+        white: "#b1bac4",
+        brightBlack: "#6e7681",
+        brightRed: "#ffa198",
+        brightGreen: "#56d364",
+        brightYellow: "#e3b341",
+        brightBlue: "#79c0ff",
+        brightMagenta: "#d2a8ff",
+        brightCyan: "#56d4dd",
+        brightWhite: "#f0f6fc",
       },
       cursorBlink: true,
       // msfconsole runs outside a real TTY and emits bare \n line endings
@@ -167,5 +192,5 @@ export function ConsoleTab() {
     };
   }, []);
 
-  return <div ref={containerRef} className="xterm-wrapper w-full h-full p-2" />;
+  return <div ref={containerRef} className="xterm-wrapper w-full h-full p-3" />;
 }
