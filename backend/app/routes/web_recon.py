@@ -104,8 +104,8 @@ def probe_web_service(req: WebProbeRequest):
                     break
             body = b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
             headers = {key.lower():value[:300] for key,value in response.headers.items() if key.lower() in {"server","content-type","x-powered-by","x-generator","location","cf-ray","cf-cache-status","strict-transport-security"}}
-            title_match = re.search(r"<title[^>]*>(.*?)</title\\s*>", body, re.IGNORECASE | re.DOTALL)
-            title = re.sub(r"\\s+", " ", title_match.group(1)).strip()[:200] if title_match else None
+            title_match = re.search(r"<title[^>]*>(.*?)</title\s*>", body, re.IGNORECASE | re.DOTALL)
+            title = re.sub(r"\s+", " ", title_match.group(1)).strip()[:200] if title_match else None
             return {"target":target_url,"status_code":response.status_code,"reason":response.reason,"final_url":response.url,"redirect_location":headers.get("location"),"title":title,"headers":headers,"technologies":_technology_hints(headers,body),"content_type":response.headers.get("Content-Type"),"body_truncated":total >= 65536,"bytes_inspected":total,"assessment":"HTTP response observed; this probe does not establish whether the application is vulnerable."}
     except requests.exceptions.SSLError as exc:
         raise HTTPException(502, f"TLS negotiation failed: {exc}") from exc
