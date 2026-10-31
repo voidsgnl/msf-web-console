@@ -237,6 +237,38 @@ def _parse_tool_output(tool_id: str, output: str) -> list[dict]:
     return records
 
 
+def _filter_katana_records(records: list[dict], target_url: str) -> list[dict]:
+    """Retain only safe HTTP(S) endpoint URLs on the exact approved origin."""
+    approved = urlsplit(target_url)
+    approved_origin = (
+        approved.scheme.lower(), (approved.hostname or "").lower(),
+        approved.port or (443 if approved.scheme.lower() == "https" else 80),
+    )
+    scoped_records = []
+    for record in records:
+        endpoint = record.get("url")
+        if not isinstance(endpoint, str) or len(endpoint) > 2048 or any(ch.isspace() for ch in endpoint):
+            continue
+        try:
+            parsed_endpoint = urlsplit(endpoint)
+            endpoint_port = parsed_endpoint.port or (443 if parsed_endpoint.scheme.lower() == "https" else 80)
+            endpoint_origin = (
+                parsed_endpoint.scheme.lower(), (parsed_endpoint.hostname or "").lower(), endpoint_port,
+            )
+        except ValueError:
+            continue
+        if (
+            parsed_endpoint.scheme.lower() in {"http", "https"}
+            and parsed_endpoint.hostname
+            and not parsed_endpoint.username
+            and not parsed_endpoint.password
+            and not parsed_endpoint.fragment
+            and endpoint_origin == approved_origin
+        ):
+            scoped_records.append(record)
+    return scoped_records
+
+
 @router.post("/run")
 def run_recon_tool(req: ToolRunRequest):
     """Run one fixed, bounded HTTP reconnaissance adapter against one authorized URL."""
@@ -298,27 +330,7 @@ def run_recon_tool(req: ToolRunRequest):
     finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     records = _parse_tool_output(req.tool_id, stdout)
     if req.tool_id == "katana":
-        approved = urlsplit(target_url)
-        approved_origin = (
-            approved.scheme.lower(), (approved.hostname or "").lower(),
-            approved.port or (443 if approved.scheme.lower() == "https" else 80),
-        )
-        scoped_records = []
-        for record in records:
-            endpoint = record.get("url")
-            if not isinstance(endpoint, str):
-                continue
-            try:
-                parsed_endpoint = urlsplit(endpoint)
-                endpoint_origin = (
-                    parsed_endpoint.scheme.lower(), (parsed_endpoint.hostname or "").lower(),
-                    parsed_endpoint.port or (443 if parsed_endpoint.scheme.lower() == "https" else 80),
-                )
-            except ValueError:
-                continue
-            if endpoint_origin == approved_origin and parsed_endpoint.scheme.lower() in {"http", "https"}:
-                scoped_records.append(record)
-        records = scoped_records
+        records = _filter_katana_records(records, target_url)
     execution = record_tool_execution(
         scope, req.tool_id, target_url, started_at, finished_at,
         completed.returncode, output_size > config["max_output"], records, stderr,
