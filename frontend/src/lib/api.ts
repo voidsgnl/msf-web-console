@@ -121,6 +121,18 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ url, authorized }),
       }),
+    runTool: (toolId: "httpx" | "whatweb", url: string, authorized: boolean) =>
+      request<{
+        tool_id: string; tool: string; target: string; exit_code: number;
+        timed_out: boolean; output_truncated: boolean;
+        records: { url?: string; target?: string; status_code?: number; http_status?: number;
+          title?: string | null; webserver?: string; content_type?: string;
+          technologies?: string[]; host?: string; raw?: string | null }[];
+        stderr: string; assessment: string;
+      }>("/web-recon/run", {
+        method: "POST",
+        body: JSON.stringify({ tool_id: toolId, url, authorized }),
+      }),
   },
   auth: {
     session: () => request<{ configured: boolean; authenticated: boolean; username?: string | null }>("/auth/session"),
