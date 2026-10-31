@@ -47,6 +47,12 @@ export type SuggestedModule = {
   disclosure_date?: string | null;
   description_snippet: string;
   match_basis: string;
+  // CVE IDs this module's own metadata references that NVD also reports
+  // for the confirmed product/version - a real CVE-to-module match, not
+  // just a name match. Empty when no such overlap was found (which can
+  // mean there isn't one, or that NVD was unreachable - see the
+  // suggestion's top-level `note`).
+  cve_matches: string[];
 };
 
 export type ModuleSuggestions = {
@@ -170,8 +176,10 @@ export const api = {
     results: (runUuid: string) =>
       request<{ status?: string; result?: unknown; error?: string }>("/modules/results/" + encodeURIComponent(runUuid)),
     // Match module names against a confirmed banner, or use a labelled
-    // common-port service-family hint when the scan has no banner.
-    // Not a vulnerability confirmation by itself - see checkModule below.
+    // common-port service-family hint when the scan has no banner. Also
+    // cross-references each candidate against NVD's own CVE data for the
+    // confirmed product/version (see SuggestedModule.cve_matches) - still
+    // not a vulnerability confirmation by itself; see checkModule below.
     suggest: (serviceInfo: string, port?: number) => {
       const params = new URLSearchParams({ service_info: serviceInfo });
       if (port !== undefined) params.set("port", String(port));
