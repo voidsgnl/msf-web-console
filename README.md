@@ -45,6 +45,7 @@ phases.
 
 **v0.1 — vertical slice.** Implemented:
 
+- Independent assessment foundation: platform-owned assessments and target scope persist in a local SQLite database (separate from Metasploit's database), with assessment lifecycle states, explicit authorization before target registration, duplicate-target protection, and exact scheme/host/port scope checks. The API is available under `/api/assessments`; set `ASSESSMENT_DATABASE_PATH` to override the default `backend/data/assessments.sqlite3` location. The current UI scanner actions are not yet bound to this scope store.
 - Independent reconnaissance foundation: local tool inventory, a bounded built-in HTTP probe, and explicit httpx/WhatWeb command adapters with fixed argument construction, authorization confirmation, execution timeouts, bounded output inspection, and structured evidence parsing. These adapters do not depend on Metasploit RPC and do not claim vulnerability status
 - Live console (xterm.js) bridged to a real `msfconsole` instance, tabbed
   for multiple concurrent consoles
@@ -178,7 +179,7 @@ backend/
     nvd_client.py      NVD CVE REST API client (CVE enrichment)
     routes/
       system.py        health/status
-      web_recon.py      local web tool inventory + bounded HTTP probe
+      assessments.py    platform-owned assessment and target-scope API\n      web_recon.py      local web tool inventory + bounded HTTP probe
       modules.py        search, info, execute, encode, NOP generation
       sessions.py        list, read/write, stop
       db.py               database views + workspace management + reports
