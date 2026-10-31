@@ -80,6 +80,29 @@ class NvdCpeVersionAssessmentTests(unittest.TestCase):
                 "not_affected",
             )
 
+    def test_nested_configuration_children_are_included(self):
+        record = {
+            "configurations": [{
+                "nodes": [{
+                    "operator": "AND",
+                    "children": [{
+                        "operator": "OR",
+                        "cpe_matches": [{
+                            "criteria": "cpe:2.3:a:vsftpd:vsftpd:*:*:*:*:*:*:*:*",
+                            "vulnerable": True,
+                            "version_start_including": "2.3.0",
+                            "version_end_excluding": "2.3.5",
+                        }],
+                    }],
+                }],
+            }],
+        }
+        with patch.object(NvdClient, "get_cve", return_value=record):
+            self.assertEqual(
+                NvdClient().assess_product_version("CVE-2011-2523", "vsftpd", "2.3.4"),
+                "affected",
+            )
+
     def test_unparseable_published_bound_is_indeterminate(self):
         record = self._record(
             "cpe:2.3:a:vsftpd:vsftpd:*:*:*:*:*:*:*:*",
