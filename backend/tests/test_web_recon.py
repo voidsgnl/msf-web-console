@@ -3,8 +3,10 @@ from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
 
-from app.routes.web_recon import (\n    ToolRunRequest, WebProbeRequest, _build_tool_command, _normalise_url,\n    _parse_tool_output, _technology_hints, probe_web_service, run_recon_tool,\n)
-
+from app.routes.web_recon import (
+    ToolRunRequest, WebProbeRequest, _build_tool_command, _normalise_url,
+    _parse_tool_output, _technology_hints, probe_web_service, run_recon_tool,
+)
 
 class WebReconTests(unittest.TestCase):
     def test_adds_https_scheme(self):
