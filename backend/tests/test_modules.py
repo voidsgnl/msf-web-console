@@ -49,7 +49,7 @@ class ModuleWorkflowTests(unittest.TestCase):
             ],
         ) as rpc_call, patch(
             "app.routes.modules._run_console_command",
-            side_effect=["", "", "", "CheckCode::Safe"],
+            side_effect=["", "", "", "", "CheckCode::Safe"],
         ) as command:
             result = check_module(
                 "exploit",
