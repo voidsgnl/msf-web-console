@@ -27,7 +27,7 @@ CPE_PRODUCT_IDENTITIES: dict[str, set[tuple[str, str]]] = {
     },
     "libssh": {("libssh", "libssh")},
     # FTP
-    "vsftpd": {("vsftpd", "vsftpd")},
+    "vsftpd": {("vsftpd_project", "vsftpd")},
     "proftpd": {("proftpd", "proftpd")},
     "pureftpd": {("pureftpd", "pure-ftpd")},
     # Mail
@@ -46,7 +46,7 @@ CPE_PRODUCT_IDENTITIES: dict[str, set[tuple[str, str]]] = {
         ("microsoft", "internet_information_services"),
     },
     "werkzeug": {("palletsprojects", "werkzeug"), ("pocoo", "werkzeug")},
-    "gunicorn": {("gunicorn", "gunicorn"), ("benoitc", "gunicorn")},
+    "gunicorn": {("gunicorn", "gunicorn")},
     # File sharing
     "samba": {("samba", "samba")},
     # Databases
