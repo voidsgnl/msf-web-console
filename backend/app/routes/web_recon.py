@@ -1,5 +1,6 @@
 import re
 import shutil
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 import requests
@@ -134,6 +135,7 @@ RUNNABLE_TOOLS = {
 
 
 class ToolRunRequest(BaseModel):
+    assessment_id: int = Field(ge=1)
     tool_id: str = Field(pattern=r"^(httpx|whatweb)$")
     url: str = Field(min_length=1, max_length=2048)
     authorized: bool = False
@@ -199,6 +201,8 @@ def run_recon_tool(req: ToolRunRequest):
     if not req.authorized:
         raise HTTPException(400, "Confirm that you own this target or have explicit permission to assess it.")
     target_url = _normalise_url(req.url)
+    from app.routes.assessments import assert_target_in_scope, record_tool_execution
+    scope = assert_target_in_scope(req.assessment_id, target_url)
     config = RUNNABLE_TOOLS.get(req.tool_id)
     if not config:
         raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
@@ -206,6 +210,7 @@ def run_recon_tool(req: ToolRunRequest):
     if not executable:
         raise HTTPException(409, f"{config['name']} is not installed or is not available on the backend PATH.")
     command = _build_tool_command(req.tool_id, executable, target_url)
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     try:
         with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as stdout_file, tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as stderr_file:
             completed = subprocess.run(
@@ -234,14 +239,23 @@ def run_recon_tool(req: ToolRunRequest):
     except OSError as exc:
         raise HTTPException(502, f"{config['name']} could not be started: {exc.strerror or 'execution error'}.") from exc
 
+    finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    records = _parse_tool_output(req.tool_id, stdout)
+    execution = record_tool_execution(
+        scope, req.tool_id, target_url, started_at, finished_at,
+        completed.returncode, output_size > config["max_output"], records, stderr,
+    )
+
     return {
+        "execution_id": execution["id"],
+        "assessment_id": req.assessment_id,
         "tool_id": req.tool_id,
         "tool": config["name"],
         "target": target_url,
         "exit_code": completed.returncode,
         "timed_out": False,
         "output_truncated": output_size > config["max_output"],
-        "records": _parse_tool_output(req.tool_id, stdout),
+        "records": records,
         "stderr": stderr,
         "assessment": "Tool output is reconnaissance evidence, not a confirmed vulnerability verdict.",
     }
