@@ -143,7 +143,10 @@ export const api = {
         records: { url?: string; target?: string; status_code?: number; http_status?: number;
           title?: string | null; webserver?: string; content_type?: string;
           technologies?: string[]; host?: string; sources?: string[]; method?: string; source?: string;
-          tag?: string; attribute?: string; raw?: string | null }[];
+          tag?: string; attribute?: string; redirect_location?: string | null;
+          kind?: string; redirects?: { from: string; to?: string; status_code: number; followed: boolean; reason?: string }[];
+          raw?: string | null }[];
+        redirect_chain?: { from: string; to?: string; status_code: number; followed: boolean; reason?: string }[];
         stderr: string; assessment: string;
       }>("/web-recon/run", {
         method: "POST",
