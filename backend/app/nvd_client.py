@@ -76,32 +76,43 @@ def extract_cve_ids(value: Any) -> set[str]:
     return found
 
 
-_VERSION_NUMERIC_RE = re.compile(r"\d+(?:\.\d+)*")
+_VERSION_RE = re.compile(r"^\\s*(\\d+(?:\\.\\d+)*)(.*)$")
+_UPSTREAM_SUFFIX_RE = re.compile(r"^(?:p\\d+|[a-z])$", re.IGNORECASE)
 
 
-def _parse_version_tuple(version: str | None) -> tuple[int, ...] | None:
+def _parse_version_components(version: str | None) -> tuple[tuple[int, ...], str | None] | None:
     """
-    Parse a dotted version string into a tuple of integers for ordered
-    comparison, e.g. "7.2p2" -> (7, 2), "2.4.49-7ubuntu4" -> (2, 4, 49).
+    Parse a numeric upstream version and only the suffix forms whose ordering
+    is sufficiently clear for this project.
 
-    Only the leading dotted-numeric run is used: CPE version-range bounds
-    published by NVD (versionStartIncluding etc.) are themselves plain
-    dotted-numeric strings, so a distro/vendor suffix on the *detected*
-    banner version (e.g. "p2", "-7ubuntu4") has nothing to compare against
-    and is intentionally dropped rather than guessed at. Returns None if no
-    leading numeric version could be extracted at all - callers must treat
-    None as "can't compare", never as a match.
+    OpenSSH uses p1/p2 patch suffixes (9.6p1); ProFTPD has lettered releases
+    (1.3.5e). Distro/package suffixes such as -7ubuntu4 are deliberately not
+    interpreted here: callers should normalize those in the banner parser or
+    treat them as indeterminate. Unknown suffixes must never be silently
+    discarded because doing so can turn distinct releases into a false match.
     """
     if not version:
         return None
-    match = _VERSION_NUMERIC_RE.match(version.strip())
+    match = _VERSION_RE.match(version)
     if not match:
         return None
-    return tuple(int(part) for part in match.group(0).split("."))
+    numeric = tuple(int(part) for part in match.group(1).split("."))
+    suffix = match.group(2).strip().lower() or None
+    if suffix is not None and not _UPSTREAM_SUFFIX_RE.fullmatch(suffix):
+        return None
+    return numeric, suffix
+
+
+def _parse_version_tuple(version: str | None) -> tuple[int, ...] | None:
+    """Compatibility helper returning the numeric core only for plain versions."""
+    parsed = _parse_version_components(version)
+    if parsed is None:
+        return None
+    return parsed[0]
 
 
 def _compare_version_tuples(a: tuple[int, ...], b: tuple[int, ...]) -> int:
-    """Compare two version tuples, right-padding the shorter with zeros."""
+    """Compare two numeric version tuples, right-padding the shorter with zeros."""
     length = max(len(a), len(b))
     a_padded = a + (0,) * (length - len(a))
     b_padded = b + (0,) * (length - len(b))
@@ -110,6 +121,32 @@ def _compare_version_tuples(a: tuple[int, ...], b: tuple[int, ...]) -> int:
     if a_padded > b_padded:
         return 1
     return 0
+
+
+def _compare_versions(a: str, b: str) -> int | None:
+    """Compare supported upstream versions; None means suffix ordering is unknown."""
+    parsed_a = _parse_version_components(a)
+    parsed_b = _parse_version_components(b)
+    if parsed_a is None or parsed_b is None:
+        return None
+    core_a, suffix_a = parsed_a
+    core_b, suffix_b = parsed_b
+    core_comparison = _compare_version_tuples(core_a, core_b)
+    if core_comparison:
+        return core_comparison
+    if suffix_a == suffix_b:
+        return 0
+    if suffix_a is None:
+        return -1
+    if suffix_b is None:
+        return 1
+    # OpenSSH patch-level suffixes are numeric and comparable only to each
+    # other. Single-letter release suffixes are comparable only to each other.
+    if suffix_a.startswith("p") and suffix_b.startswith("p"):
+        return (int(suffix_a[1:]) > int(suffix_b[1:])) - (int(suffix_a[1:]) < int(suffix_b[1:]))
+    if len(suffix_a) == 1 and len(suffix_b) == 1:
+        return (suffix_a > suffix_b) - (suffix_a < suffix_b)
+    return None
 
 
 def _cpe_match_record(cpe_match: dict[str, Any]) -> dict[str, Any]:
