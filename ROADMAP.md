@@ -82,9 +82,10 @@ Status: in progress.
 - [ ] Add content discovery (ffuf/Feroxbuster) with explicit wordlist,
       request-rate, and scope controls.
 - [ ] Add network/service discovery (Nmap) as a separate workflow.
-- [ ] Deduplicate domains, hosts, URLs, IPs, ports, and services into a
-      reusable asset inventory.
-- [x] Establish the first exact-origin target-scope boundary; extend it to discovered child assets through explicit scope expansion and approval.\n- [ ] Track discovered in-scope and out-of-scope assets; never silently expand scope.
+- [x] Persist and deduplicate URL/host assets observed in HTTP probe, httpx, and WhatWeb evidence; track first/last seen and source tool.
+- [ ] Expand the inventory to IPs, ports, services, and passive/crawl discovery sources.
+- [x] Establish the first exact-origin target-scope boundary; extend it to discovered child assets through explicit scope expansion and approval.\n- [x] Track discovered in-scope and out-of-scope URL/host assets; discovery never changes approved targets.
+- [ ] Add an explicit review-and-approve workflow for expanding assessment scope.
 
 ## Phase 3 — Vulnerability assessment
 
