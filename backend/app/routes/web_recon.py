@@ -174,7 +174,7 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[
         scope_pattern = "^" + re.escape(parsed.scheme.lower()) + "://" + authority_pattern + r"(?:/|$)"
         return [
             executable, "-u", target_url, "-silent", "-nc", "-j", "-duc",
-            "-d", "2", "-mdp", "100", "-ct", "90s", "-mrs", "1048576",
+            "-d", "2", "-jc", "-iqp", "-mdp", "100", "-ct", "90s", "-mrs", "1048576",
             "-timeout", "8", "-retry", "0", "-rl", "2", "-c", "1", "-p", "1",
             "-dr", "-ns", "-cs", scope_pattern,
         ]
