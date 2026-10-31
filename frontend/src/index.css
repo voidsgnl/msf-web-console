@@ -54,6 +54,22 @@
     @apply font-mono;
   }
 
+  /* Baseline for views that style their own tables: zero specificity, so
+     their utility classes always win, but they still get collapsed borders,
+     row hover and consistent header weight. */
+  :where(table) {
+    border-collapse: collapse;
+  }
+  :where(thead th) {
+    font-weight: 600;
+  }
+  :where(tbody tr):hover {
+    background-color: rgba(22, 29, 39, 0.6);
+  }
+  :where(button:disabled, select:disabled, input:disabled, textarea:disabled) {
+    opacity: 0.55;
+  }
+
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
