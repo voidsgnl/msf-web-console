@@ -16,10 +16,21 @@ from app.routes.modules import (
     suggest_modules,
     module_result,
     module_running_stats,
+    check_module,
+    router,
 )
 
 
 class ModuleWorkflowTests(unittest.TestCase):
+    def test_check_route_is_registered_on_check_module(self):
+        check_routes = [
+            route for route in router.routes
+            if getattr(route, "path", "").endswith("/{type}/{name:path}/check")
+            and "POST" in getattr(route, "methods", set())
+        ]
+        self.assertEqual(len(check_routes), 1)
+        self.assertIs(check_routes[0].endpoint, check_module)
+
     def test_background_module_execution_returns_job_and_uuid(self):
         response = {"job_id": 4, "uuid": "yJWES2Y6d4MRyfFLWjqhqvon"}
         with patch("app.routes.modules.rpc.call", return_value=response) as rpc_call:
