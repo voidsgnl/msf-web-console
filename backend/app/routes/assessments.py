@@ -5,6 +5,7 @@ of Metasploit's database and requires no additional service or dependency.
 """
 import os
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -34,7 +35,7 @@ def _connect() -> sqlite3.Connection:
 
 
 def _initialise() -> None:
-    with _connect() as connection:
+    with _connection() as connection:
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS assessments (
