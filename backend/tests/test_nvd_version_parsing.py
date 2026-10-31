@@ -28,6 +28,13 @@ class VersionSuffixComparisonTests(unittest.TestCase):
         self.assertTrue(_cpe_version_in_range(cpe_match, "9.6p2"))
         self.assertFalse(_cpe_version_in_range(cpe_match, "9.6p3"))
 
+    def test_exact_cpe_update_component_is_compared(self):
+        cpe_match = {
+            "criteria": "cpe:2.3:a:openbsd:openssh:9.9:p1:*:*:*:*:*:*",
+        }
+        self.assertTrue(_cpe_version_in_range(cpe_match, "9.9p1"))
+        self.assertFalse(_cpe_version_in_range(cpe_match, "9.9p2"))
+
     def test_unrecognized_suffix_in_range_bound_is_indeterminate(self):
         cpe_match = {
             "criteria": "cpe:2.3:a:openbsd:openssh:*:*:*:*:*:*:*:*",
