@@ -294,6 +294,9 @@ def _resolve_same_origin_redirects(target_url: str, max_redirects: int = 5) -> t
                         "from": current_url, "status_code": response.status_code,
                         "to": destination, "followed": False,
                     }
+                    if len(chain) >= max_redirects:
+                        redirect["reason"] = f"Stopped after the maximum of {max_redirects} same-origin redirects."
+                        return current_url, chain + [redirect], redirect
                     if _origin_key(destination) != _origin_key(target_url):
                         redirect["reason"] = "Destination is outside the approved scheme/host/port."
                         return current_url, chain + [redirect], redirect
