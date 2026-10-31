@@ -133,12 +133,13 @@ RUNNABLE_TOOLS = {
     "whatweb": {"name": "WhatWeb", "timeout": 45, "max_output": 262144},
     # Passive sources only; no active DNS or HTTP probing.
     "subfinder": {"name": "Subfinder (passive)", "timeout": 150, "max_output": 1048576},
+    "katana": {"name": "Katana (controlled crawl)", "timeout": 120, "max_output": 1048576},
 }
 
 
 class ToolRunRequest(BaseModel):
     assessment_id: int = Field(ge=1)
-    tool_id: str = Field(pattern=r"^(httpx|whatweb|subfinder)$")
+    tool_id: str = Field(pattern=r"^(httpx|whatweb|subfinder|katana)$")
     url: str = Field(min_length=1, max_length=2048)
     authorized: bool = False
 
@@ -159,6 +160,24 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[
         if not hostname:
             raise HTTPException(400, "A valid approved hostname is required for passive subdomain discovery.")
         return [executable, "-d", hostname, "-silent", "-json", "-cs", "-duc", "-mr", "100", "-timeout", "10", "-max-time", "2", "-rl", "5"]
+    if tool_id == "katana":
+        parsed = urlsplit(target_url)
+        hostname = (parsed.hostname or "").lower()
+        if not hostname:
+            raise HTTPException(400, "A valid approved hostname is required for crawling.")
+        host_literal = "[" + hostname + "]" if ":" in hostname else hostname
+        default_port = 443 if parsed.scheme.lower() == "https" else 80
+        if parsed.port and parsed.port != default_port:
+            authority_pattern = re.escape(host_literal + ":" + str(parsed.port))
+        else:
+            authority_pattern = re.escape(host_literal) + (r"(?:" + str(default_port) + r")?" if parsed.port == default_port else "")
+        scope_pattern = "^" + re.escape(parsed.scheme.lower()) + "://" + authority_pattern + r"(?:/|$)"
+        return [
+            executable, "-u", target_url, "-silent", "-nc", "-j", "-duc",
+            "-d", "2", "-mdp", "100", "-ct", "90s", "-mrs", "1048576",
+            "-timeout", "8", "-retry", "0", "-rl", "2", "-c", "1", "-p", "1",
+            "-dr", "-ns", "-cs", scope_pattern,
+        ]
     raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
 
 
@@ -181,6 +200,19 @@ def _parse_tool_output(tool_id: str, output: str) -> list[dict]:
             sources = item.get("sources") if isinstance(item.get("sources"), list) else []
             return {"host": host.lower().rstrip(".") if isinstance(host, str) else None,
                     "sources": [str(source)[:100] for source in sources[:20]], "raw": None}
+        if tool_id == "katana" and isinstance(item, dict):
+            request = item.get("request") if isinstance(item.get("request"), dict) else {}
+            response = item.get("response") if isinstance(item.get("response"), dict) else {}
+            endpoint = item.get("endpoint") or item.get("url") or request.get("endpoint") or request.get("url")
+            return {
+                "url": endpoint if isinstance(endpoint, str) else None,
+                "method": str(request.get("method") or item.get("method") or "GET")[:12],
+                "status_code": response.get("status_code", item.get("status_code")),
+                "source": str(item.get("source") or "")[:500],
+                "tag": str(item.get("tag") or "")[:100],
+                "attribute": str(item.get("attribute") or "")[:100],
+                "raw": None,
+            }
         return {"raw": str(item)[:4000]}
 
     # WhatWeb writes one JSON array; httpx emits newline-delimited JSON.
@@ -188,7 +220,7 @@ def _parse_tool_output(tool_id: str, output: str) -> list[dict]:
         document = json.loads(output)
         if isinstance(document, list):
             return [normalise(item) for item in document]
-        if isinstance(document, dict) and tool_id in {"whatweb", "subfinder"}:
+        if isinstance(document, dict) and tool_id in {"whatweb", "subfinder", "katana"}:
             return [normalise(document)]
     except (TypeError, ValueError):
         pass
@@ -265,6 +297,28 @@ def run_recon_tool(req: ToolRunRequest):
 
     finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     records = _parse_tool_output(req.tool_id, stdout)
+    if req.tool_id == "katana":
+        approved = urlsplit(target_url)
+        approved_origin = (
+            approved.scheme.lower(), (approved.hostname or "").lower(),
+            approved.port or (443 if approved.scheme.lower() == "https" else 80),
+        )
+        scoped_records = []
+        for record in records:
+            endpoint = record.get("url")
+            if not isinstance(endpoint, str):
+                continue
+            try:
+                parsed_endpoint = urlsplit(endpoint)
+                endpoint_origin = (
+                    parsed_endpoint.scheme.lower(), (parsed_endpoint.hostname or "").lower(),
+                    parsed_endpoint.port or (443 if parsed_endpoint.scheme.lower() == "https" else 80),
+                )
+            except ValueError:
+                continue
+            if endpoint_origin == approved_origin and parsed_endpoint.scheme.lower() in {"http", "https"}:
+                scoped_records.append(record)
+        records = scoped_records
     execution = record_tool_execution(
         scope, req.tool_id, target_url, started_at, finished_at,
         completed.returncode, output_size > config["max_output"], records, stderr,
@@ -285,6 +339,12 @@ def run_recon_tool(req: ToolRunRequest):
             "Subfinder uses passive data sources only. Discovered hostnames are inventory leads, "
             "not approved targets; this adapter does not initiate DNS probes or HTTP requests."
             if req.tool_id == "subfinder"
-            else "Tool output is reconnaissance evidence, not a confirmed vulnerability verdict."
+            else (
+                "Katana used a shallow, time- and page-bounded crawl restricted to the approved "
+                "scheme/host/port. Redirects were disabled; only same-origin endpoints are retained. "
+                "Discovered URLs do not expand approved scope."
+                if req.tool_id == "katana"
+                else "Tool output is reconnaissance evidence, not a confirmed vulnerability verdict."
+            )
         ),
     }
