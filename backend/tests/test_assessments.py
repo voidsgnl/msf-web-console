@@ -123,6 +123,25 @@ class AssessmentStoreTests(unittest.TestCase):
         self.assertEqual(saved["tool_id"], "httpx")
         self.assertEqual(assets["counts"], {"total": 4, "in_scope": 2, "out_of_scope": 2})
 
+
+    def test_discovered_subdomains_remain_out_of_scope_until_approved(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Passive discovery"))
+        approved = assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], "https://example.test")
+        assessments.record_tool_execution(
+            scope, "subfinder", "https://example.test", "2026-10-31T12:00:00+00:00",
+            "2026-10-31T12:00:20+00:00", 0, False,
+            [{"host": "api.example.test", "sources": ["crtsh"]}], "",
+        )
+        inventory = assessments.list_assessment_assets(created["id"])
+        discovered = next(item for item in inventory["assets"] if item["value"] == "api.example.test")
+        self.assertEqual(discovered["asset_type"], "host")
+        self.assertEqual(discovered["scope_state"], "out_of_scope")
+        detail = assessments.get_assessment(created["id"])
+        self.assertEqual([item["id"] for item in detail["targets"]], [approved["id"]])
+
     def test_asset_inventory_deduplicates_and_updates_last_seen(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="Asset dedupe"))
         assessments.add_assessment_target(
