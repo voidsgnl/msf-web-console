@@ -4,7 +4,6 @@ import type { View } from "./components/Sidebar";
 import { ConsoleView } from "./components/ConsoleView";
 import { ModuleBrowser } from "./components/ModuleBrowser";
 import type { ModuleSearchRequest, TargetContext } from "./components/ModuleBrowser";
-import { ScanWizard } from "./components/ScanWizard";
 import { WebSecurityView } from "./components/WebSecurityView";
 import { RecipesView } from "./components/RecipesView";
 import { SessionsView } from "./components/SessionsView";
@@ -110,8 +109,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [authStatus, visit]);
 
-  // Drives the module browser's search from outside (the scan wizard's
-  // "Investigate in Modules" button) and switches to that tab.
+  // Drives the module browser's search from supported investigation workflows.
   const investigateModules = (type: string, query: string, targetContext?: TargetContext) => {
     setModuleSearchRequest({ type, query, nonce: Date.now(), targetContext });
     visit("modules");
@@ -248,11 +246,6 @@ export default function App() {
           {visitedViews.has("console") && (
             <div className="absolute inset-0" style={{ display: view === "console" ? "block" : "none" }}>
               <ConsoleView />
-            </div>
-          )}
-          {visitedViews.has("scan") && (
-            <div className="absolute inset-0 overflow-y-auto" style={{ display: view === "scan" ? "block" : "none" }}>
-              <ScanWizard onInvestigate={investigateModules} />
             </div>
           )}
           {visitedViews.has("web-security") && (
