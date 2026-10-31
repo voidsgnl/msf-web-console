@@ -54,5 +54,37 @@ class WebReconTests(unittest.TestCase):
         self.assertFalse(session.trust_env)
 
 
+
+class ReconToolAdapterTests(unittest.TestCase):
+    def test_httpx_command_uses_fixed_arguments(self):
+        command = _build_tool_command("httpx", "/usr/bin/httpx", "https://example.test")
+        self.assertEqual(command[0], "/usr/bin/httpx")
+        self.assertIn("-json", command)
+        self.assertIn("-follow-redirects=false", command)
+        self.assertEqual(command[-1], "https://example.test")
+
+    def test_whatweb_command_uses_json_output(self):
+        command = _build_tool_command("whatweb", "/usr/bin/whatweb", "https://example.test")
+        self.assertEqual(command[0], "/usr/bin/whatweb")
+        self.assertIn("--log-json=-", command)
+        self.assertEqual(command[-1], "https://example.test")
+
+    def test_parser_normalises_httpx_json(self):
+        records = _parse_tool_output("httpx", '{"url":"https://example.test","status_code":200,"tech":["nginx"]}')
+        self.assertEqual(records[0]["status_code"], 200)
+        self.assertEqual(records[0]["technologies"], ["nginx"])
+
+    def test_parser_normalises_whatweb_plugins(self):
+        records = _parse_tool_output("whatweb", '{"target":"https://example.test","http_status":200,"plugins":{"Apache":{"version":["2.4"]},"title":{"string":["Example"]}}}')
+        self.assertEqual(records[0]["http_status"], 200)
+        self.assertIn("Apache", records[0]["technologies"])
+
+    def test_parser_keeps_unstructured_output_as_evidence(self):
+        self.assertEqual(_parse_tool_output("whatweb", "not-json"), [{"raw": "not-json"}])
+
+    def test_rejects_unknown_adapter(self):
+        with self.assertRaises(HTTPException):
+            _build_tool_command("nmap", "/usr/bin/nmap", "https://example.test")
+
 if __name__ == "__main__":
     unittest.main()
