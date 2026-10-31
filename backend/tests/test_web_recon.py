@@ -121,6 +121,32 @@ class ReconToolAdapterTests(unittest.TestCase):
     def test_parser_keeps_unstructured_output_as_evidence(self):
         self.assertEqual(_parse_tool_output("whatweb", "not-json"), [{"raw": "not-json"}])
 
+
+    def test_subfinder_command_is_passive_and_rate_limited(self):
+        command = _build_tool_command("subfinder", "/usr/bin/subfinder", "https://example.test/path")
+        self.assertEqual(command[0], "/usr/bin/subfinder")
+        self.assertEqual(command[command.index("-d") + 1], "example.test")
+        self.assertIn("-silent", command)
+        self.assertIn("-json", command)
+        self.assertEqual(command[command.index("-rl") + 1], "5")
+        self.assertNotIn("-active", command)
+        self.assertNotIn("-recursive", command)
+
+    def test_subfinder_parser_extracts_hostname_and_sources(self):
+        records = _parse_tool_output(
+            "subfinder",
+            '{"host":"WWW.Example.test.","sources":["crtsh","wayback"]}',
+        )
+        self.assertEqual(records[0]["host"], "www.example.test")
+        self.assertEqual(records[0]["sources"], ["crtsh", "wayback"])
+
+    def test_subfinder_request_is_an_allowed_tool_id(self):
+        request = ToolRunRequest(
+            assessment_id=1, tool_id="subfinder",
+            url="https://example.test", authorized=True,
+        )
+        self.assertEqual(request.tool_id, "subfinder")
+
     def test_rejects_unknown_adapter(self):
         with self.assertRaises(HTTPException):
             _build_tool_command("nmap", "/usr/bin/nmap", "https://example.test")
