@@ -105,6 +105,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  webRecon: {
+    tools: () => request<{ tools: {
+      id: string; name: string; category: string; purpose: string;
+      installed: boolean; path?: string | null;
+    }[]; built_in: { name: string; available: boolean; description: string }[] }>("/web-recon/tools"),
+    probe: (url: string, authorized: boolean) =>
+      request<{
+        target: string; status_code: number; reason?: string; final_url: string;
+        redirect_location?: string | null; title?: string | null;
+        headers: Record<string, string>; technologies: string[];
+        content_type?: string | null; body_truncated: boolean;
+        bytes_inspected: number; assessment: string;
+      }>("/web-recon/probe", {
+        method: "POST",
+        body: JSON.stringify({ url, authorized }),
+      }),
+  },
   auth: {
     session: () => request<{ configured: boolean; authenticated: boolean; username?: string | null }>("/auth/session"),
     login: (username: string, password: string) =>
