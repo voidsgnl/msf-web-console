@@ -565,7 +565,7 @@ def _module_path_is_valid(name: str) -> bool:
 def _hex_bytes(raw: str, label: str) -> bytes:
     compact = re.sub(r"(?i)(?:0x|\\x)|[\s,:]", "", raw)
     if compact and not re.fullmatch(r"(?:[0-9a-fA-F]{2})+", compact):
-        raise HTTPException(400, f"{label} must be pairs of hexadecimal bytes, such as 00ff or \\\\x00\\\\xff.")
+        raise HTTPException(400, f"{label} must be pairs of hexadecimal bytes, such as 00ff or \\x00\\xff.")
     try:
         return bytes.fromhex(compact)
     except ValueError as exc:
@@ -821,7 +821,6 @@ def _check_verdict(output: str) -> str:
     return "unknown"
 
 
-@router.post("/{type}/{name:path}/check")
 def _missing_required_check_options(
     declared_options: Any,
     supplied_options: dict[str, Any],
@@ -841,6 +840,7 @@ def _missing_required_check_options(
     return sorted(missing)
 
 
+@router.post("/{type}/{name:path}/check")
 def check_module(type: str, name: str, req: ModuleCheckRequest):
     """
     Actually run Metasploit's own `check` action against a target for one
