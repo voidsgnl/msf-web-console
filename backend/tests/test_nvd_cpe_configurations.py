@@ -5,13 +5,13 @@ from app.nvd_client import NvdClient, _summarize
 
 VSFTPD_RANGE = {
     "vulnerable": True,
-    "criteria": "cpe:2.3:a:vsftpd:vsftpd:*:*:*:*:*:*:*:*",
+    "criteria": "cpe:2.3:a:vsftpd_project:vsftpd:*:*:*:*:*:*:*:*",
     "versionStartIncluding": "2.3.0",
     "versionEndExcluding": "2.3.5",
 }
 VSFTPD_OLD_RANGE = {
     "vulnerable": True,
-    "criteria": "cpe:2.3:a:vsftpd:vsftpd:*:*:*:*:*:*:*:*",
+    "criteria": "cpe:2.3:a:vsftpd_project:vsftpd:*:*:*:*:*:*:*:*",
     "versionStartIncluding": "2.0.0",
     "versionEndExcluding": "2.1.0",
 }
@@ -80,7 +80,7 @@ class CpeAndOrAssessmentTests(unittest.TestCase):
     def test_negated_node_keeps_an_unknown_result_unknown(self):
         unparseable = {
             "vulnerable": True,
-            "criteria": "cpe:2.3:a:vsftpd:vsftpd:*:*:*:*:*:*:*:*",
+            "criteria": "cpe:2.3:a:vsftpd_project:vsftpd:*:*:*:*:*:*:*:*",
             "versionStartIncluding": "not-a-version",
         }
         config = {"nodes": [node(unparseable, negate=True)]}
