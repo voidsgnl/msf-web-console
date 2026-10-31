@@ -53,6 +53,42 @@ class SuggestModulesCveMatchingTests(unittest.TestCase):
         self.assertEqual(candidate["cve_matches"], [])
         self.assertEqual(candidate["rank_weight"], 600)
 
+
+    def test_shared_cve_reference_sorts_a_candidate_first_without_changing_native_rank(self):
+        module_list = {
+            "modules": [
+                "unix/ftp/vsftpd_generic",
+                "unix/ftp/vsftpd_234_backdoor",
+            ]
+        }
+        generic_info = {
+            "rank": 600,
+            "fullname": "exploit/unix/ftp/vsftpd_generic",
+            "description": "Generic vsftpd module.",
+            "references": [["URL", "https://example.com"]],
+        }
+        cve_info = {
+            "rank": 300,
+            "fullname": "exploit/unix/ftp/vsftpd_234_backdoor",
+            "description": "vsftpd backdoor module.",
+            "references": [["CVE", "2011-2523"]],
+        }
+        with patch(
+            "app.routes.modules.rpc.call",
+            side_effect=[module_list, generic_info, cve_info],
+        ), patch(
+            "app.routes.modules.nvd_client.search_cve_ids_by_keyword",
+            return_value={"CVE-2011-2523"},
+        ):
+            result = suggest_modules(service_info="vsftpd 2.3.4", port=21, types="exploit")
+
+        self.assertEqual(
+            [candidate["name"] for candidate in result["candidates"]],
+            ["unix/ftp/vsftpd_234_backdoor", "unix/ftp/vsftpd_generic"],
+        )
+        self.assertEqual(result["candidates"][0]["rank_weight"], 300)
+        self.assertEqual(result["candidates"][1]["rank_weight"], 600)
+
     def test_nvd_failure_degrades_to_name_matching_without_raising(self):
         module_list = {"modules": ["unix/ftp/vsftpd_234_backdoor"]}
         module_info = {
