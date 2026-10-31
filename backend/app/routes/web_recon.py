@@ -129,22 +129,16 @@ def probe_web_service(req: WebProbeRequest):
 # Only these fixed adapters are executable from the UI. Arguments are built
 # here (never accepted from the browser), and subprocesses never use a shell.
 RUNNABLE_TOOLS = {
-    "httpx": {
-        "name": "httpx",
-        "timeout": 30,
-        "max_output": 262144,
-    },
-    "whatweb": {
-        "name": "WhatWeb",
-        "timeout": 45,
-        "max_output": 262144,
-    },
+    "httpx": {"name": "httpx", "timeout": 30, "max_output": 262144},
+    "whatweb": {"name": "WhatWeb", "timeout": 45, "max_output": 262144},
+    # Passive sources only; no active DNS or HTTP probing.
+    "subfinder": {"name": "Subfinder (passive)", "timeout": 150, "max_output": 1048576},
 }
 
 
 class ToolRunRequest(BaseModel):
     assessment_id: int = Field(ge=1)
-    tool_id: str = Field(pattern=r"^(httpx|whatweb)$")
+    tool_id: str = Field(pattern=r"^(httpx|whatweb|subfinder)$")
     url: str = Field(min_length=1, max_length=2048)
     authorized: bool = False
 
@@ -160,6 +154,11 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[
             executable, "--log-json=/dev/stdout", "--quiet", "--no-errors", "--color=never",
             "--max-threads=1", "--follow-redirect=never", "--max-redirects=0", "--wait=1", "--open-timeout=5", "--read-timeout=10", target_url,
         ]
+    if tool_id == "subfinder":
+        hostname = (urlsplit(target_url).hostname or "").lower()
+        if not hostname:
+            raise HTTPException(400, "A valid approved hostname is required for passive subdomain discovery.")
+        return [executable, "-d", hostname, "-silent", "-json", "-timeout", "10", "-max-time", "2", "-rl", "5"]
     raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
 
 
@@ -175,6 +174,13 @@ def _parse_tool_output(tool_id: str, output: str) -> list[dict]:
             title_values = title_plugin.get("string") if isinstance(title_plugin, dict) else None
             title = title_values[0] if isinstance(title_values, list) and title_values else (title_values if isinstance(title_values, str) else None)
             return {"target": item.get("target"), "http_status": item.get("http_status"), "title": title, "technologies": sorted(plugins.keys()), "raw": None}
+        if tool_id == "subfinder" and isinstance(item, dict):
+            host = item.get("host")
+            if not isinstance(host, str):
+                host = item.get("input")
+            sources = item.get("sources") if isinstance(item.get("sources"), list) else []
+            return {"host": host.lower().rstrip(".") if isinstance(host, str) else None,
+                    "sources": [str(source)[:100] for source in sources[:20]], "raw": None}
         return {"raw": str(item)[:4000]}
 
     # WhatWeb writes one JSON array; httpx emits newline-delimited JSON.
@@ -182,7 +188,7 @@ def _parse_tool_output(tool_id: str, output: str) -> list[dict]:
         document = json.loads(output)
         if isinstance(document, list):
             return [normalise(item) for item in document]
-        if isinstance(document, dict) and tool_id == "whatweb":
+        if isinstance(document, dict) and tool_id in {"whatweb", "subfinder"}:
             return [normalise(document)]
     except (TypeError, ValueError):
         pass
@@ -275,5 +281,10 @@ def run_recon_tool(req: ToolRunRequest):
         "output_truncated": output_size > config["max_output"],
         "records": records,
         "stderr": stderr,
-        "assessment": "Tool output is reconnaissance evidence, not a confirmed vulnerability verdict.",
+        "assessment": (
+            "Subfinder uses passive data sources only. Discovered hostnames are inventory leads, "
+            "not approved targets; this adapter does not initiate DNS probes or HTTP requests."
+            if req.tool_id == "subfinder"
+            else "Tool output is reconnaissance evidence, not a confirmed vulnerability verdict."
+        ),
     }
