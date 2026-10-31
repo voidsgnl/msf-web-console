@@ -30,19 +30,47 @@ _MISS = object()
 
 def extract_cve_ids(value: Any) -> set[str]:
     """
-    Pull every CVE identifier out of an arbitrary record (or nested value).
+    Extract CVE IDs from Metasploit reference records and arbitrary nested data.
 
-    Metasploit vuln `refs` fields show up as a list of plain strings, a list
-    of {"ctx_id": "CVE", "ctx_val": "..."} hashes, or other shapes depending
-    on framework/database version. Rather than special-casing each shape,
-    this serializes the value to JSON and scans the text for CVE-looking
-    substrings, which is robust to all of them.
+    Metasploit commonly represents module references as ["CVE", "2021-41773"],
+    while database vulnerability references may use {"ctx_id": "CVE",
+    "ctx_val": "2021-41773"}. Those split forms do not contain the literal
+    "CVE-YYYY-NNNN" token, so handle their CVE context explicitly as well as
+    scanning free-form strings for complete identifiers.
     """
-    try:
-        text = json.dumps(value, default=str)
-    except (TypeError, ValueError):
-        text = str(value)
-    return {match.upper() for match in CVE_ID_RE.findall(text)}
+    found: set[str] = set()
+
+    def add(raw: Any, *, cve_context: bool = False) -> None:
+        if raw is None:
+            return
+        text = str(raw).strip()
+        matches = CVE_ID_RE.findall(text)
+        found.update(match.upper() for match in matches)
+        if cve_context and re.fullmatch(r"\d{4}-\d{4,7}", text):
+            found.add(f"CVE-{text}".upper())
+
+    def visit(item: Any) -> None:
+        if isinstance(item, dict):
+            context = str(item.get("ctx_id") or item.get("type") or "").strip().upper()
+            value = item.get("ctx_val", item.get("value"))
+            if context == "CVE":
+                add(value, cve_context=True)
+            for key, nested in item.items():
+                if key not in {"ctx_val", "value"}:
+                    visit(nested)
+        elif isinstance(item, (list, tuple)):
+            if len(item) >= 2 and str(item[0]).strip().upper() == "CVE":
+                add(item[1], cve_context=True)
+                for nested in item[2:]:
+                    visit(nested)
+            else:
+                for nested in item:
+                    visit(nested)
+        elif isinstance(item, str):
+            add(item)
+
+    visit(value)
+    return found
 
 
 class NvdError(Exception):
@@ -193,6 +221,72 @@ class NvdClient:
         summary = _summarize(cve_record)
         self._cache.set(normalized, summary)
         return summary
+
+    def search_cve_ids_by_keyword(self, keyword: str, version: str | None = None) -> set[str]:
+        """
+        Return the set of CVE IDs the NVD's own keywordSearch finds for a
+        confirmed product (optionally narrowed by version, e.g. "vsftpd
+        2.3.4"). This is NVD's independent text/CPE match over its own CVE
+        corpus - it does not consult Metasploit at all - so a candidate
+        module whose own CVE references overlap with this set is a real
+        CVE-to-module match, not a name/description guess.
+
+        Results are cached (including an empty result, via the shared
+        _MISS sentinel) under a "kw::" prefixed key so they never collide
+        with single-CVE cache entries from get_cve().
+        """
+        keyword = (keyword or "").strip()
+        if not keyword:
+            return set()
+        query = f"{keyword} {version}".strip() if version and version.lower() != "unknown" else keyword
+        cache_key = f"kw::{query.lower()}"
+
+        cached = self._cache.get(cache_key)
+        if cached is _MISS:
+            return set()
+        if cached is not None:
+            return cached
+
+        self._throttle()
+        headers = {"apiKey": self.api_key} if self.api_key else {}
+        try:
+            response = requests.get(
+                NVD_BASE_URL,
+                params={"keywordSearch": query, "resultsPerPage": 60},
+                headers=headers,
+                timeout=20,
+            )
+        except requests.exceptions.RequestException as exc:
+            raise NvdError(f"Could not reach the NVD API: {exc}") from exc
+
+        if response.status_code in (403, 429):
+            raise NvdError(
+                "NVD rejected the request (rate limited or access denied). "
+                "Set NVD_API_KEY in backend/.env for a higher rate limit, then retry."
+            )
+        if response.status_code != 200:
+            raise NvdError(f"NVD HTTP {response.status_code}: {response.text[:300]}")
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise NvdError("NVD returned a response that could not be parsed as JSON.") from exc
+
+        vulnerabilities = payload.get("vulnerabilities") or []
+        cve_ids: set[str] = set()
+        for entry in vulnerabilities:
+            cve_record = entry.get("cve") if isinstance(entry, dict) else None
+            if not isinstance(cve_record, dict) or not cve_record.get("id"):
+                continue
+            cve_id = str(cve_record["id"]).upper()
+            cve_ids.add(cve_id)
+            # We already have the full record for each hit - warm the
+            # per-CVE cache too, so a later single lookup (e.g. the Verify
+            # panel or a report) doesn't re-hit the API for it.
+            self._cache.set(cve_id, _summarize(cve_record))
+
+        self._cache.set(cache_key, cve_ids if cve_ids else _MISS)
+        return cve_ids
 
 
 # Shared singleton, mirroring the `rpc` singleton pattern in msf_rpc.py

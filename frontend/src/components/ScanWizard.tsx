@@ -776,6 +776,30 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                                       {candidate.description_snippet && (
                                         <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">{candidate.description_snippet}</p>
                                       )}
+                                      {candidate.cve_matches?.length > 0 && (
+                                        <div className="mt-2 rounded border border-sky-500/20 bg-sky-500/5 px-2 py-1.5">
+                                          <p className="text-[9px] uppercase tracking-wider text-sky-300 mb-1">
+                                            Shared CVE references · NVD keyword cross-check
+                                          </p>
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {candidate.cve_matches.map((cveId) => (
+                                              <a
+                                                key={cveId}
+                                                href={`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cveId)}`}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="font-mono text-[10px] text-sky-300 underline decoration-sky-500/40 hover:text-sky-200"
+                                                title="Open the NVD record. Check its affected CPE/version range before treating it as applicable."
+                                              >
+                                                {cveId}
+                                              </a>
+                                            ))}
+                                          </div>
+                                          <p className="text-[10px] text-gray-500 mt-1">
+                                            Shared references are not proof this detected version is affected or that the target is vulnerable.
+                                          </p>
+                                        </div>
+                                      )}
                                       {verifyState?.status === "done" && verifyState.rawOutput && (
                                         <pre className="mt-1.5 max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded bg-bg-secondary/60 p-1.5 text-[10px] text-gray-400 font-mono">
                                           {verifyState.rawOutput}

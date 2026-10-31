@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.msf_rpc import rpc, MsfRpcError
 from app.banner_parsing import parse_service_banner
+from app.nvd_client import NvdError, extract_cve_ids, nvd_client
 
 router = APIRouter(prefix="/api/modules", tags=["modules"])
 
@@ -75,6 +76,12 @@ RANK_LABELS: list[tuple[int, str]] = [
     (0, "Manual"),
 ]
 RANK_NAME_WEIGHTS = {name.lower(): weight for weight, name in RANK_LABELS}
+
+# A shared CVE reference is useful corroborating evidence, but keywordSearch
+# does not prove that the detected product version is in the CVE's affected
+# CPE/version range. Keep Metasploit's native reliability rank untouched and
+# use the overlap only as a separate relevance tie-breaker.
+
 
 
 def _rank_weight_and_label(raw_rank: Any) -> tuple[int, str]:
@@ -143,6 +150,14 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     match here is NOT a vulnerability confirmation. Use
     POST /modules/{type}/{name}/check to actually verify a specific
     candidate against the target before trusting it.
+
+    When a service banner is confirmed, candidates are cross-referenced
+    against NVD keyword-search results. A `cve_matches` entry means the
+    module metadata and NVD search results share a CVE identifier. This is
+    corroborating reference evidence only: keywordSearch does not establish
+    that the detected product/version is in that CVE's affected CPE range.
+    It is not proof that the target is vulnerable and does not change
+    Metasploit's native reliability rank.
     """
     term = _extract_search_term(service_info)
     parsed = parse_service_banner(service_info, port)
@@ -226,6 +241,19 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     if not raw_matches:
         return {"query": query_label, "candidates": [], "note": f"No module names matched {query_label}."}
 
+    # Cross-reference the confirmed product/version against NVD's own CVE
+    # corpus (independent of Metasploit) so candidates can be checked for a
+    # genuine CVE-to-module match below, rather than only a name match.
+    # Best-effort: NVD being unreachable/rate-limited must not break name
+    # matching, which already worked before this cross-check existed.
+    known_cve_ids: set[str] = set()
+    cve_lookup_error: str | None = None
+    if parsed and parsed.product:
+        try:
+            known_cve_ids = nvd_client.search_cve_ids_by_keyword(parsed.product, parsed.version)
+        except NvdError as exc:
+            cve_lookup_error = str(exc)
+
     # Version tokens for relevance scoring
     version_tokens: list[str] = []
     if parsed and parsed.version and parsed.version != "unknown":
@@ -303,6 +331,7 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
 
     candidates: list[dict[str, Any]] = []
     has_version_match = False
+    has_cve_match = False
     for match in candidate_pool:
         try:
             info = rpc.call("module.info", match["type"], match["name"])
@@ -313,11 +342,19 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
         weight, label = _rank_weight_and_label(info.get("rank"))
         description = str(info.get("description") or "").strip()
         snippet = description.split("\n", 1)[0][:220]
-        # Boost weight if description mentions exact version
+
+        # A shared identifier is a cross-reference signal, not affected-
+        # version validation. Keep it separate from Metasploit's rank.
+        module_cve_ids = extract_cve_ids(info.get("references"))
+        cve_matches = sorted(module_cve_ids & known_cve_ids)
+
+        # Keep the displayed rank faithful to Metasploit's native rank.
+        # Version and CVE evidence affect relevance ordering only.
         adjusted_weight = weight
         if any(vt in description.lower() for vt in version_tokens):
-            adjusted_weight += 50
             has_version_match = True
+        if cve_matches:
+            has_cve_match = True
         candidates.append({
             "type": match["type"],
             "name": match["name"],
@@ -327,13 +364,28 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
             "disclosure_date": info.get("disclosure_date"),
             "description_snippet": snippet,
             "match_basis": match_basis,
+            "cve_matches": cve_matches,
         })
 
-    candidates.sort(key=lambda c: c.get("disclosure_date") or "", reverse=True)
-    candidates.sort(key=lambda c: c["rank_weight"], reverse=True)
+    candidates.sort(
+        key=lambda c: (
+            bool(c["cve_matches"]),
+            c["rank_weight"],
+            c.get("disclosure_date") or "",
+        ),
+        reverse=True,
+    )
 
     # Dynamic plain-language note describing the findings
-    if parsed and "openssh" in prod_lower:
+    if has_cve_match:
+        cve_note_target = f"{parsed.product} {parsed.version}" if parsed.version != "unknown" else parsed.product
+        note = (
+            f"Confirmed {cve_note_target}. One or more candidates share a CVE reference with NVD keyword-search "
+            f"results for this product query. This is useful cross-reference evidence, but it does not validate "
+            f"the detected version against the CVE's affected-version range and is not proof the target is "
+            f"vulnerable. Review the CVE references and use Verify where the module supports a check."
+        )
+    elif parsed and "openssh" in prod_lower:
         note = f"Confirmed {parsed.product} {parsed.version if parsed.version != 'unknown' else ''}. SSH services are typically tested via credential login and enumeration modules rather than direct exploits."
     elif parsed and parsed.version and parsed.version != "unknown":
         if has_version_match:
@@ -344,6 +396,9 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
         note = f"Confirmed {parsed.product}. Showing relevant service modules."
     else:
         note = f"Service on port {port} (inferred {terms[0]}). Showing relevant modules."
+
+    if cve_lookup_error:
+        note = f"{note} (NVD CVE cross-check unavailable: {cve_lookup_error})"
 
     return {"query": query_label, "candidates": candidates[:8], "note": note}
 
@@ -749,6 +804,25 @@ def _check_verdict(output: str) -> str:
 
 
 @router.post("/{type}/{name:path}/check")
+def _missing_required_check_options(
+    declared_options: Any,
+    supplied_options: dict[str, Any],
+) -> list[str]:
+    """Return required module options that have neither a supplied value nor a default."""
+    if not isinstance(declared_options, dict):
+        return []
+    missing: list[str] = []
+    for option_name, definition in declared_options.items():
+        if not isinstance(definition, dict) or not definition.get("required"):
+            continue
+        supplied = supplied_options.get(option_name)
+        default = definition.get("default")
+        if supplied is None or (isinstance(supplied, str) and not supplied.strip()):
+            if default is None or (isinstance(default, str) and not default.strip()):
+                missing.append(str(option_name))
+    return sorted(missing)
+
+
 def check_module(type: str, name: str, req: ModuleCheckRequest):
     """
     Actually run Metasploit's own `check` action against a target for one
@@ -766,6 +840,24 @@ def check_module(type: str, name: str, req: ModuleCheckRequest):
     for key in req.options:
         if not _CHECK_SETTABLE_KEY_RE.fullmatch(key):
             raise HTTPException(400, f"Invalid option name: {key}")
+
+    # Preflight the module datastore before opening a console. A check run
+    # with a missing required value can return an unhelpful "unknown" verdict;
+    # surface the exact missing options instead of pretending the probe ran.
+    try:
+        declared_options = rpc.call("module.options", type, name)
+    except MsfRpcError:
+        declared_options = None
+    missing_options = _missing_required_check_options(declared_options, req.options)
+    if missing_options:
+        return {
+            "module": f"{type}/{name}",
+            "verdict": "unknown",
+            "raw_output": (
+                "Check was not run. Required module options have no supplied value "
+                f"or default: {', '.join(missing_options)}. Open the module and configure these options, then retry."
+            ),
+        }
 
     console_id: str | None = None
     try:
