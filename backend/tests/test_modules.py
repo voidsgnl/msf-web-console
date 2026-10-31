@@ -45,6 +45,7 @@ class ModuleWorkflowTests(unittest.TestCase):
                 {"id": 7},
                 {},
                 {},
+                {},
             ],
         ) as rpc_call, patch(
             "app.routes.modules._run_console_command",
