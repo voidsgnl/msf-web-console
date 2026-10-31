@@ -230,8 +230,7 @@ def _cpe_identity(criteria: str | None) -> tuple[str, str, str] | None:
 
 def _cpe_version_in_range(cpe_match: dict[str, Any], detected_version: str) -> bool | None:
     """Compare a detected version with one CPE match; None means insufficient data."""
-    target = _parse_version_tuple(detected_version)
-    if target is None:
+    if _parse_version_components(detected_version) is None:
         return None
 
     criteria = _cpe_identity(cpe_match.get("criteria"))
@@ -247,10 +246,9 @@ def _cpe_version_in_range(cpe_match: dict[str, Any], detected_version: str) -> b
         if raw_bound is None:
             continue
         has_bound = True
-        parsed_bound = _parse_version_tuple(str(raw_bound))
-        if parsed_bound is None:
+        comparison = _compare_versions(detected_version, str(raw_bound))
+        if comparison is None:
             return None
-        comparison = _compare_version_tuples(target, parsed_bound)
         if key == "version_start_including" and comparison < 0:
             return False
         if key == "version_start_excluding" and comparison <= 0:
@@ -263,14 +261,13 @@ def _cpe_version_in_range(cpe_match: dict[str, Any], detected_version: str) -> b
     if has_bound:
         return True
 
-    # When NVD supplies an exact CPE version, use it. Wildcard/ANY versions
-    # without explicit range bounds cannot establish applicability.
+    # When NVD supplies an exact CPE version, compare the complete supported
+    # upstream version rather than dropping suffixes such as OpenSSH p1/p2.
     if cpe_version not in {"*", "-", ""}:
-        exact = _parse_version_tuple(cpe_version)
-        if exact is None:
-            return None
-        return _compare_version_tuples(target, exact) == 0
+        comparison = _compare_versions(detected_version, cpe_version)
+        return None if comparison is None else comparison == 0
     return None
+
 
 
 class NvdError(Exception):
