@@ -34,6 +34,16 @@ def _connect() -> sqlite3.Connection:
     return connection
 
 
+@contextmanager
+def _connection():
+    connection = _connect()
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
+
+
 def _initialise() -> None:
     with _connection() as connection:
         connection.executescript(
@@ -91,7 +101,7 @@ def _assessment_or_404(connection: sqlite3.Connection, assessment_id: int) -> sq
 @router.get("")
 def list_assessments():
     _initialise()
-    with _connect() as connection:
+    with _connection() as connection:
         rows = connection.execute(
             """
             SELECT a.*,
