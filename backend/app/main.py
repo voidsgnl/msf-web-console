@@ -10,7 +10,7 @@ from app.security import (
     allowed_web_origins,
 )
 
-app = FastAPI(title="MSF Web Console API")
+app = FastAPI(title="Security Assessment Platform API")
 
 # Cookies are only sent to explicitly allowlisted browser origins.
 app.add_middleware(
@@ -42,7 +42,7 @@ app.include_router(console.router)
 @app.get("/")
 def root():
     return {
-        "name": "MSF Web Console API",
+        "name": "Security Assessment Platform API",
         "docs": "/docs",
         "access": "authenticated-local-only",
         "authentication_configured": True,
