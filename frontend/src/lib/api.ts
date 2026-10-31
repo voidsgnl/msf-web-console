@@ -47,11 +47,9 @@ export type SuggestedModule = {
   disclosure_date?: string | null;
   description_snippet: string;
   match_basis: string;
-  // CVE IDs this module's own metadata references that NVD also reports
-  // for the confirmed product/version - a real CVE-to-module match, not
-  // just a name match. Empty when no such overlap was found (which can
-  // mean there isn't one, or that NVD was unreachable - see the
-  // suggestion's top-level `note`).
+  // CVE IDs referenced by both this module's metadata and NVD keyword
+  // search results for the detected product query. This is corroborating
+  // reference evidence, not affected-version validation or a vuln verdict.
   cve_matches: string[];
 };
 
