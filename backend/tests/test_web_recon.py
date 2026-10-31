@@ -155,6 +155,8 @@ class ReconToolAdapterTests(unittest.TestCase):
         command = _build_tool_command("katana", "/usr/bin/katana", "https://example.test:8443/start")
         self.assertEqual(command[0], "/usr/bin/katana")
         self.assertIn("-dr", command)
+        self.assertIn("-jc", command)
+        self.assertIn("-iqp", command)
         self.assertIn("-ns", command)
         self.assertIn("-cs", command)
         scope = command[command.index("-cs") + 1]
