@@ -20,6 +20,9 @@ from typing import Any
 
 import requests
 
+from app.cpe_config import OTHER, evaluate_configurations
+from app.cpe_products import CPE_PRODUCT_IDENTITIES as _CPE_PRODUCT_IDENTITIES
+
 NVD_BASE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 CVE_ID_RE = re.compile(r"CVE-\d{4}-\d{4,7}", re.IGNORECASE)
 
@@ -73,32 +76,35 @@ def extract_cve_ids(value: Any) -> set[str]:
     return found
 
 
-_VERSION_NUMERIC_RE = re.compile(r"\d+(?:\.\d+)*")
+_VERSION_RE = re.compile(r"^\s*(\d+(?:\.\d+)*)(.*)$")
+_UPSTREAM_SUFFIX_RE = re.compile(r"^(?:p\d+|rc\d+|[a-z])$", re.IGNORECASE)
 
 
-def _parse_version_tuple(version: str | None) -> tuple[int, ...] | None:
+def _parse_version_components(version: str | None) -> tuple[tuple[int, ...], str | None] | None:
     """
-    Parse a dotted version string into a tuple of integers for ordered
-    comparison, e.g. "7.2p2" -> (7, 2), "2.4.49-7ubuntu4" -> (2, 4, 49).
+    Parse a numeric upstream version and only the suffix forms whose ordering
+    is sufficiently clear for this project.
 
-    Only the leading dotted-numeric run is used: CPE version-range bounds
-    published by NVD (versionStartIncluding etc.) are themselves plain
-    dotted-numeric strings, so a distro/vendor suffix on the *detected*
-    banner version (e.g. "p2", "-7ubuntu4") has nothing to compare against
-    and is intentionally dropped rather than guessed at. Returns None if no
-    leading numeric version could be extracted at all - callers must treat
-    None as "can't compare", never as a match.
+    OpenSSH uses p1/p2 patch suffixes (9.6p1); ProFTPD has lettered releases
+    (1.3.5e); release candidates use rcN suffixes and sort before final releases. Distro/package suffixes such as -7ubuntu4 are deliberately not
+    interpreted here: callers should normalize those in the banner parser or
+    treat them as indeterminate. Unknown suffixes must never be silently
+    discarded because doing so can turn distinct releases into a false match.
     """
     if not version:
         return None
-    match = _VERSION_NUMERIC_RE.match(version.strip())
+    match = _VERSION_RE.match(version)
     if not match:
         return None
-    return tuple(int(part) for part in match.group(0).split("."))
+    numeric = tuple(int(part) for part in match.group(1).split("."))
+    suffix = match.group(2).strip().lower() or None
+    if suffix is not None and not _UPSTREAM_SUFFIX_RE.fullmatch(suffix):
+        return None
+    return numeric, suffix
 
 
 def _compare_version_tuples(a: tuple[int, ...], b: tuple[int, ...]) -> int:
-    """Compare two version tuples, right-padding the shorter with zeros."""
+    """Compare two numeric version tuples, right-padding the shorter with zeros."""
     length = max(len(a), len(b))
     a_padded = a + (0,) * (length - len(a))
     b_padded = b + (0,) * (length - len(b))
@@ -109,59 +115,101 @@ def _compare_version_tuples(a: tuple[int, ...], b: tuple[int, ...]) -> int:
     return 0
 
 
+def _compare_versions(a: str, b: str) -> int | None:
+    """Compare supported upstream versions; None means suffix ordering is unknown."""
+    parsed_a = _parse_version_components(a)
+    parsed_b = _parse_version_components(b)
+    if parsed_a is None or parsed_b is None:
+        return None
+    core_a, suffix_a = parsed_a
+    core_b, suffix_b = parsed_b
+    core_comparison = _compare_version_tuples(core_a, core_b)
+    if core_comparison:
+        return core_comparison
+    if suffix_a == suffix_b:
+        return 0
+    # Release candidates sort before the final release; OpenSSH patch levels
+    # and lettered ProFTPD releases sort after their unsuffixed base.
+    if suffix_a is None:
+        return 1 if suffix_b.startswith("rc") else -1
+    if suffix_b is None:
+        return -1 if suffix_a.startswith("rc") else 1
+    if suffix_a.startswith("rc") and suffix_b.startswith("rc"):
+        number_a, number_b = int(suffix_a[2:]), int(suffix_b[2:])
+        return (number_a > number_b) - (number_a < number_b)
+    # OpenSSH patch-level suffixes are numeric and comparable only to each
+    # other. Single-letter release suffixes are comparable only to each other.
+    if suffix_a.startswith("p") and suffix_b.startswith("p"):
+        return (int(suffix_a[1:]) > int(suffix_b[1:])) - (int(suffix_a[1:]) < int(suffix_b[1:]))
+    if len(suffix_a) == 1 and len(suffix_b) == 1:
+        return (suffix_a > suffix_b) - (suffix_a < suffix_b)
+    return None
+
+
+def _cpe_match_record(cpe_match: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "criteria": cpe_match.get("criteria"),
+        "vulnerable": cpe_match.get("vulnerable", True),
+        "version_start_including": cpe_match.get("versionStartIncluding"),
+        "version_start_excluding": cpe_match.get("versionStartExcluding"),
+        "version_end_including": cpe_match.get("versionEndIncluding"),
+        "version_end_excluding": cpe_match.get("versionEndExcluding"),
+    }
+
+
 def _extract_configurations(cve: dict[str, Any]) -> list[dict[str, Any]]:
     """
-    Flatten NVD's nested configuration nodes while preserving every CPE
-    match. Boolean prerequisites are intentionally not evaluated here:
-    this data is used only for product/version evidence, never as a complete
-    determination that the target satisfies the CVE configuration.
+    Convert NVD's configuration tree into plain dicts. Each configuration
+    keeps a flat "cpe_matches" list (every match in the tree, for simple
+    product/version evidence) plus a structured "nodes" tree that records each
+    node's operator, negate flag, own matches and children, so that
+    app.cpe_config can evaluate the AND/OR logic.
     """
-    configurations: list[dict[str, Any]] = []
 
-    def visit_node(node: Any, matches: list[dict[str, Any]]) -> None:
+    def build_node(node: Any) -> dict[str, Any] | None:
         if not isinstance(node, dict):
-            return
-        for cpe_match in node.get("cpeMatch") or []:
-            if not isinstance(cpe_match, dict):
-                continue
-            matches.append({
-                "criteria": cpe_match.get("criteria"),
-                "vulnerable": cpe_match.get("vulnerable", True),
-                "version_start_including": cpe_match.get("versionStartIncluding"),
-                "version_start_excluding": cpe_match.get("versionStartExcluding"),
-                "version_end_including": cpe_match.get("versionEndIncluding"),
-                "version_end_excluding": cpe_match.get("versionEndExcluding"),
-            })
-        for child in node.get("children") or []:
-            visit_node(child, matches)
+            return None
+        children = [
+            child
+            for child in (build_node(raw) for raw in node.get("children") or [])
+            if child is not None
+        ]
+        return {
+            "operator": node.get("operator"),
+            "negate": bool(node.get("negate")),
+            "cpe_matches": [
+                _cpe_match_record(cpe_match)
+                for cpe_match in node.get("cpeMatch") or []
+                if isinstance(cpe_match, dict)
+            ],
+            "children": children,
+        }
 
+    def flatten(node: dict[str, Any], matches: list[dict[str, Any]]) -> None:
+        matches.extend(node["cpe_matches"])
+        for child in node["children"]:
+            flatten(child, matches)
+
+    configurations: list[dict[str, Any]] = []
     for config in cve.get("configurations") or []:
         if not isinstance(config, dict):
             continue
+        nodes = [
+            built
+            for built in (build_node(raw) for raw in config.get("nodes") or [])
+            if built is not None
+        ]
         cpe_matches: list[dict[str, Any]] = []
-        for node in config.get("nodes") or []:
-            visit_node(node, cpe_matches)
+        for built in nodes:
+            flatten(built, cpe_matches)
         if cpe_matches:
-            configurations.append({"cpe_matches": cpe_matches})
+            configurations.append({
+                "operator": config.get("operator"),
+                "negate": bool(config.get("negate")),
+                "cpe_matches": cpe_matches,
+                "nodes": nodes,
+            })
     return configurations
-
-# Explicit product-to-CPE mappings. Unknown products deliberately remain
-# indeterminate rather than being matched by loose substring heuristics.
-_CPE_PRODUCT_IDENTITIES: dict[str, set[tuple[str, str]]] = {
-    "vsftpd": {("vsftpd", "vsftpd")},
-    "openssh": {("openbsd", "openssh"), ("openssh", "openssh")},
-    "dropbear": {("dropbear", "dropbear")},
-    "proftpd": {("proftpd", "proftpd")},
-    "apachehttpd": {("apache", "http_server")},
-    "nginx": {("nginx", "nginx")},
-    "apachetomcat": {("apache", "tomcat")},
-    "samba": {("samba", "samba")},
-    "mysql": {("oracle", "mysql")},
-    "mariadb": {("mariadb", "mariadb")},
-    "postgresql": {("postgresql", "postgresql")},
-    "redis": {("redis", "redis")},
-    "microsoftiis": {("microsoft", "internet_information_server")},
-}
 
 
 def _product_key(value: str) -> str:
@@ -179,12 +227,22 @@ def _cpe_identity(criteria: str | None) -> tuple[str, str, str] | None:
 
 def _cpe_version_in_range(cpe_match: dict[str, Any], detected_version: str) -> bool | None:
     """Compare a detected version with one CPE match; None means insufficient data."""
-    target = _parse_version_tuple(detected_version)
-    if target is None:
+    if _parse_version_components(detected_version) is None:
         return None
 
-    criteria = _cpe_identity(cpe_match.get("criteria"))
+    raw_criteria = cpe_match.get("criteria")
+    criteria = _cpe_identity(raw_criteria)
     cpe_version = criteria[2] if criteria else "*"
+    if raw_criteria:
+        parts = raw_criteria.split(":")
+        # CPE 2.3 stores patch/release suffixes in the update component,
+        # not necessarily in the version component (e.g. OpenSSH 9.9:p1).
+        if len(parts) > 6 and parts[6] not in {"*", "-", ""}:
+            update = parts[6].lower()
+            if _UPSTREAM_SUFFIX_RE.fullmatch(update):
+                cpe_version = f"{cpe_version}{update}"
+            else:
+                return None
     has_bound = False
     for key in (
         "version_start_including",
@@ -196,10 +254,9 @@ def _cpe_version_in_range(cpe_match: dict[str, Any], detected_version: str) -> b
         if raw_bound is None:
             continue
         has_bound = True
-        parsed_bound = _parse_version_tuple(str(raw_bound))
-        if parsed_bound is None:
+        comparison = _compare_versions(detected_version, str(raw_bound))
+        if comparison is None:
             return None
-        comparison = _compare_version_tuples(target, parsed_bound)
         if key == "version_start_including" and comparison < 0:
             return False
         if key == "version_start_excluding" and comparison <= 0:
@@ -212,14 +269,13 @@ def _cpe_version_in_range(cpe_match: dict[str, Any], detected_version: str) -> b
     if has_bound:
         return True
 
-    # When NVD supplies an exact CPE version, use it. Wildcard/ANY versions
-    # without explicit range bounds cannot establish applicability.
+    # When NVD supplies an exact CPE version, compare the complete supported
+    # upstream version rather than dropping suffixes such as OpenSSH p1/p2.
     if cpe_version not in {"*", "-", ""}:
-        exact = _parse_version_tuple(cpe_version)
-        if exact is None:
-            return None
-        return _compare_version_tuples(target, exact) == 0
+        comparison = _compare_versions(detected_version, cpe_version)
+        return None if comparison is None else comparison == 0
     return None
+
 
 
 class NvdError(Exception):
@@ -400,61 +456,49 @@ class NvdClient:
         if record is None:
             return None
 
-        target = _parse_version_tuple(version)
-        if target is None:
+        if _parse_version_components(version) is None:
             return None
 
         configurations = record.get("configurations") or []
         checked_any_range = False
+        indeterminate_range = False
         for node in configurations:
             for cpe_match in node.get("cpe_matches", []):
                 if not cpe_match.get("vulnerable", True):
                     continue
-                start_inc = cpe_match.get("version_start_including")
-                start_exc = cpe_match.get("version_start_excluding")
-                end_inc = cpe_match.get("version_end_including")
-                end_exc = cpe_match.get("version_end_excluding")
-                if not any((start_inc, start_exc, end_inc, end_exc)):
-                    # An exact-version (unranged) CPE match. We don't parse
-                    # the version back out of the CPE criteria string here,
-                    # so this match contributes no usable range evidence.
+                has_range = any(cpe_match.get(key) is not None for key in (
+                    "version_start_including",
+                    "version_start_excluding",
+                    "version_end_including",
+                    "version_end_excluding",
+                ))
+                if not has_range:
                     continue
 
                 checked_any_range = True
-                in_range = True
-
-                if start_inc is not None:
-                    bound = _parse_version_tuple(start_inc)
-                    if bound is not None and _compare_version_tuples(target, bound) < 0:
-                        in_range = False
-                if in_range and start_exc is not None:
-                    bound = _parse_version_tuple(start_exc)
-                    if bound is not None and _compare_version_tuples(target, bound) <= 0:
-                        in_range = False
-                if in_range and end_inc is not None:
-                    bound = _parse_version_tuple(end_inc)
-                    if bound is not None and _compare_version_tuples(target, bound) > 0:
-                        in_range = False
-                if in_range and end_exc is not None:
-                    bound = _parse_version_tuple(end_exc)
-                    if bound is not None and _compare_version_tuples(target, bound) >= 0:
-                        in_range = False
-
-                if in_range:
+                in_range = _cpe_version_in_range(cpe_match, version)
+                if in_range is True:
                     return True
+                if in_range is None:
+                    indeterminate_range = True
 
-        if not checked_any_range:
+        if not checked_any_range or indeterminate_range:
             return None
         return False
 
 
     def assess_product_version(self, cve_id: str, product: str, version: str) -> str:
         """
-        Assess whether an NVD vulnerable CPE entry identifies this known
+        Assess whether an NVD CPE configuration identifies this known
         product and whether its exact version/range includes the detected
         version. This is CPE applicability evidence, not proof of a live
-        vulnerability; NVD configuration prerequisites and target state may
-        require additional verification.
+        vulnerability.
+
+        The configuration's AND/OR/negate logic is evaluated with
+        app.cpe_config. Entries for other products that NVD lists as
+        prerequisites (for example the operating system) cannot be confirmed
+        from a service banner, so an AND that depends on one stays
+        indeterminate instead of becoming "affected".
 
         Returns affected, not_affected, or indeterminate.
         """
@@ -466,30 +510,21 @@ class NvdClient:
         if record is None:
             return "indeterminate"
 
-        matched_product = False
-        saw_indeterminate_range = False
-        saw_comparable_range = False
-        for config in record.get("configurations") or []:
-            for node in config.get("cpe_matches", []):
-                if not node.get("vulnerable", True):
-                    continue
-                identity = _cpe_identity(node.get("criteria"))
-                if identity is None or (identity[0], identity[1]) not in identities:
-                    continue
-                matched_product = True
-                result = _cpe_version_in_range(node, version)
-                if result is True:
-                    return "affected"
-                if result is False:
-                    saw_comparable_range = True
-                else:
-                    saw_indeterminate_range = True
+        def leaf(cpe_match: dict[str, Any]) -> Any:
+            identity = _cpe_identity(cpe_match.get("criteria"))
+            if identity is not None and (identity[0], identity[1]) in identities:
+                return _cpe_version_in_range(cpe_match, version)
+            # Another product. If NVD flags it as the vulnerable component it
+            # is simply not our target; if it is a prerequisite (an OS, a
+            # platform) we cannot confirm it, so it stays unknown.
+            return OTHER if cpe_match.get("vulnerable", True) else None
 
-        if not matched_product:
-            return "indeterminate"
-        if saw_indeterminate_range or not saw_comparable_range:
-            return "indeterminate"
-        return "not_affected"
+        outcome = evaluate_configurations(record.get("configurations") or [], leaf)
+        if outcome is True:
+            return "affected"
+        if outcome is False:
+            return "not_affected"
+        return "indeterminate"
 
     def search_cve_ids_by_keyword(self, keyword: str, version: str | None = None) -> set[str]:
         """

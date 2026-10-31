@@ -32,7 +32,7 @@ class NvdCpeVersionAssessmentTests(unittest.TestCase):
 
     def test_detected_version_inside_matching_product_range_is_affected(self):
         record = self._record(
-            "cpe:2.3:a:vsftpd:vsftpd:*:*:*:*:*:*:*:*",
+            "cpe:2.3:a:vsftpd_project:vsftpd:*:*:*:*:*:*:*:*",
             version_start_including="2.3.0",
             version_end_excluding="2.3.5",
         )
@@ -45,7 +45,7 @@ class NvdCpeVersionAssessmentTests(unittest.TestCase):
 
     def test_detected_version_outside_matching_product_range_is_not_affected(self):
         record = self._record(
-            "cpe:2.3:a:vsftpd:vsftpd:*:*:*:*:*:*:*:*",
+            "cpe:2.3:a:vsftpd_project:vsftpd:*:*:*:*:*:*:*:*",
             version_start_including="2.3.0",
             version_end_excluding="2.3.5",
         )
@@ -68,7 +68,7 @@ class NvdCpeVersionAssessmentTests(unittest.TestCase):
             )
 
     def test_exact_cpe_version_is_compared_without_range_bounds(self):
-        record = self._record("cpe:2.3:a:vsftpd:vsftpd:2.3.4:*:*:*:*:*:*:*")
+        record = self._record("cpe:2.3:a:vsftpd_project:vsftpd:2.3.4:*:*:*:*:*:*:*")
         with patch.object(NvdClient, "get_cve", return_value=record):
             client = NvdClient()
             self.assertEqual(
@@ -88,7 +88,7 @@ class NvdCpeVersionAssessmentTests(unittest.TestCase):
                     "children": [{
                         "operator": "OR",
                         "cpeMatch": [{
-                            "criteria": "cpe:2.3:a:vsftpd:vsftpd:*:*:*:*:*:*:*:*",
+                            "criteria": "cpe:2.3:a:vsftpd_project:vsftpd:*:*:*:*:*:*:*:*",
                             "vulnerable": True,
                             "versionStartIncluding": "2.3.0",
                             "versionEndExcluding": "2.3.5",
@@ -105,7 +105,7 @@ class NvdCpeVersionAssessmentTests(unittest.TestCase):
 
     def test_unparseable_published_bound_is_indeterminate(self):
         record = self._record(
-            "cpe:2.3:a:vsftpd:vsftpd:*:*:*:*:*:*:*:*",
+            "cpe:2.3:a:vsftpd_project:vsftpd:*:*:*:*:*:*:*:*",
             version_start_including="not-a-version",
         )
         with patch.object(NvdClient, "get_cve", return_value=record):

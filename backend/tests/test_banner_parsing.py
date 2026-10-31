@@ -47,7 +47,7 @@ class ParseBannerTests(unittest.TestCase):
     def test_smb_samba_banner(self):
         result = parse_banner("scanner/smb/smb_version", "Samba 4.7.6-Ubuntu")
         self.assertEqual(result.product, "Samba")
-        self.assertEqual(result.version, "4.7.6-Ubuntu")
+        self.assertEqual(result.version, "4.7.6")
 
     def test_mysql_version_banner(self):
         result = parse_banner("scanner/mysql/mysql_version", "5.7.33-0ubuntu0.18.04.1")
