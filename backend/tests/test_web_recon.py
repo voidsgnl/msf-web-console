@@ -129,6 +129,8 @@ class ReconToolAdapterTests(unittest.TestCase):
         self.assertIn("-silent", command)
         self.assertIn("-json", command)
         self.assertIn("-cs", command)
+        self.assertIn("-duc", command)
+        self.assertEqual(command[command.index("-mr") + 1], "100")
         self.assertEqual(command[command.index("-rl") + 1], "5")
         self.assertNotIn("-active", command)
         self.assertNotIn("-recursive", command)
