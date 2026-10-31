@@ -35,6 +35,19 @@ class VersionSuffixComparisonTests(unittest.TestCase):
         self.assertTrue(_cpe_version_in_range(cpe_match, "9.9p1"))
         self.assertFalse(_cpe_version_in_range(cpe_match, "9.9p2"))
 
+    def test_release_candidates_sort_before_final_releases(self):
+        self.assertEqual(_compare_versions("4.88rc1", "4.88rc2"), -1)
+        self.assertEqual(_compare_versions("4.88rc2", "4.88"), -1)
+        self.assertEqual(_compare_versions("4.88", "4.88rc2"), 1)
+
+    def test_exact_cpe_release_candidate_update_is_compared(self):
+        cpe_match = {
+            "criteria": "cpe:2.3:a:exim:exim:4.88:rc3:*:*:*:*:*:*",
+        }
+        self.assertTrue(_cpe_version_in_range(cpe_match, "4.88rc3"))
+        self.assertFalse(_cpe_version_in_range(cpe_match, "4.88"))
+
+
     def test_unrecognized_suffix_in_range_bound_is_indeterminate(self):
         cpe_match = {
             "criteria": "cpe:2.3:a:openbsd:openssh:*:*:*:*:*:*:*:*",
