@@ -77,11 +77,11 @@ RANK_LABELS: list[tuple[int, str]] = [
 ]
 RANK_NAME_WEIGHTS = {name.lower(): weight for weight, name in RANK_LABELS}
 
-# A candidate module whose own CVE references overlap with the CVEs NVD
-# reports for the confirmed product/version is a real CVE-to-module match,
-# not a name/description guess - so it's always sorted above every rank
-# tier (Excellent tops out at 600) rather than just nudging the score.
-CVE_MATCH_WEIGHT_BONUS = 1000
+# A shared CVE reference is useful corroborating evidence, but keywordSearch
+# does not prove that the detected product version is in the CVE's affected
+# CPE/version range. Keep Metasploit's native reliability rank untouched and
+# use the overlap only as a separate relevance tie-breaker.
+
 
 
 def _rank_weight_and_label(raw_rank: Any) -> tuple[int, str]:
@@ -151,16 +151,13 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     POST /modules/{type}/{name}/check to actually verify a specific
     candidate against the target before trusting it.
 
-    When a service banner is confirmed, candidates are additionally
-    cross-referenced against the NVD: each candidate's own CVE references
-    (from module.info) are checked against the CVEs NVD reports for the
-    confirmed product/version (via NVD's keywordSearch, independent of
-    Metasploit). A `cve_matches` list on a candidate means NVD and the
-    module's own metadata agree this module targets a CVE that affects the
-    confirmed software - a materially stronger signal than a name match,
-    and these candidates are always ranked first. Candidates without a CVE
-    match may still be relevant (NVD's keyword search and a module's own
-    refs are each imperfect) - they just lack that specific confirmation.
+    When a service banner is confirmed, candidates are cross-referenced
+    against NVD keyword-search results. A `cve_matches` entry means the
+    module metadata and NVD search results share a CVE identifier. This is
+    corroborating reference evidence only: keywordSearch does not establish
+    that the detected product/version is in that CVE's affected CPE range.
+    It is not proof that the target is vulnerable and does not change
+    Metasploit's native reliability rank.
     """
     term = _extract_search_term(service_info)
     parsed = parse_service_banner(service_info, port)
@@ -346,20 +343,17 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
         description = str(info.get("description") or "").strip()
         snippet = description.split("\n", 1)[0][:220]
 
-        # A module whose own declared references include a CVE that NVD
-        # also lists for the confirmed product/version is a confirmed
-        # CVE-to-module match - the strongest signal this endpoint can
-        # produce without actually running `check` against the target.
+        # A shared identifier is a cross-reference signal, not affected-
+        # version validation. Keep it separate from Metasploit's rank.
         module_cve_ids = extract_cve_ids(info.get("references"))
         cve_matches = sorted(module_cve_ids & known_cve_ids)
 
-        # Boost weight if description mentions exact version
+        # Keep the displayed rank faithful to Metasploit's native rank.
+        # Version and CVE evidence affect relevance ordering only.
         adjusted_weight = weight
         if any(vt in description.lower() for vt in version_tokens):
-            adjusted_weight += 50
             has_version_match = True
         if cve_matches:
-            adjusted_weight += CVE_MATCH_WEIGHT_BONUS
             has_cve_match = True
         candidates.append({
             "type": match["type"],
@@ -373,17 +367,23 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
             "cve_matches": cve_matches,
         })
 
-    candidates.sort(key=lambda c: c.get("disclosure_date") or "", reverse=True)
-    candidates.sort(key=lambda c: c["rank_weight"], reverse=True)
+    candidates.sort(
+        key=lambda c: (
+            bool(c["cve_matches"]),
+            c["rank_weight"],
+            c.get("disclosure_date") or "",
+        ),
+        reverse=True,
+    )
 
     # Dynamic plain-language note describing the findings
     if has_cve_match:
         cve_note_target = f"{parsed.product} {parsed.version}" if parsed.version != "unknown" else parsed.product
         note = (
-            f"Confirmed {cve_note_target}. One or more candidates below reference a CVE that NVD also lists for "
-            f"this product/version (see each candidate's cve_matches) - a real CVE-to-module match, not just a "
-            f"name match. This still isn't proof your specific target is vulnerable; use Verify to run the "
-            f"module's own check."
+            f"Confirmed {cve_note_target}. One or more candidates share a CVE reference with NVD keyword-search "
+            f"results for this product query. This is useful cross-reference evidence, but it does not validate "
+            f"the detected version against the CVE's affected-version range and is not proof the target is "
+            f"vulnerable. Review the CVE references and use Verify where the module supports a check."
         )
     elif parsed and "openssh" in prod_lower:
         note = f"Confirmed {parsed.product} {parsed.version if parsed.version != 'unknown' else ''}. SSH services are typically tested via credential login and enumeration modules rather than direct exploits."
