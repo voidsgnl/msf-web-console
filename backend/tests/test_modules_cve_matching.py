@@ -174,7 +174,7 @@ class SuggestModulesCveMatchingTests(unittest.TestCase):
             [{"cve_id": "CVE-2011-2523", "status": "affected"}],
         )
         self.assertEqual(candidate["rank_weight"], 600)  # native Metasploit rank is preserved
-        self.assertIn("does not validate", result["note"])
+        self.assertIn("not proof the live target is vulnerable", result["note"])
 
     def test_candidate_without_overlapping_cve_is_not_flagged(self):
         module_list = {"modules": ["unix/ftp/vsftpd_234_backdoor"]}
