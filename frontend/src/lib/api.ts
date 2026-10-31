@@ -1,5 +1,17 @@
 const BASE = "/api";
 
+export type AssessmentTarget = { id: number; url: string; hostname: string; created_at: string };
+export type AssessmentSummary = {
+  id: number; name: string; description: string; status: "active" | "completed" | "archived";
+  created_at: string; updated_at: string; target_count?: number;
+};
+export type AssessmentDetail = AssessmentSummary & { targets: AssessmentTarget[] };
+export type AssessmentExecution = {
+  id: number; assessment_id: number; target_id: number; tool_id: string;
+  target_url: string; started_at: string; finished_at: string;
+  exit_code: number; output_truncated: number;
+};
+
 export type Workspace = {
   id: number;
   name: string;
@@ -121,9 +133,9 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ url, authorized }),
       }),
-    runTool: (toolId: "httpx" | "whatweb", url: string, authorized: boolean) =>
+    runTool: (assessmentId: number, toolId: "httpx" | "whatweb", url: string, authorized: boolean) =>
       request<{
-        tool_id: string; tool: string; target: string; exit_code: number;
+        execution_id: number; assessment_id: number; tool_id: string; tool: string; target: string; exit_code: number;
         timed_out: boolean; output_truncated: boolean;
         records: { url?: string; target?: string; status_code?: number; http_status?: number;
           title?: string | null; webserver?: string; content_type?: string;
@@ -131,8 +143,21 @@ export const api = {
         stderr: string; assessment: string;
       }>("/web-recon/run", {
         method: "POST",
-        body: JSON.stringify({ tool_id: toolId, url, authorized }),
+        body: JSON.stringify({ assessment_id: assessmentId, tool_id: toolId, url, authorized }),
       }),
+  },
+  assessments: {
+    list: () => request<{ assessments: AssessmentSummary[] }>("/assessments"),
+    create: (name: string) => request<AssessmentSummary>("/assessments", {
+      method: "POST", body: JSON.stringify({ name }),
+    }),
+    get: (id: number) => request<AssessmentDetail>(`/assessments/${id}`),
+    addTarget: (id: number, url: string, authorized: boolean) =>
+      request<AssessmentTarget>(`/assessments/${id}/targets`, {
+        method: "POST", body: JSON.stringify({ url, authorized }),
+      }),
+    executions: (id: number) =>
+      request<{ executions: AssessmentExecution[] }>(`/assessments/${id}/executions`),
   },
   auth: {
     session: () => request<{ configured: boolean; authenticated: boolean; username?: string | null }>("/auth/session"),
