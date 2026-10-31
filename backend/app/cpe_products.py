@@ -45,12 +45,12 @@ CPE_PRODUCT_IDENTITIES: dict[str, set[tuple[str, str]]] = {
         ("microsoft", "internet_information_server"),
         ("microsoft", "internet_information_services"),
     },
-    "werkzeug": {("palletsprojects", "werkzeug"), ("pocoo", "werkzeug")},
+    "werkzeug": {("palletsprojects", "werkzeug")},
     "gunicorn": {("gunicorn", "gunicorn")},
     # File sharing
     "samba": {("samba", "samba")},
     # Databases
-    "mysql": {("oracle", "mysql"), ("mysql", "mysql")},
+    "mysql": {("oracle", "mysql"), ("oracle", "mysql_server"), ("mysql", "mysql")},
     "mariadb": {("mariadb", "mariadb")},
     "postgresql": {("postgresql", "postgresql")},
     "postgres": {("postgresql", "postgresql")},
