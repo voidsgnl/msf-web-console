@@ -77,7 +77,7 @@ def extract_cve_ids(value: Any) -> set[str]:
 
 
 _VERSION_RE = re.compile(r"^\s*(\d+(?:\.\d+)*)(.*)$")
-_UPSTREAM_SUFFIX_RE = re.compile(r"^(?:p\d+|[a-z])$", re.IGNORECASE)
+_UPSTREAM_SUFFIX_RE = re.compile(r"^(?:p\d+|rc\d+|[a-z])$", re.IGNORECASE)
 
 
 def _parse_version_components(version: str | None) -> tuple[tuple[int, ...], str | None] | None:
@@ -128,10 +128,15 @@ def _compare_versions(a: str, b: str) -> int | None:
         return core_comparison
     if suffix_a == suffix_b:
         return 0
+    # Release candidates sort before the final release; OpenSSH patch levels
+    # and lettered ProFTPD releases sort after their unsuffixed base.
     if suffix_a is None:
-        return -1
+        return 1 if suffix_b.startswith("rc") else -1
     if suffix_b is None:
-        return 1
+        return -1 if suffix_a.startswith("rc") else 1
+    if suffix_a.startswith("rc") and suffix_b.startswith("rc"):
+        number_a, number_b = int(suffix_a[2:]), int(suffix_b[2:])
+        return (number_a > number_b) - (number_a < number_b)
     # OpenSSH patch-level suffixes are numeric and comparable only to each
     # other. Single-letter release suffixes are comparable only to each other.
     if suffix_a.startswith("p") and suffix_b.startswith("p"):
