@@ -781,7 +781,9 @@ def generate_nops(req: NopGenerateRequest):
                 pass
 
 
-_CHECK_SETTABLE_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+# Metasploit exposes namespaced framework datastore options such as
+# HTTP::Auth and TCP::max_send_size. Validate against the module's declared
+# option schema below rather than rejecting these legitimate names.
 # Order matters: "not vulnerable" also contains the substring "vulnerable",
 # so the negative pattern is always tested before the positive one.
 _CHECK_NOT_VULNERABLE_RE = re.compile(
@@ -855,17 +857,33 @@ def check_module(type: str, name: str, req: ModuleCheckRequest):
         raise HTTPException(400, f"type must be one of {sorted(EXECUTABLE_TYPES)}")
     if not _module_path_is_valid(name):
         raise HTTPException(400, "Invalid module name.")
-    for key in req.options:
-        if not _CHECK_SETTABLE_KEY_RE.fullmatch(key):
-            raise HTTPException(400, f"Invalid option name: {key}")
-
-    # Preflight the module datastore before opening a console. A check run
-    # with a missing required value can return an unhelpful "unknown" verdict;
-    # surface the exact missing options instead of pretending the probe ran.
+    # Read the module's actual datastore schema first. Metasploit option
+    # names can be namespaced (for example HTTP::Auth), so a generic
+    # alphanumeric-only validator incorrectly rejects valid framework options.
     try:
         declared_options = rpc.call("module.options", type, name)
     except MsfRpcError:
         declared_options = None
+
+    if isinstance(declared_options, dict):
+        unknown_options = sorted(set(req.options) - set(declared_options))
+        if unknown_options:
+            raise HTTPException(
+                400,
+                "Options are not declared by this module: " + ", ".join(unknown_options),
+            )
+    else:
+        # If the RPC schema is unavailable, retain a conservative syntax
+        # check. Permit one or more Ruby-style namespace separators.
+        option_name_re = re.compile(
+            r"^[A-Za-z][A-Za-z0-9_]*(?:::[A-Za-z][A-Za-z0-9_]*)*$"
+        )
+        for key in req.options:
+            if not option_name_re.fullmatch(key):
+                raise HTTPException(400, f"Invalid option name: {key}")
+
+    # A check run with a missing required value can return an unhelpful
+    # "unknown" verdict; surface exact missing options before opening a console.
     missing_options = _missing_required_check_options(declared_options, req.options)
     if missing_options:
         return {
