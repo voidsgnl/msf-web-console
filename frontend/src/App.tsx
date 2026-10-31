@@ -88,7 +88,7 @@ export default function App() {
     setVisitedViews((current) => (current.has(next) ? current : new Set(current).add(next)));
   }, []);
 
-  // Keyboard shortcuts: Ctrl/Cmd+K opens the command palette, Alt+1..7 jumps
+  // Keyboard shortcuts: Ctrl/Cmd+K opens the command palette, Alt+1..8 jumps
   // straight to a view (matches the order shown in the sidebar).
   useEffect(() => {
     if (authStatus !== "authenticated") return;
