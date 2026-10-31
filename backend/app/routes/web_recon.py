@@ -152,8 +152,8 @@ class ToolRunRequest(BaseModel):
 def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[str]:
     if tool_id == "httpx":
         return [
-            executable, "-u", target_url, "-json", "-silent", "-no-color", "-no-stdin", "-nfs",
-            "-timeout", "10", "-retries", "0", "-rstr", "1048576",
+            executable, "-json", "-silent", "-no-color", "-no-stdin", "-nfs",
+            "-timeout", "10", "-retries", "0", "-rstr", "1048576", "-u", target_url,
         ]
     if tool_id == "whatweb":
         return [
