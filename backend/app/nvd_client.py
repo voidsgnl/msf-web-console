@@ -186,7 +186,12 @@ def _cpe_version_in_range(cpe_match: dict[str, Any], detected_version: str) -> b
     criteria = _cpe_identity(cpe_match.get("criteria"))
     cpe_version = criteria[2] if criteria else "*"
     has_bound = False
-    for key, inclusive_marker, is_upper in bounds:
+    for key in (
+        "version_start_including",
+        "version_start_excluding",
+        "version_end_including",
+        "version_end_excluding",
+    ):
         raw_bound = cpe_match.get(key)
         if raw_bound is None:
             continue
