@@ -8,6 +8,7 @@ from app.routes.modules import (
     EncodeRequest,
     ExecuteRequest,
     NopGenerateRequest,
+    ModuleCheckRequest,
     encode_data,
     execute_module,
     generate_nops,
@@ -30,6 +31,55 @@ class ModuleWorkflowTests(unittest.TestCase):
         ]
         self.assertEqual(len(check_routes), 1)
         self.assertIs(check_routes[0].endpoint, check_module)
+
+    def test_check_accepts_declared_namespaced_metasploit_options(self):
+        declared = {
+            "RHOSTS": {"required": True, "default": None},
+            "HTTP::Auth": {"required": False, "default": ""},
+            "TCP::max_send_size": {"required": False, "default": 0},
+        }
+        with patch(
+            "app.routes.modules.rpc.call",
+            side_effect=[
+                declared,
+                {"id": 7},
+                {},
+                {},
+            ],
+        ) as rpc_call, patch(
+            "app.routes.modules._run_console_command",
+            side_effect=["", "", "", "CheckCode::Safe"],
+        ) as command:
+            result = check_module(
+                "exploit",
+                "linux/http/example",
+                ModuleCheckRequest(options={
+                    "RHOSTS": "192.0.2.10",
+                    "HTTP::Auth": "admin:secret",
+                    "TCP::max_send_size": 4096,
+                }),
+            )
+
+        self.assertEqual(result["verdict"], "not_vulnerable")
+        command.assert_any_call("7", "set HTTP::Auth admin:secret")
+        command.assert_any_call("7", "set TCP::max_send_size 4096")
+        rpc_call.assert_any_call("console.destroy", "7")
+
+    def test_check_rejects_options_not_in_module_schema(self):
+        with patch(
+            "app.routes.modules.rpc.call",
+            return_value={"RHOSTS": {"required": True, "default": None}},
+        ) as rpc_call:
+            with self.assertRaises(HTTPException) as raised:
+                check_module(
+                    "exploit",
+                    "linux/http/example",
+                    ModuleCheckRequest(options={"HTTP::Auth": "admin:secret"}),
+                )
+
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("not declared", raised.exception.detail)
+        rpc_call.assert_called_once_with("module.options", "exploit", "linux/http/example")
 
     def test_background_module_execution_returns_job_and_uuid(self):
         response = {"job_id": 4, "uuid": "yJWES2Y6d4MRyfFLWjqhqvon"}
