@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from app.nvd_client import NvdClient, NvdError, extract_cve_ids
+from app.nvd_client import NvdClient, NvdError, _summarize, extract_cve_ids
 from app.routes.modules import _missing_required_check_options, suggest_modules
 
 
@@ -81,22 +81,22 @@ class NvdCpeVersionAssessmentTests(unittest.TestCase):
             )
 
     def test_nested_configuration_children_are_included(self):
-        record = {
+        record = _summarize({
             "configurations": [{
                 "nodes": [{
                     "operator": "AND",
                     "children": [{
                         "operator": "OR",
-                        "cpe_matches": [{
+                        "cpeMatch": [{
                             "criteria": "cpe:2.3:a:vsftpd:vsftpd:*:*:*:*:*:*:*:*",
                             "vulnerable": True,
-                            "version_start_including": "2.3.0",
-                            "version_end_excluding": "2.3.5",
+                            "versionStartIncluding": "2.3.0",
+                            "versionEndExcluding": "2.3.5",
                         }],
                     }],
                 }],
             }],
-        }
+        })
         with patch.object(NvdClient, "get_cve", return_value=record):
             self.assertEqual(
                 NvdClient().assess_product_version("CVE-2011-2523", "vsftpd", "2.3.4"),
