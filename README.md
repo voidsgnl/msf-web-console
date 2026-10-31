@@ -26,6 +26,7 @@ typed it into `msfconsole`.
 
 **v0.1 — vertical slice.** Implemented:
 
+- Web Security workspace foundation: local reconnaissance-tool inventory (availability only) plus a bounded single-request HTTP probe that requires explicit authorization confirmation, does not follow redirects, limits response inspection to 64 KB, and reports technology hints without claiming vulnerability status
 - Live console (xterm.js) bridged to a real `msfconsole` instance, tabbed
   for multiple concurrent consoles
 - Module search/browse across exploit, auxiliary, post, payload, encoder,
@@ -158,6 +159,7 @@ backend/
     nvd_client.py      NVD CVE REST API client (CVE enrichment)
     routes/
       system.py        health/status
+      web_recon.py      local web tool inventory + bounded HTTP probe
       modules.py        search, info, execute, encode, NOP generation
       sessions.py        list, read/write, stop
       db.py               database views + workspace management + reports
