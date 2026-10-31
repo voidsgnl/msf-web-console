@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "../lib/api";
-import type { AssessmentDetail, AssessmentExecution, AssessmentExecutionDetail, AssessmentSummary } from "../lib/api";
+import type { AssessmentAsset, AssessmentDetail, AssessmentExecution, AssessmentExecutionDetail, AssessmentSummary } from "../lib/api";
 
 type Tool = { id: string; name: string; category: string; purpose: string; installed: boolean; path?: string | null };
 type Probe = {
@@ -22,6 +22,7 @@ export function WebSecurityView() {
   const [newAssessmentName,setNewAssessmentName]=useState("");
   const [assessmentError,setAssessmentError]=useState<string|null>(null);
   const [executions,setExecutions]=useState<AssessmentExecution[]>([]);
+  const [assets,setAssets]=useState<AssessmentAsset[]>([]);
   const [selectedExecution,setSelectedExecution]=useState<AssessmentExecutionDetail|null>(null);
   const [authorized,setAuthorized]=useState(false);
   const [probing,setProbing]=useState(false);
@@ -31,7 +32,7 @@ export function WebSecurityView() {
   const [toolResult,setToolResult]=useState<Awaited<ReturnType<typeof api.webRecon.runTool>>|null>(null);
   const [toolError,setToolError]=useState<string|null>(null);
   const loadTools=async()=>{setLoading(true);setError(null);try{setTools((await api.webRecon.tools()).tools);}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setLoading(false);}};
-  const loadAssessments=async(selectedId?:number)=>{try{const result=await api.assessments.list();setAssessments(result.assessments);const id=selectedId??assessmentId??result.assessments[0]?.id??null;setAssessmentId(id);if(id){const detail=await api.assessments.get(id);setAssessment(detail);setExecutions((await api.assessments.executions(id)).executions);}else{setAssessment(null);setExecutions([]);}}catch(e){setAssessmentError(e instanceof Error?e.message:String(e));}};
+  const loadAssessments=async(selectedId?:number)=>{try{const result=await api.assessments.list();setAssessments(result.assessments);const id=selectedId??assessmentId??result.assessments[0]?.id??null;setAssessmentId(id);if(id){const detail=await api.assessments.get(id);setAssessment(detail);setExecutions((await api.assessments.executions(id)).executions);setAssets((await api.assessments.assets(id)).assets);}else{setAssessment(null);setExecutions([]);setAssets([]);}}catch(e){setAssessmentError(e instanceof Error?e.message:String(e));}};
   useEffect(()=>{void loadTools();void loadAssessments();},[]);
   const loadExecution=async(executionId:number)=>{if(!assessmentId)return;try{setSelectedExecution(await api.assessments.execution(assessmentId,executionId));}catch(e){setAssessmentError(e instanceof Error?e.message:String(e));}};
   const createAssessment=async()=>{if(!newAssessmentName.trim())return;setAssessmentError(null);try{const created=await api.assessments.create(newAssessmentName.trim());setNewAssessmentName("");await loadAssessments(created.id);}catch(e){setAssessmentError(e instanceof Error?e.message:String(e));}};
