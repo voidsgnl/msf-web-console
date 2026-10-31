@@ -556,11 +556,30 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     const key = candidateKey(service, candidate);
     setVerifications((current) => ({ ...current, [key]: { status: "running" } }));
     try {
-      const options: Record<string, string> = {
-        RHOSTS: service.host,
-        RPORT: String(service.port),
-      };
-      if (service.port === 443 || service.port === 8443 || service.port === 9443 || /ssl|https/i.test(service.info)) {
+      // Build the check datastore from this module's actual option schema.
+      // Metasploit modules differ: some declare RHOST, others RHOSTS, and
+      // optional fields such as RPORT/SSL must not be sent to modules that
+      // do not support them.
+      const moduleData = await api.modules.info(candidate.type, candidate.name);
+      const declaredOptions = moduleData.options ?? {};
+      const options: Record<string, string> = {};
+      for (const [name, definition] of Object.entries<any>(declaredOptions)) {
+        if (definition.default !== undefined && definition.default !== null) {
+          options[name] = String(definition.default);
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(declaredOptions, "RHOSTS")) {
+        options.RHOSTS = service.host;
+      } else if (Object.prototype.hasOwnProperty.call(declaredOptions, "RHOST")) {
+        options.RHOST = service.host;
+      }
+      if (Object.prototype.hasOwnProperty.call(declaredOptions, "RPORT")) {
+        options.RPORT = String(service.port);
+      }
+      if (
+        Object.prototype.hasOwnProperty.call(declaredOptions, "SSL") &&
+        (service.port === 443 || service.port === 8443 || service.port === 9443 || /ssl|https/i.test(service.info))
+      ) {
         options.SSL = "true";
       }
       const result = await api.modules.checkModule(candidate.type, candidate.name, options);
