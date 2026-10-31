@@ -77,6 +77,10 @@ RANK_LABELS: list[tuple[int, str]] = [
 ]
 RANK_NAME_WEIGHTS = {name.lower(): weight for weight, name in RANK_LABELS}
 
+# A module check can legitimately take longer than a quick banner probe.
+# Keep this below the RPC client's 120-second transport timeout.
+MODULE_CHECK_TIMEOUT_SECONDS = 60.0
+
 # A shared CVE reference is useful corroborating evidence, but keywordSearch
 # does not prove that the detected product version is in the CVE's affected
 # CPE/version range. Keep Metasploit's native reliability rank untouched and
@@ -272,6 +276,10 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
 
     requested_types = [t.strip() for t in types.split(",")] if types else ["exploit", "auxiliary"]
     search_types = [t for t in requested_types if t in MODULE_TYPES] or ["exploit", "auxiliary"]
+    if cloudflare_edge:
+        # An edge-only fingerprint cannot justify an application-specific
+        # exploit. Restrict candidates to generic HTTP reconnaissance modules.
+        search_types = ["auxiliary"]
 
     raw_matches: list[dict[str, str]] = []
     try:
@@ -283,6 +291,12 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
                     raw_matches.append({"type": module_type, "name": name})
     except MsfRpcError as exc:
         raise HTTPException(502, f"Could not search modules: {exc}") from exc
+
+    if cloudflare_edge:
+        raw_matches = [
+            match for match in raw_matches
+            if re.search(r"(?:^|/)scanner/http/", match["name"], re.IGNORECASE)
+        ]
 
     if not raw_matches:
         note = (
@@ -764,7 +778,11 @@ def _run_console_command(console_id: str, command: str, timeout_seconds: float =
                 if idle_reads >= 2:
                     return output
             time.sleep(0.1)
-        raise HTTPException(504, "Metasploit console command timed out. Check the Framework console and try again.")
+        raise HTTPException(
+            504,
+            f"Metasploit console command did not finish within {timeout_seconds:g} seconds. "
+            "No vulnerability verdict was produced. Check the Framework console; the check may still be running.",
+        )
     except MsfRpcError as exc:
         raise HTTPException(502, f"Metasploit console command failed: {exc}") from exc
 
@@ -1026,7 +1044,9 @@ def check_module(type: str, name: str, req: ModuleCheckRequest):
                 continue
             _run_console_command(console_id, f"set {key} {safe_value}")
 
-        check_output = _run_console_command(console_id, "check", timeout_seconds=30.0)
+        check_output = _run_console_command(
+            console_id, "check", timeout_seconds=MODULE_CHECK_TIMEOUT_SECONDS
+        )
         failure = _check_failure_details(check_output)
         return {
             "module": f"{type}/{name}",

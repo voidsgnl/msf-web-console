@@ -8,7 +8,7 @@ import type { TargetContext } from "./ModuleBrowser";
 type Phase = "idle" | "submitting" | "running" | "completed" | "timeout" | "error";
 type ConfirmPhase = "idle" | "running" | "done";
 type SuggestionStatus = "idle" | "loading" | "done" | "error";
-type VerifyStatus = "idle" | "running" | "done" | "error";
+type VerifyStatus = "idle" | "running" | "done" | "error" | "timeout";
 
 type DiscoveredService = {
   host: string;
@@ -207,6 +207,7 @@ function rankBadgeStyle(rankWeight: number): string {
 function verdictBadge(state: VerifyState | undefined): { label: string; style: string } | null {
   if (!state || state.status === "idle") return null;
   if (state.status === "running") return { label: "Checking…", style: "border-border text-gray-400" };
+  if (state.status === "timeout") return { label: "Check timed out", style: "border-warning/30 bg-warning/5 text-warning" };
   if (state.status === "error") return { label: "Check failed", style: "border-danger/30 bg-danger/5 text-danger" };
   if (state.failureKind === "tls_failure") return { label: "TLS negotiation failed", style: "border-warning/30 bg-warning/5 text-warning" };
   if (state.failureKind === "connection_failure") return { label: "Connection failed", style: "border-warning/30 bg-warning/5 text-warning" };
@@ -653,9 +654,17 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
       }));
     } catch (e: unknown) {
       if (!mounted.current) return;
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      const timedOut = /\b504\b|timed?\s*out|timeout/i.test(errorMessage);
       setVerifications((current) => ({
         ...current,
-        [key]: { status: "error", error: e instanceof Error ? e.message : String(e) },
+        [key]: timedOut
+          ? {
+              status: "timeout",
+              error: errorMessage,
+              failureMessage: "Metasploit did not finish the check before the timeout. This is inconclusive, not a safe or vulnerable result. Check the Framework console before retrying.",
+            }
+          : { status: "error", error: errorMessage },
       }));
     }
   };
@@ -933,6 +942,11 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                                         <pre className="mt-1.5 max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded bg-bg-secondary/60 p-1.5 text-[10px] text-gray-400 font-mono">
                                           {verifyState.rawOutput}
                                         </pre>
+                                      )}
+                                      {verifyState?.status === "timeout" && (
+                                        <p className="text-[10px] text-warning mt-1">
+                                          {verifyState.failureMessage} {verifyState.error}
+                                        </p>
                                       )}
                                       {verifyState?.status === "error" && (
                                         <p className="text-[10px] text-danger mt-1">{verifyState.error}</p>

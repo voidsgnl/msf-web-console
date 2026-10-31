@@ -81,7 +81,7 @@ class ScanDetectionRegressionTests(unittest.TestCase):
         with patch(
             "app.routes.modules.rpc.call",
             side_effect=[
-                {"modules": ["scanner/http/http_version", "scanner/http/apache_userdir_enum"]},
+                {"modules": ["scanner/http/http_version", "scanner/http/apache_userdir_enum", "auxiliary/admin/http/accellion_fta_getstatus_oauth"]},
                 {"rank": 300, "description": "HTTP service fingerprint"},
                 {"rank": 200, "description": "Apache user directory enumeration"},
             ],
@@ -91,13 +91,18 @@ class ScanDetectionRegressionTests(unittest.TestCase):
         self.assertEqual(result["query"], "http")
         self.assertEqual(result["service_assessment"]["edge_provider"], "cloudflare")
         self.assertEqual(result["service_assessment"]["http_status"], 403)
-        self.assertTrue(result["candidates"])
+        self.assertEqual(
+            [item["name"] for item in result["candidates"]],
+            ["scanner/http/http_version", "scanner/http/apache_userdir_enum"],
+        )
+        self.assertTrue(all(item["type"] == "auxiliary" for item in result["candidates"]))
         self.assertIn("Cloudflare", result["note"])
         self.assertNotIn(
             "cloudflare",
             [call.args[-1].lower() for call in rpc_call.call_args_list
              if len(call.args) > 1 and call.args[0] == "module.info"],
         )
+        self.assertFalse(any(call.args[0] == "module.exploits" for call in rpc_call.call_args_list))
 
     def test_apache_coyote_suggestions_search_tomcat_not_apache_projects(self):
         from unittest.mock import patch
