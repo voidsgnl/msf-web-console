@@ -804,6 +804,25 @@ def _check_verdict(output: str) -> str:
 
 
 @router.post("/{type}/{name:path}/check")
+def _missing_required_check_options(
+    declared_options: Any,
+    supplied_options: dict[str, Any],
+) -> list[str]:
+    """Return required module options that have neither a supplied value nor a default."""
+    if not isinstance(declared_options, dict):
+        return []
+    missing: list[str] = []
+    for option_name, definition in declared_options.items():
+        if not isinstance(definition, dict) or not definition.get("required"):
+            continue
+        supplied = supplied_options.get(option_name)
+        default = definition.get("default")
+        if supplied is None or (isinstance(supplied, str) and not supplied.strip()):
+            if default is None or (isinstance(default, str) and not default.strip()):
+                missing.append(str(option_name))
+    return sorted(missing)
+
+
 def check_module(type: str, name: str, req: ModuleCheckRequest):
     """
     Actually run Metasploit's own `check` action against a target for one
@@ -821,6 +840,24 @@ def check_module(type: str, name: str, req: ModuleCheckRequest):
     for key in req.options:
         if not _CHECK_SETTABLE_KEY_RE.fullmatch(key):
             raise HTTPException(400, f"Invalid option name: {key}")
+
+    # Preflight the module datastore before opening a console. A check run
+    # with a missing required value can return an unhelpful "unknown" verdict;
+    # surface the exact missing options instead of pretending the probe ran.
+    try:
+        declared_options = rpc.call("module.options", type, name)
+    except MsfRpcError:
+        declared_options = None
+    missing_options = _missing_required_check_options(declared_options, req.options)
+    if missing_options:
+        return {
+            "module": f"{type}/{name}",
+            "verdict": "unknown",
+            "raw_output": (
+                "Check was not run. Required module options have no supplied value "
+                f"or default: {', '.join(missing_options)}. Open the module and configure these options, then retry."
+            ),
+        }
 
     console_id: str | None = None
     try:
