@@ -158,7 +158,7 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[
     if tool_id == "whatweb":
         return [
             executable, "--log-json=/dev/stdout", "--quiet", "--no-errors", "--color=never",
-            "--max-threads=1", "--max-redirects=0", "--wait=1", "--open-timeout=5", "--read-timeout=10", target_url,
+            "--max-threads=1", "--follow-redirect=never", "--max-redirects=0", "--wait=1", "--open-timeout=5", "--read-timeout=10", target_url,
         ]
     raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
 
