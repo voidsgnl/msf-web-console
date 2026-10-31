@@ -399,10 +399,9 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     if has_cve_match:
         cve_note_target = f"{parsed.product} {parsed.version}" if parsed.version != "unknown" else parsed.product
         note = (
-            f"Confirmed {cve_note_target}. One or more candidates share a CVE reference with NVD keyword-search "
-            f"results for this product query. This is useful cross-reference evidence, but it does not validate "
-            f"the detected version against the CVE's affected-version range and is not proof the target is "
-            f"vulnerable. Review the CVE references and use Verify where the module supports a check."
+            f"Confirmed {cve_note_target}. Shared CVE references are checked against NVD's vulnerable CPE "
+            f"product/version entries where the product can be mapped. An 'affected' result is version-range "
+            f"evidence, not proof the live target is vulnerable; use Verify where the module supports a check."
         )
     elif parsed and "openssh" in prod_lower:
         note = f"Confirmed {parsed.product} {parsed.version if parsed.version != 'unknown' else ''}. SSH services are typically tested via credential login and enumeration modules rather than direct exploits."
