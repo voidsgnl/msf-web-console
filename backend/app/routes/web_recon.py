@@ -158,7 +158,7 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[
         hostname = (urlsplit(target_url).hostname or "").lower()
         if not hostname:
             raise HTTPException(400, "A valid approved hostname is required for passive subdomain discovery.")
-        return [executable, "-d", hostname, "-silent", "-json", "-timeout", "10", "-max-time", "2", "-rl", "5"]
+        return [executable, "-d", hostname, "-silent", "-json", "-cs", "-timeout", "10", "-max-time", "2", "-rl", "5"]
     raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
 
 
