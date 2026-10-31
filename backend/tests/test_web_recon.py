@@ -66,7 +66,7 @@ class ReconToolAdapterTests(unittest.TestCase):
     def test_whatweb_command_uses_json_output(self):
         command = _build_tool_command("whatweb", "/usr/bin/whatweb", "https://example.test")
         self.assertEqual(command[0], "/usr/bin/whatweb")
-        self.assertIn("--log-json=-", command)
+        self.assertIn("--log-json=/dev/stdout", command)
         self.assertEqual(command[-1], "https://example.test")
 
     def test_parser_normalises_httpx_json(self):
@@ -79,6 +79,10 @@ class ReconToolAdapterTests(unittest.TestCase):
         self.assertEqual(records[0]["http_status"], 200)
         self.assertIn("Apache", records[0]["technologies"])
 
+    def test_whatweb_parser_accepts_json_array_output(self):
+        records = _parse_tool_output("whatweb", '[{"target":"https://example.test","http_status":200,"plugins":{"title":{"string":["Example"]},"Apache":{}}}]')
+        self.assertEqual(records[0]["title"], "Example")
+        self.assertIn("Apache", records[0]["technologies"])
     def test_parser_keeps_unstructured_output_as_evidence(self):
         self.assertEqual(_parse_tool_output("whatweb", "not-json"), [{"raw": "not-json"}])
 
