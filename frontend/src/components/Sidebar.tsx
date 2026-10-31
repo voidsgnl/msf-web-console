@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 
-export type View = "console" | "scan" | "web-security" | "recipes" | "modules" | "sessions" | "hosts" | "jobs";
+export type View = "console" | "web-security" | "recipes" | "modules" | "sessions" | "hosts" | "jobs";
 
 export type NavItem = {
   id: View;
@@ -40,19 +40,6 @@ export const NAV: NavItem[] = [
       <Icon>
         <polyline points="4 17 10 11 4 5" />
         <line x1="12" y1="19" x2="20" y2="19" />
-      </Icon>
-    ),
-  },
-  {
-    id: "scan",
-    label: "Scan",
-    description: "Discover hosts and services",
-    group: "Operate",
-    icon: (
-      <Icon>
-        <circle cx="12" cy="12" r="9" />
-        <circle cx="12" cy="12" r="5" />
-        <circle cx="12" cy="12" r="1" />
       </Icon>
     ),
   },
