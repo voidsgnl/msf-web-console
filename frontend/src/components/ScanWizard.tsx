@@ -45,7 +45,12 @@ function hostnameFromTarget(rawTarget: string): string | null {
   const value = rawTarget.trim();
   // A single hostname is useful for HTTP Host / TLS SNI. Never derive one
   // from an IP, CIDR, range, or multi-target input.
-  if (!value || /[,\s]/.test(value) || value.includes("/") || value.includes("-")) return null;
+  if (
+    !value ||
+    /[,\s]/.test(value) ||
+    value.includes("/") ||
+    /^\d{1,3}(?:\.\d{1,3}){3}-\d{1,3}(?:\.\d{1,3}){3}$/.test(value)
+  ) return null;
   try {
     const parsed = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`);
     const hostname = parsed.hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "");
