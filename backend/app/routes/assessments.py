@@ -151,7 +151,7 @@ def create_assessment(request: AssessmentCreate):
 @router.get("/{assessment_id}")
 def get_assessment(assessment_id: int):
     _initialise()
-    with _connect() as connection:
+    with _connection() as connection:
         assessment = _assessment_or_404(connection, assessment_id)
         targets = connection.execute(
             "SELECT id, url, hostname, created_at FROM assessment_targets WHERE assessment_id = ? ORDER BY id",
@@ -163,7 +163,7 @@ def get_assessment(assessment_id: int):
 @router.patch("/{assessment_id}")
 def update_assessment_status(assessment_id: int, request: AssessmentStatusUpdate):
     _initialise()
-    with _connect() as connection:
+    with _connection() as connection:
         _assessment_or_404(connection, assessment_id)
         connection.execute(
             "UPDATE assessments SET status = ?, updated_at = ? WHERE id = ?",
@@ -184,7 +184,7 @@ def add_assessment_target(assessment_id: int, request: TargetCreate):
     parsed = urlsplit(target_url)
     hostname = (parsed.hostname or "").lower()
     _initialise()
-    with _connect() as connection:
+    with _connection() as connection:
         assessment = _assessment_or_404(connection, assessment_id)
         if assessment["status"] != "active":
             raise HTTPException(409, "Targets can only be added to an active assessment.")
@@ -209,7 +209,7 @@ def add_assessment_target(assessment_id: int, request: TargetCreate):
 @router.delete("/{assessment_id}/targets/{target_id}", status_code=204)
 def remove_assessment_target(assessment_id: int, target_id: int):
     _initialise()
-    with _connect() as connection:
+    with _connection() as connection:
         _assessment_or_404(connection, assessment_id)
         cursor = connection.execute(
             "DELETE FROM assessment_targets WHERE id = ? AND assessment_id = ?",
@@ -230,7 +230,7 @@ def assert_target_in_scope(assessment_id: int, target_url: str) -> dict:
     hostname = (parsed.hostname or "").lower()
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     origin = (parsed.scheme.lower(), hostname, port)
-    with _connect() as connection:
+    with _connection() as connection:
         assessment = _assessment_or_404(connection, assessment_id)
         if assessment["status"] != "active":
             raise HTTPException(409, "The assessment is not active.")
