@@ -794,9 +794,9 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                                                     : "Version applicability unknown";
                                               const assessmentStyle =
                                                 assessment === "affected"
-                                                  ? "text-warning border-warning/30"
+                                                  ? "text-amber-300 border-amber-500/30"
                                                   : assessment === "not_affected"
-                                                    ? "text-success border-success/30"
+                                                    ? "text-emerald-300 border-emerald-500/30"
                                                     : "text-gray-400 border-gray-600/40";
                                               return (
                                                 <span key={cveId} className="inline-flex items-center gap-1.5 rounded border border-sky-500/20 px-1.5 py-0.5">
