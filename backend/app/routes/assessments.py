@@ -83,6 +83,20 @@ def _initialise() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_tool_executions_assessment
                 ON tool_executions(assessment_id, id DESC);
+            CREATE TABLE IF NOT EXISTS assessment_assets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                assessment_id INTEGER NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+                asset_type TEXT NOT NULL CHECK (asset_type IN ('url', 'host')),
+                value TEXT NOT NULL,
+                hostname TEXT NOT NULL,
+                scope_state TEXT NOT NULL CHECK (scope_state IN ('in_scope', 'out_of_scope')),
+                source_tool TEXT NOT NULL,
+                first_seen TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                UNIQUE (assessment_id, asset_type, value)
+            );
+            CREATE INDEX IF NOT EXISTS idx_assessment_assets_assessment
+                ON assessment_assets(assessment_id, scope_state, asset_type);
             """
         )
 
@@ -247,6 +261,89 @@ def assert_target_in_scope(assessment_id: int, target_url: str) -> dict:
 
 
 
+def _approved_origins(connection: sqlite3.Connection, assessment_id: int) -> set[tuple[str, str, int]]:
+    rows = connection.execute(
+        "SELECT url FROM assessment_targets WHERE assessment_id = ?", (assessment_id,)
+    ).fetchall()
+    origins = set()
+    for row in rows:
+        parsed = urlsplit(row["url"])
+        origins.add((
+            parsed.scheme.lower(),
+            (parsed.hostname or "").lower(),
+            parsed.port or (443 if parsed.scheme.lower() == "https" else 80),
+        ))
+    return origins
+
+
+def _asset_url(raw: str) -> tuple[str, str] | None:
+    try:
+        normalized = _normalise_url(raw)
+        parsed = urlsplit(normalized)
+        hostname = (parsed.hostname or "").lower()
+        if not hostname:
+            return None
+        return normalized.rstrip("/"), hostname
+    except (HTTPException, ValueError):
+        return None
+
+
+def _store_discovered_assets(
+    connection: sqlite3.Connection,
+    assessment_id: int,
+    tool_id: str,
+    target_url: str,
+    records: list[dict],
+    seen_at: str,
+) -> None:
+    origins = _approved_origins(connection, assessment_id)
+    candidates: set[tuple[str, str, str]] = set()
+
+    target = _asset_url(target_url)
+    if target:
+        candidates.add(("url", target[0], target[1]))
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        for key in ("url", "target", "final_url"):
+            value = record.get(key)
+            if isinstance(value, str) and value:
+                candidate = _asset_url(value)
+                if candidate:
+                    candidates.add(("url", candidate[0], candidate[1]))
+        host_value = record.get("host")
+        if isinstance(host_value, str) and host_value.strip():
+            host = host_value.strip().lower().rstrip(".")
+            if "://" in host_value or "/" in host_value:
+                parsed_candidate = _asset_url(host_value)
+                host = parsed_candidate[1] if parsed_candidate else ""
+            if host and len(host) <= 253 and not any(ch.isspace() for ch in host):
+                candidates.add(("host", host, host))
+
+    approved_hosts = {host for _, host, _ in origins}
+    for asset_type, value, hostname in candidates:
+        if asset_type == "url":
+            parsed = urlsplit(value)
+            port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+            state = "in_scope" if (parsed.scheme.lower(), hostname, port) in origins else "out_of_scope"
+        else:
+            state = "in_scope" if hostname in approved_hosts else "out_of_scope"
+        connection.execute(
+            """
+            INSERT INTO assessment_assets
+                (assessment_id, asset_type, value, hostname, scope_state,
+                 source_tool, first_seen, last_seen)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(assessment_id, asset_type, value) DO UPDATE SET
+                last_seen = excluded.last_seen,
+                source_tool = excluded.source_tool,
+                scope_state = excluded.scope_state
+            """,
+            (assessment_id, asset_type, value, hostname, state, tool_id, seen_at, seen_at),
+        )
+
+
 def record_tool_execution(
     scope: dict,
     tool_id: str,
@@ -260,6 +357,9 @@ def record_tool_execution(
 ) -> dict:
     _initialise()
     with _connection() as connection:
+        _store_discovered_assets(
+            connection, scope["assessment_id"], tool_id, target_url, records, finished_at
+        )
         cursor = connection.execute(
             """
             INSERT INTO tool_executions
@@ -282,6 +382,34 @@ def record_tool_execution(
             (cursor.lastrowid,),
         ).fetchone()
     return dict(row)
+
+
+
+@router.get("/{assessment_id}/assets")
+def list_assessment_assets(assessment_id: int):
+    _initialise()
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        rows = connection.execute(
+            """
+            SELECT id, assessment_id, asset_type, value, hostname, scope_state,
+                   source_tool, first_seen, last_seen
+            FROM assessment_assets
+            WHERE assessment_id = ?
+            ORDER BY CASE scope_state WHEN 'in_scope' THEN 0 ELSE 1 END,
+                     asset_type, value
+            """,
+            (assessment_id,),
+        ).fetchall()
+    assets = [dict(row) for row in rows]
+    return {
+        "assets": assets,
+        "counts": {
+            "total": len(assets),
+            "in_scope": sum(item["scope_state"] == "in_scope" for item in assets),
+            "out_of_scope": sum(item["scope_state"] == "out_of_scope" for item in assets),
+        },
+    }
 
 
 @router.get("/{assessment_id}/executions")
