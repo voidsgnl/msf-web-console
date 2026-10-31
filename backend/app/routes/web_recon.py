@@ -147,7 +147,7 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[
         ]
     if tool_id == "whatweb":
         return [
-            executable, "--log-json=-", "--no-errors", "--color=never",
+            executable, "--log-json=/dev/stdout", "--quiet", "--no-errors", "--color=never",
             "--max-threads=1", "--wait=1", target_url,
         ]
     raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
@@ -156,38 +156,35 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[
 def _parse_tool_output(tool_id: str, output: str) -> list[dict]:
     import json
 
+    def normalise(item: object) -> dict:
+        if tool_id == "httpx" and isinstance(item, dict):
+            return {"url": item.get("url"), "status_code": item.get("status_code"), "title": item.get("title"), "webserver": item.get("webserver"), "content_type": item.get("content_type"), "technologies": item.get("tech") if isinstance(item.get("tech"), list) else [], "host": item.get("host"), "raw": None}
+        if tool_id == "whatweb" and isinstance(item, dict):
+            plugins = item.get("plugins") if isinstance(item.get("plugins"), dict) else {}
+            title_plugin = plugins.get("title", {})
+            title_values = title_plugin.get("string") if isinstance(title_plugin, dict) else None
+            title = title_values[0] if isinstance(title_values, list) and title_values else (title_values if isinstance(title_values, str) else None)
+            return {"target": item.get("target"), "http_status": item.get("http_status"), "title": title, "technologies": sorted(plugins.keys()), "raw": None}
+        return {"raw": str(item)[:4000]}
+
+    # WhatWeb writes one JSON array; httpx emits newline-delimited JSON.
+    try:
+        document = json.loads(output)
+        if isinstance(document, list):
+            return [normalise(item) for item in document]
+        if isinstance(document, dict) and tool_id == "whatweb":
+            return [normalise(document)]
+    except (TypeError, ValueError):
+        pass
+
     records: list[dict] = []
     for line in output.splitlines():
         line = line.strip()
         if not line:
             continue
         try:
-            item = json.loads(line)
+            records.append(normalise(json.loads(line)))
         except (TypeError, ValueError):
-            # Keep non-JSON output as bounded evidence; do not invent fields.
-            records.append({"raw": line[:4000]})
-            continue
-        if tool_id == "httpx" and isinstance(item, dict):
-            records.append({
-                "url": item.get("url"),
-                "status_code": item.get("status_code"),
-                "title": item.get("title"),
-                "webserver": item.get("webserver"),
-                "content_type": item.get("content_type"),
-                "technologies": item.get("tech") if isinstance(item.get("tech"), list) else [],
-                "host": item.get("host"),
-                "raw": None,
-            })
-        elif tool_id == "whatweb" and isinstance(item, dict):
-            plugins = item.get("plugins") if isinstance(item.get("plugins"), dict) else {}
-            records.append({
-                "target": item.get("target"),
-                "http_status": item.get("http_status"),
-                "title": plugins.get("title", {}).get("string") if isinstance(plugins.get("title"), dict) else None,
-                "technologies": sorted(plugins.keys()),
-                "raw": None,
-            })
-        else:
             records.append({"raw": line[:4000]})
     return records
 
