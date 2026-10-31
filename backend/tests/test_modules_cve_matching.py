@@ -2,7 +2,33 @@ import unittest
 from unittest.mock import patch
 
 from app.nvd_client import NvdError
-from app.routes.modules import suggest_modules
+from app.routes.modules import _missing_required_check_options, suggest_modules
+
+
+class ModuleCheckOptionPreflightTests(unittest.TestCase):
+    def test_required_option_with_default_does_not_block_check(self):
+        declared = {
+            "RHOSTS": {"required": True, "default": None},
+            "TARGETURI": {"required": True, "default": "/"},
+        }
+        self.assertEqual(
+            _missing_required_check_options(declared, {"RHOSTS": "192.0.2.10"}),
+            [],
+        )
+
+    def test_required_option_without_value_or_default_is_reported(self):
+        declared = {
+            "RHOSTS": {"required": True, "default": None},
+            "TARGETURI": {"required": True, "default": None},
+            "SSL": {"required": False, "default": False},
+        }
+        self.assertEqual(
+            _missing_required_check_options(declared, {"RHOSTS": "192.0.2.10"}),
+            ["TARGETURI"],
+        )
+
+    def test_unavailable_option_metadata_does_not_block_check(self):
+        self.assertEqual(_missing_required_check_options(None, {}), [])
 
 
 class SuggestModulesCveMatchingTests(unittest.TestCase):
