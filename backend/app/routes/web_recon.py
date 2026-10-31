@@ -1,7 +1,7 @@
 import re
 import shutil
 from datetime import datetime, timezone
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit
 
 import requests
 from fastapi import APIRouter, HTTPException
@@ -279,8 +279,6 @@ def _resolve_same_origin_redirects(target_url: str, max_redirects: int = 5) -> t
                     if response.status_code not in redirect_statuses or not location:
                         return current_url, chain, None
                     destination = urljoin(current_url, location)
-                    parts = urlsplit(destination)
-                    destination = urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, ""))
                     try:
                         destination = _normalise_url(destination)
                     except HTTPException:
