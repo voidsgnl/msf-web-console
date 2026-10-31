@@ -347,6 +347,24 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
         # version validation. Keep it separate from Metasploit's rank.
         module_cve_ids = extract_cve_ids(info.get("references"))
         cve_matches = sorted(module_cve_ids & known_cve_ids)
+        cve_version_assessments: list[dict[str, str]] = []
+        if cve_matches and parsed and parsed.version and parsed.version.lower() != "unknown":
+            for cve_id in cve_matches:
+                try:
+                    assessment = nvd_client.assess_product_version(
+                        cve_id, parsed.product, parsed.version
+                    )
+                except NvdError:
+                    assessment = "indeterminate"
+                cve_version_assessments.append({
+                    "cve_id": cve_id,
+                    "status": assessment,
+                })
+        else:
+            cve_version_assessments = [
+                {"cve_id": cve_id, "status": "indeterminate"}
+                for cve_id in cve_matches
+            ]
 
         # Keep the displayed rank faithful to Metasploit's native rank.
         # Version and CVE evidence affect relevance ordering only.
@@ -365,6 +383,7 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
             "description_snippet": snippet,
             "match_basis": match_basis,
             "cve_matches": cve_matches,
+            "cve_version_assessments": cve_version_assessments,
         })
 
     candidates.sort(
