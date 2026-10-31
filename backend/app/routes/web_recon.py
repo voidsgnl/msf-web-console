@@ -1,7 +1,7 @@
 import re
 import shutil
 from datetime import datetime, timezone
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import requests
 from fastapi import APIRouter, HTTPException
@@ -176,7 +176,10 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[
             executable, "-u", target_url, "-silent", "-nc", "-j", "-duc",
             "-d", "2", "-jc", "-iqp", "-mdp", "100", "-ct", "90s", "-mrs", "1048576",
             "-timeout", "8", "-retry", "0", "-rl", "2", "-c", "1", "-p", "1",
-            "-dr", "-ns", "-cs", scope_pattern,
+            # Keep crawler redirects disabled. The adapter resolves only same-origin
+            # redirects from the explicitly approved entry URL before starting Katana.
+            # Do not use -ns: it disables Katana's default host scope.
+            "-dr", "-cs", scope_pattern,
         ]
     raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
 
@@ -204,13 +207,20 @@ def _parse_tool_output(tool_id: str, output: str) -> list[dict]:
             request = item.get("request") if isinstance(item.get("request"), dict) else {}
             response = item.get("response") if isinstance(item.get("response"), dict) else {}
             endpoint = item.get("endpoint") or item.get("url") or request.get("endpoint") or request.get("url")
+            response_headers = response.get("headers") if isinstance(response.get("headers"), dict) else {}
+            location = next(
+                (value for key, value in response_headers.items() if str(key).lower().replace("-", "_") == "location"),
+                None,
+            )
+            status_code = response.get("status_code", item.get("status_code"))
             return {
                 "url": endpoint if isinstance(endpoint, str) else None,
                 "method": str(request.get("method") or item.get("method") or "GET")[:12],
-                "status_code": response.get("status_code", item.get("status_code")),
-                "source": str(item.get("source") or "")[:500],
-                "tag": str(item.get("tag") or "")[:100],
-                "attribute": str(item.get("attribute") or "")[:100],
+                "status_code": status_code,
+                "redirect_location": str(location)[:2048] if isinstance(location, str) else None,
+                "source": str(request.get("source") or item.get("source") or "")[:500],
+                "tag": str(request.get("tag") or item.get("tag") or "")[:100],
+                "attribute": str(request.get("attribute") or item.get("attribute") or "")[:100],
                 "raw": None,
             }
         return {"raw": str(item)[:4000]}
@@ -235,6 +245,70 @@ def _parse_tool_output(tool_id: str, output: str) -> list[dict]:
         except (TypeError, ValueError):
             records.append({"raw": line[:4000]})
     return records
+
+
+def _origin_key(url: str) -> tuple[str, str, int]:
+    parsed = urlsplit(url)
+    scheme = parsed.scheme.lower()
+    return (
+        scheme,
+        (parsed.hostname or "").lower(),
+        parsed.port or (443 if scheme == "https" else 80),
+    )
+
+
+def _resolve_same_origin_redirects(target_url: str, max_redirects: int = 5) -> tuple[str, list[dict], dict | None]:
+    """Resolve only entry-point redirects that remain on the approved origin."""
+    session = requests.Session()
+    session.trust_env = False
+    current_url = target_url
+    chain: list[dict] = []
+    redirect_statuses = {301, 302, 303, 307, 308}
+    try:
+        for _ in range(max_redirects + 1):
+            try:
+                with session.get(
+                    current_url,
+                    headers={"User-Agent": "MSF-Web-Console-Recon/0.1", "Accept": "*/*"},
+                    timeout=(3.0, 8.0),
+                    allow_redirects=False,
+                    stream=True,
+                    verify=True,
+                ) as response:
+                    location = response.headers.get("Location")
+                    if response.status_code not in redirect_statuses or not location:
+                        return current_url, chain, None
+                    destination = urljoin(current_url, location)
+                    parts = urlsplit(destination)
+                    destination = urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, ""))
+                    try:
+                        destination = _normalise_url(destination)
+                    except HTTPException:
+                        blocked = {
+                            "from": current_url, "status_code": response.status_code,
+                            "location": str(location)[:2048], "followed": False,
+                            "reason": "Redirect destination is not a valid HTTP(S) URL.",
+                        }
+                        return current_url, chain + [blocked], blocked
+                    redirect = {
+                        "from": current_url, "status_code": response.status_code,
+                        "to": destination, "followed": False,
+                    }
+                    if _origin_key(destination) != _origin_key(target_url):
+                        redirect["reason"] = "Destination is outside the approved scheme/host/port."
+                        return current_url, chain + [redirect], redirect
+                    redirect["followed"] = True
+                    chain.append(redirect)
+                    current_url = destination
+            except requests.exceptions.RequestException as exc:
+                return current_url, chain, {
+                    "error": f"Redirect preflight could not complete: {type(exc).__name__}.",
+                }
+        return current_url, chain, {
+            "error": f"Stopped after the maximum of {max_redirects} same-origin redirects.",
+        }
+    finally:
+        session.close()
 
 
 def _filter_katana_records(records: list[dict], target_url: str) -> list[dict]:
@@ -287,7 +361,12 @@ def run_recon_tool(req: ToolRunRequest):
     executable = shutil.which(req.tool_id)
     if not executable:
         raise HTTPException(409, f"{config['name']} is not installed or is not available on the backend PATH.")
-    command = _build_tool_command(req.tool_id, executable, target_url)
+    crawl_target = target_url
+    redirect_chain: list[dict] = []
+    redirect_note: dict | None = None
+    if req.tool_id == "katana":
+        crawl_target, redirect_chain, redirect_note = _resolve_same_origin_redirects(target_url)
+    command = _build_tool_command(req.tool_id, executable, crawl_target)
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     try:
         with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as stdout_file, tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as stderr_file:
@@ -331,6 +410,8 @@ def run_recon_tool(req: ToolRunRequest):
     records = _parse_tool_output(req.tool_id, stdout)
     if req.tool_id == "katana":
         records = _filter_katana_records(records, target_url)
+        if redirect_chain:
+            records.append({"kind": "redirect_chain", "redirects": redirect_chain})
     execution = record_tool_execution(
         scope, req.tool_id, target_url, started_at, finished_at,
         completed.returncode, output_size > config["max_output"], records, stderr,
@@ -346,6 +427,7 @@ def run_recon_tool(req: ToolRunRequest):
         "timed_out": False,
         "output_truncated": output_size > config["max_output"],
         "records": records,
+        "redirect_chain": redirect_chain if req.tool_id == "katana" else [],
         "stderr": stderr,
         "assessment": (
             "Subfinder uses passive data sources only. Discovered hostnames are inventory leads, "
@@ -353,8 +435,10 @@ def run_recon_tool(req: ToolRunRequest):
             if req.tool_id == "subfinder"
             else (
                 "Katana used a shallow, time- and page-bounded crawl restricted to the approved "
-                "scheme/host/port. Redirects were disabled; only same-origin endpoints are retained. "
-                "Discovered URLs do not expand approved scope."
+                "scheme/host/port. The entry URL was preflighted and only same-origin redirects "
+                "were followed; crawler-discovered page redirects remain disabled. Cross-origin "
+                "redirects are not followed, and discovered URLs do not expand approved scope."
+                + (f" Redirect note: {redirect_note.get('reason') or redirect_note.get('error')}" if redirect_note else "")
                 if req.tool_id == "katana"
                 else "Tool output is reconnaissance evidence, not a confirmed vulnerability verdict."
             )
