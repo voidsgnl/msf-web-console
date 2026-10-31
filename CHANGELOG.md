@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added controlled Katana endpoint crawling with an exact approved-origin regex, redirects disabled, depth 2, a 100-page cap, a 2 requests/second limit, a 90-second crawl budget, and a 1 MiB response-size limit. Parsed endpoint method/source metadata is retained; only same-origin endpoints enter the inventory and discovered URLs never expand approved scope.
+- Added the Katana runner to the Web Security workspace and tests for fixed command construction, scope boundaries, and JSONL endpoint parsing.
+
 - Added passive Subfinder subdomain discovery using fixed arguments, a bounded runtime/output capture, and structured hostname/source parsing. Discovered subdomains are stored as out-of-scope assets and are never automatically probed or added to approved targets.
 - Added frontend action and provenance display for Subfinder results, plus tests for command construction, parsing, and scope isolation.
 
