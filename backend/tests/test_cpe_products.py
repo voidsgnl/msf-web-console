@@ -50,6 +50,15 @@ class CpeProductTableTests(unittest.TestCase):
                     self.assertNotRegex(part, r"[\s:*]", key)
 
 
+class DropbearCpeIdentityTests(unittest.TestCase):
+    def test_uses_current_and_historical_nvd_dropbear_identities(self):
+        identities = CPE_PRODUCT_IDENTITIES["dropbear"]
+        self.assertIn(("dropbear_ssh_project", "dropbear_ssh"), identities)
+        self.assertIn(("dropbear_project", "dropbear"), identities)
+        self.assertIn(("matt_johnston", "dropbear_ssh_server"), identities)
+        self.assertNotIn(("dropbear", "dropbear"), identities)
+
+
 class BannerProductsAreMappedTests(unittest.TestCase):
     def test_every_versioned_banner_product_has_a_cpe_mapping(self):
         for banner, port in VERSIONED_BANNERS:
