@@ -100,6 +100,7 @@ class ReconToolAdapterTests(unittest.TestCase):
         command = _build_tool_command("whatweb", "/usr/bin/whatweb", "https://example.test")
         self.assertEqual(command[0], "/usr/bin/whatweb")
         self.assertIn("--log-json=/dev/stdout", command)
+        self.assertIn("--max-redirects=0", command)
         self.assertEqual(command[-1], "https://example.test")
 
     def test_parser_normalises_httpx_json(self):
