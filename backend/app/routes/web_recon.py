@@ -142,13 +142,13 @@ class ToolRunRequest(BaseModel):
 def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[str]:
     if tool_id == "httpx":
         return [
-            executable, "-u", target_url, "-json", "-silent", "-no-color",
-            "-timeout", "10", "-retries", "0", "-follow-redirects=false",
+            executable, "-u", target_url, "-json", "-silent", "-no-color", "-no-stdin", "-nfs",
+            "-timeout", "10", "-retries", "0", "-rstr", "1048576",
         ]
     if tool_id == "whatweb":
         return [
             executable, "--log-json=/dev/stdout", "--quiet", "--no-errors", "--color=never",
-            "--max-threads=1", "--wait=1", target_url,
+            "--max-threads=1", "--wait=1", "--open-timeout=5", "--read-timeout=10", target_url,
         ]
     raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
 
