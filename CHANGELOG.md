@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Updated Katana redirect handling: the approved entry URL may follow up to five redirects only when scheme, hostname, and effective port remain identical. Cross-origin redirects are blocked and exposed as evidence; page-level crawler redirects remain disabled. Removed Katana `-ns` because it disables default host scoping. Corrected JSONL parsing to read source/tag/attribute from the nested request and capture response `Location` headers.
 - Added controlled Katana endpoint crawling with an exact approved-origin regex, redirects disabled, depth 2 with JavaScript endpoint extraction and query-variant deduplication, a 100-page cap, a 2 requests/second limit, a 90-second crawl budget, and a 1 MiB response-size limit. Parsed endpoint method/source metadata is retained; only same-origin endpoints enter the inventory and discovered URLs never expand approved scope.
 - Added the Katana runner to the Web Security workspace and tests for fixed command construction, scope boundaries, and JSONL endpoint parsing.
 
