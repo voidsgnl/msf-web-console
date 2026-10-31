@@ -103,14 +103,6 @@ def _parse_version_components(version: str | None) -> tuple[tuple[int, ...], str
     return numeric, suffix
 
 
-def _parse_version_tuple(version: str | None) -> tuple[int, ...] | None:
-    """Compatibility helper returning the numeric core only for plain versions."""
-    parsed = _parse_version_components(version)
-    if parsed is None:
-        return None
-    return parsed[0]
-
-
 def _compare_version_tuples(a: tuple[int, ...], b: tuple[int, ...]) -> int:
     """Compare two numeric version tuples, right-padding the shorter with zeros."""
     length = max(len(a), len(b))
