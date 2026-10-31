@@ -76,8 +76,8 @@ def extract_cve_ids(value: Any) -> set[str]:
     return found
 
 
-_VERSION_RE = re.compile(r"^\\s*(\\d+(?:\\.\\d+)*)(.*)$")
-_UPSTREAM_SUFFIX_RE = re.compile(r"^(?:p\\d+|[a-z])$", re.IGNORECASE)
+_VERSION_RE = re.compile(r"^\s*(\d+(?:\.\d+)*)(.*)$")
+_UPSTREAM_SUFFIX_RE = re.compile(r"^(?:p\d+|[a-z])$", re.IGNORECASE)
 
 
 def _parse_version_components(version: str | None) -> tuple[tuple[int, ...], str | None] | None:
