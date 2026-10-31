@@ -57,10 +57,20 @@ export type SuggestedModule = {
   }[];
 };
 
+export type ServiceAssessment = {
+  protocol: "http" | null;
+  edge_provider: "cloudflare" | null;
+  http_status: number | null;
+  access_state: "forbidden" | "http_error" | "responding" | "unknown";
+  origin_visibility: "edge_proxy" | "not_assessed";
+  summary: string;
+};
+
 export type ModuleSuggestions = {
   query: string | null;
   candidates: SuggestedModule[];
   note?: string;
+  service_assessment?: ServiceAssessment;
 };
 
 export type ModuleCheckResult = {

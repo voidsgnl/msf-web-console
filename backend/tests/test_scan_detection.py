@@ -54,6 +54,51 @@ class ScanDetectionRegressionTests(unittest.TestCase):
         details = _check_failure_details("Received HTTP/1.1 503 Service Unavailable")
         self.assertEqual(details["failure_kind"], "http_error")
 
+    def test_cloudflare_is_classified_as_edge_not_origin_product(self):
+        from app.routes.modules import _classify_service_observation
+
+        result = _classify_service_observation("cloudflare (403-Forbidden)", 80)
+        self.assertEqual(result["protocol"], "http")
+        self.assertEqual(result["edge_provider"], "cloudflare")
+        self.assertEqual(result["http_status"], 403)
+        self.assertEqual(result["access_state"], "forbidden")
+        self.assertEqual(result["origin_visibility"], "edge_proxy")
+        self.assertIn("not a vulnerability verdict", result["summary"])
+
+    def test_plain_http_403_is_classified_without_cloudflare_claim(self):
+        from app.routes.modules import _classify_service_observation
+
+        result = _classify_service_observation("HTTP/1.1 403 Forbidden", 8080)
+        self.assertIsNone(result["edge_provider"])
+        self.assertEqual(result["http_status"], 403)
+        self.assertEqual(result["access_state"], "forbidden")
+
+    def test_cloudflare_suggestions_fall_back_to_generic_http_modules(self):
+        from unittest.mock import patch
+
+        from app.routes.modules import suggest_modules
+
+        with patch(
+            "app.routes.modules.rpc.call",
+            side_effect=[
+                {"modules": ["scanner/http/http_version", "scanner/http/apache_userdir_enum"]},
+                {"rank": 300, "description": "HTTP service fingerprint"},
+                {"rank": 200, "description": "Apache user directory enumeration"},
+            ],
+        ) as rpc_call:
+            result = suggest_modules("cloudflare (403-Forbidden)", port=80, types="auxiliary")
+
+        self.assertEqual(result["query"], "http")
+        self.assertEqual(result["service_assessment"]["edge_provider"], "cloudflare")
+        self.assertEqual(result["service_assessment"]["http_status"], 403)
+        self.assertTrue(result["candidates"])
+        self.assertIn("Cloudflare", result["note"])
+        self.assertNotIn(
+            "cloudflare",
+            [call.args[-1].lower() for call in rpc_call.call_args_list
+             if len(call.args) > 1 and call.args[0] == "module.info"],
+        )
+
     def test_apache_coyote_suggestions_search_tomcat_not_apache_projects(self):
         from unittest.mock import patch
 

@@ -117,6 +117,45 @@ _GENERIC_BANNER_WORDS = {
 }
 
 
+def _classify_service_observation(service_info: str, port: int | None = None) -> dict[str, Any]:
+    """Describe an observed HTTP edge without claiming origin identity."""
+    text = service_info or ""
+    cloudflare = bool(re.search(
+        r"cloudflare|cf-ray\s*[:=]|cf-cache-status\s*[:=]|server\s*[:=]\s*cloudflare",
+        text,
+        re.IGNORECASE,
+    ))
+    status_match = re.search(
+        r"(?:HTTP/\d(?:\.\d)?\s+|[\s(])([1-5]\d{2})(?=[\s)-]|$)",
+        text,
+        re.IGNORECASE,
+    )
+    status = int(status_match.group(1)) if status_match else None
+    web_port = port in {80, 443, 3000, 5000, 8000, 8008, 8080, 8081, 8443, 8888, 9000, 9200, 9443}
+    is_http = cloudflare or web_port or bool(re.search(r"\bhttps?\b|HTTP/\d", text, re.IGNORECASE))
+    access = "forbidden" if status == 403 else "http_error" if status is not None and status >= 400 else "responding" if status is not None else "unknown"
+    if cloudflare:
+        summary = f"Cloudflare edge response{f' (HTTP {status})' if status else ''}. The edge provider is identified, but the origin server software and version are not."
+        if status == 403:
+            summary += " The 403 indicates access was denied at the edge; it is not a vulnerability verdict."
+    elif status == 403:
+        summary = "HTTP 403 Forbidden was observed. Access was denied; this does not identify the origin software or prove a vulnerability."
+    elif status is not None and status >= 400:
+        summary = f"HTTP {status} response observed. This is not a vulnerability verdict."
+    elif is_http:
+        summary = "HTTP service family indicated; the responding application and origin software are not yet identified."
+    else:
+        summary = "No HTTP edge fingerprint was identified from this service observation."
+    return {
+        "protocol": "http" if is_http else None,
+        "edge_provider": "cloudflare" if cloudflare else None,
+        "http_status": status,
+        "access_state": access,
+        "origin_visibility": "edge_proxy" if cloudflare else "not_assessed",
+        "summary": summary,
+    }
+
+
 def _extract_search_term(service_info: str) -> str | None:
     """
     Pull a plausible software-name token out of a CONFIRMED service banner
@@ -161,6 +200,8 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     """
     term = _extract_search_term(service_info)
     parsed = parse_service_banner(service_info, port)
+    service_assessment = _classify_service_observation(service_info, port)
+    cloudflare_edge = service_assessment["edge_provider"] == "cloudflare"
 
     # Port-based hints are lower-confidence fallbacks when no service banner
     # is available. They identify likely service families, not vulnerabilities.
@@ -179,7 +220,10 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
 
     terms: list[str] = []
     prod_lower = parsed.product.lower() if parsed and parsed.product else ""
-    if prod_lower:
+    if cloudflare_edge:
+        # Cloudflare is an edge provider, not the origin application.
+        terms = ["http"]
+    if prod_lower and not cloudflare_edge:
         if "apache tomcat" in prod_lower or "tomcat" in prod_lower:
             terms.extend(["tomcat", "coyote"])
         elif "apache httpd" in prod_lower or "apache" in prod_lower:
@@ -205,7 +249,7 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     # Once a banner parser has identified the product, trust those product
     # terms rather than re-adding the first raw token (e.g. "apache" from an
     # Apache-Coyote Tomcat banner).
-    if term and term not in terms and term not in ("openssh",) and not parsed:
+    if term and term not in terms and term not in ("openssh",) and not parsed and not cloudflare_edge:
         terms.append(term)
 
     if not terms:
@@ -218,8 +262,10 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
             "note": "No banner was identified and this port has no built-in service-family hint. Confirm the service version or investigate manually.",
         }
 
-    query_label = terms[0] if parsed else (term or terms[0])
+    query_label = "http" if cloudflare_edge else (terms[0] if parsed else (term or terms[0]))
     match_basis = (
+        "HTTP service-family fallback; Cloudflare edge detected, origin product unknown"
+        if cloudflare_edge else
         f"confirmed service banner matched '{parsed.product if parsed else term}'"
         if (parsed or term) else f"common service mapping for TCP port {port} ({terms[0]})"
     )
@@ -239,7 +285,13 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
         raise HTTPException(502, f"Could not search modules: {exc}") from exc
 
     if not raw_matches:
-        return {"query": query_label, "candidates": [], "note": f"No module names matched {query_label}."}
+        note = (
+            "Cloudflare was detected as an edge proxy, not as the origin web server. "
+            "No generic HTTP module names matched this Metasploit installation; "
+            "the 403 response does not establish whether the origin is vulnerable."
+            if cloudflare_edge else f"No module names matched {query_label}."
+        )
+        return {"query": query_label, "candidates": [], "note": note, "service_assessment": service_assessment}
 
     # Cross-reference the confirmed product/version against NVD's own CVE
     # corpus (independent of Metasploit) so candidates can be checked for a
@@ -396,7 +448,14 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     )
 
     # Dynamic plain-language note describing the findings
-    if has_cve_match:
+    if cloudflare_edge:
+        note = (
+            f"{service_assessment['summary']} "
+            "Searching generic HTTP service modules because Cloudflare is an edge provider, "
+            "not a reliable fingerprint of the origin application. A matching module is "
+            "only a candidate; verify the origin product/version before drawing conclusions."
+        )
+    elif has_cve_match:
         cve_note_target = f"{parsed.product} {parsed.version}" if parsed.version != "unknown" else parsed.product
         note = (
             f"Confirmed {cve_note_target}. Shared CVE references are checked against NVD's vulnerable CPE "
@@ -418,7 +477,12 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     if cve_lookup_error:
         note = f"{note} (NVD CVE cross-check unavailable: {cve_lookup_error})"
 
-    return {"query": query_label, "candidates": candidates[:8], "note": note}
+    return {
+        "query": query_label,
+        "candidates": candidates[:8],
+        "note": note,
+        "service_assessment": service_assessment,
+    }
 
 
 @router.get("/compatible-payloads")

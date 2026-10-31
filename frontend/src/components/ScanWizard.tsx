@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
-import type { SuggestedModule } from "../lib/api";
+import type { ServiceAssessment, SuggestedModule } from "../lib/api";
 import { suggestForPort } from "../lib/portSuggestions";
 import { detectionModuleForPort } from "../lib/versionDetection";
 import type { TargetContext } from "./ModuleBrowser";
@@ -21,6 +21,7 @@ type SuggestionState = {
   query: string | null;
   candidates: SuggestedModule[];
   note?: string;
+  assessment?: ServiceAssessment;
   error?: string;
 };
 
@@ -190,6 +191,10 @@ function formatElapsed(ms: number): string {
   if (totalSeconds < 60) return `${totalSeconds}s`;
   const minutes = Math.floor(totalSeconds / 60);
   return `${minutes}m ${totalSeconds % 60}s`;
+}
+
+function isCloudflareEdgeObservation(info: string): boolean {
+  return /cloudflare|cf-ray\s*[:=]|cf-cache-status\s*[:=]|server\s*[:=]\s*cloudflare/i.test(info);
 }
 
 function rankBadgeStyle(rankWeight: number): string {
@@ -504,10 +509,22 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
     const jobIds: string[] = [];
     for (const { service, detection } of targets) {
       try {
+        let declaredOptions: Record<string, unknown> = {};
+        try {
+          const moduleData = await api.modules.info("auxiliary", detection.module);
+          declaredOptions = moduleData.options ?? {};
+        } catch {
+          // Keep basic version detection available if option introspection fails.
+        }
+        const targetHostname = scanContext.current?.hostname;
+        const hostnameOptions = targetHostname && Object.prototype.hasOwnProperty.call(declaredOptions, "VHOST")
+          ? { VHOST: targetHostname }
+          : {};
         const result = await api.modules.execute("auxiliary", detection.module, {
           RHOSTS: service.host,
           RPORT: String(service.port),
           ...(detection.options ?? {}),
+          ...hostnameOptions,
         });
         const rawJobId = result?.job_id ?? result?.jobId;
         if (rawJobId !== undefined && rawJobId !== null) jobIds.push(String(rawJobId));
@@ -550,7 +567,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
       return next;
     });
     setConfirmPhase("done");
-    setConfirmMessage("Version checks finished. Confirmed services are labeled below.");
+    setConfirmMessage("Version-detection jobs finished. Product banners are distinguished from edge-provider responses; the origin may remain unidentified behind a proxy.");
   };
 
   const loadSuggestions = async (service: DiscoveredService) => {
@@ -564,7 +581,13 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
       if (!mounted.current) return;
       setSuggestions((current) => ({
         ...current,
-        [key]: { status: "done", query: result.query, candidates: result.candidates, note: result.note },
+        [key]: {
+        status: "done",
+        query: result.query,
+        candidates: result.candidates,
+        note: result.note,
+        assessment: result.service_assessment,
+      },
       }));
     } catch (e: unknown) {
       if (!mounted.current) return;
@@ -739,7 +762,8 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
             {services.map((service) => {
               const suggestion = suggestForPort(service.port);
               const detection = detectionModuleForPort(service.port);
-              const confirmed = Boolean(service.info);
+              const cloudflareEdge = isCloudflareEdgeObservation(service.info);
+              const confirmed = Boolean(service.info) && !cloudflareEdge;
               const key = serviceKey(service);
               const suggestionState = suggestions[key];
               return (
@@ -749,9 +773,13 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-xs text-accent">{service.host}:{service.port}</span>
                         <span className="rounded border border-border px-2 py-0.5 text-[10px] text-gray-300">{suggestion.label}</span>
-                        {confirmed ? (
+                        {cloudflareEdge ? (
+                          <span className="rounded border border-amber-500/30 bg-amber-500/5 px-2 py-0.5 text-[10px] text-amber-300">
+                            Edge response observed
+                          </span>
+                        ) : confirmed ? (
                           <span className="rounded border border-emerald-500/30 bg-emerald-500/5 px-2 py-0.5 text-[10px] text-emerald-400">
-                            Confirmed
+                            Service banner observed
                           </span>
                         ) : (
                           <span className="text-[10px] text-gray-600">
@@ -759,7 +787,14 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                           </span>
                         )}
                       </div>
-                      {confirmed ? (
+                      {cloudflareEdge ? (
+                        <div className="mt-1 space-y-1">
+                          <p className="text-[11px] text-gray-300 leading-relaxed font-mono break-all">{service.info}</p>
+                          <p className="text-[11px] text-amber-300 leading-relaxed">
+                            Cloudflare is the responding edge proxy. The 403 response does not identify the origin server or establish a vulnerability.
+                          </p>
+                        </div>
+                      ) : confirmed ? (
                         <p className="text-[11px] text-gray-300 mt-1 leading-relaxed font-mono break-all">{service.info}</p>
                       ) : (
                         <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">{suggestion.note}</p>
@@ -771,7 +806,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                         disabled={suggestionState?.status === "loading"}
                         className="rounded border border-accent/30 bg-accent/5 px-3 py-1.5 text-[11px] text-accent hover:bg-accent/10 disabled:cursor-wait disabled:opacity-50"
                       >
-                        {suggestionState?.status === "loading" ? "Searching…" : "Find matching exploits"}
+                        {suggestionState?.status === "loading" ? "Searching…" : "Find relevant modules"}
                       </button>
                       <button
                         onClick={() => {
@@ -790,6 +825,17 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                       {suggestionState.status === "error" && (
                         <p className="text-[11px] text-danger">Couldn't look up matching modules: {suggestionState.error}</p>
                       )}
+                      {suggestionState.status === "done" && suggestionState.assessment?.edge_provider === "cloudflare" && (
+                        <div className="mb-2 rounded border border-amber-500/25 bg-amber-500/5 px-2.5 py-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+                            Cloudflare edge · {suggestionState.assessment.http_status ? `HTTP ${suggestionState.assessment.http_status}` : "HTTP response"}
+                          </p>
+                          <p className="mt-1 text-[11px] leading-relaxed text-gray-300">{suggestionState.assessment.summary}</p>
+                          <p className="mt-1 text-[10px] leading-relaxed text-gray-500">
+                            Recommendations below are generic HTTP service modules, not Cloudflare-specific origin findings.
+                          </p>
+                        </div>
+                      )}
                       {suggestionState.status === "done" && suggestionState.candidates.length === 0 && (
                         <p className="text-[11px] text-gray-500">
                           {suggestionState.note ?? `No module names matched this service.`}
@@ -797,7 +843,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                       )}
                       {suggestionState.status === "done" && suggestionState.candidates.length > 0 && (
                         <>
-                          {suggestionState.note && (
+                          {suggestionState.assessment?.edge_provider !== "cloudflare" && suggestionState.note && (
                             <div className="mb-2 rounded border border-border/80 bg-bg-tertiary/60 px-2.5 py-1.5 text-[11px] text-gray-300">
                               {suggestionState.note}
                             </div>
