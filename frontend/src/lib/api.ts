@@ -51,6 +51,10 @@ export type SuggestedModule = {
   // search results for the detected product query. This is corroborating
   // reference evidence, not affected-version validation or a vuln verdict.
   cve_matches: string[];
+  cve_version_assessments: {
+    cve_id: string;
+    status: "affected" | "not_affected" | "indeterminate";
+  }[];
 };
 
 export type ModuleSuggestions = {

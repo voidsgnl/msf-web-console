@@ -347,6 +347,24 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
         # version validation. Keep it separate from Metasploit's rank.
         module_cve_ids = extract_cve_ids(info.get("references"))
         cve_matches = sorted(module_cve_ids & known_cve_ids)
+        cve_version_assessments: list[dict[str, str]] = []
+        if cve_matches and parsed and parsed.version and parsed.version.lower() != "unknown":
+            for cve_id in cve_matches:
+                try:
+                    assessment = nvd_client.assess_product_version(
+                        cve_id, parsed.product, parsed.version
+                    )
+                except NvdError:
+                    assessment = "indeterminate"
+                cve_version_assessments.append({
+                    "cve_id": cve_id,
+                    "status": assessment,
+                })
+        else:
+            cve_version_assessments = [
+                {"cve_id": cve_id, "status": "indeterminate"}
+                for cve_id in cve_matches
+            ]
 
         # Keep the displayed rank faithful to Metasploit's native rank.
         # Version and CVE evidence affect relevance ordering only.
@@ -365,6 +383,7 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
             "description_snippet": snippet,
             "match_basis": match_basis,
             "cve_matches": cve_matches,
+            "cve_version_assessments": cve_version_assessments,
         })
 
     candidates.sort(
@@ -380,10 +399,9 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     if has_cve_match:
         cve_note_target = f"{parsed.product} {parsed.version}" if parsed.version != "unknown" else parsed.product
         note = (
-            f"Confirmed {cve_note_target}. One or more candidates share a CVE reference with NVD keyword-search "
-            f"results for this product query. This is useful cross-reference evidence, but it does not validate "
-            f"the detected version against the CVE's affected-version range and is not proof the target is "
-            f"vulnerable. Review the CVE references and use Verify where the module supports a check."
+            f"Confirmed {cve_note_target}. Shared CVE references are checked against NVD's vulnerable CPE "
+            f"product/version entries where the product can be mapped. An 'affected' result is version-range "
+            f"evidence, not proof the live target is vulnerable; use Verify where the module supports a check."
         )
     elif parsed and "openssh" in prod_lower:
         note = f"Confirmed {parsed.product} {parsed.version if parsed.version != 'unknown' else ''}. SSH services are typically tested via credential login and enumeration modules rather than direct exploits."
