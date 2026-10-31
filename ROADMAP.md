@@ -73,7 +73,7 @@ Status: in progress.
       and output parsing.
 - [ ] Verify httpx and WhatWeb CLI compatibility against installed versions.
 - [ ] Add process cancellation and persistent execution history.
-- [ ] Add a shared execution record model and assessment/target context.
+- [x] Add a platform-owned SQLite assessment store independent of Metasploit's database, with assessment lifecycle and target-scope CRUD APIs.\n- [x] Require explicit authorization when registering targets; enforce exact scheme/host/port scope matching in the platform scope guard.\n- [ ] Bind every scanner execution to an assessment and an approved target; persist execution records and output evidence.
 
 ## Phase 2 — Asset discovery and mapping
 
@@ -84,7 +84,7 @@ Status: in progress.
 - [ ] Add network/service discovery (Nmap) as a separate workflow.
 - [ ] Deduplicate domains, hosts, URLs, IPs, ports, and services into a
       reusable asset inventory.
-- [ ] Track scope and out-of-scope assets; never silently expand scope.
+- [x] Establish the first exact-origin target-scope boundary; extend it to discovered child assets through explicit scope expansion and approval.\n- [ ] Track discovered in-scope and out-of-scope assets; never silently expand scope.
 
 ## Phase 3 — Vulnerability assessment
 
