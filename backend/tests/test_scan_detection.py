@@ -1,7 +1,7 @@
 import unittest
 
 from app.banner_parsing import parse_service_banner
-from app.routes.modules import _check_verdict
+from app.routes.modules import _check_failure_details, _check_verdict
 
 
 class ScanDetectionRegressionTests(unittest.TestCase):
@@ -37,6 +37,22 @@ class ScanDetectionRegressionTests(unittest.TestCase):
 
     def test_connection_failure_remains_unknown(self):
         self.assertEqual(_check_verdict("Connection refused"), "unknown")
+        self.assertEqual(_check_failure_details("Connection refused")["failure_kind"], "connection_failure")
+
+    def test_tls_handshake_failure_is_not_reported_as_unreachable(self):
+        output = (
+            "Exploit failed [unreachable]: OpenSSL::SSL::SSLError "
+            "SSL_connect returned=1 peeraddr=192.0.2.10:443 "
+            "state=error: unexpected eof while reading"
+        )
+        self.assertEqual(_check_verdict(output), "unknown")
+        details = _check_failure_details(output)
+        self.assertEqual(details["failure_kind"], "tls_failure")
+        self.assertIn("TLS negotiation failed", details["failure_message"])
+
+    def test_http_error_is_classified_separately(self):
+        details = _check_failure_details("Received HTTP/1.1 503 Service Unavailable")
+        self.assertEqual(details["failure_kind"], "http_error")
 
     def test_apache_coyote_suggestions_search_tomcat_not_apache_projects(self):
         from unittest.mock import patch

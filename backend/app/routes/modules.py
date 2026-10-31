@@ -796,8 +796,53 @@ _CHECK_UNSUPPORTED_RE = re.compile(
 _CHECK_UNKNOWN_RE = re.compile(
     r"(?i)(unsupported target|could not be reliably checked|cannot reliably check|"
     r"state could not be determined|unable to check|connection refused|"
-    r"unreachable|check failed|checkcode::unknown)"
+    r"unreachable|check failed|checkcode::unknown|ssl_connect|openssl::ssl|"
+    r"tls handshake|unexpected eof while reading|ssl_error)"
 )
+
+
+def _check_failure_details(output: str) -> dict[str, str | None]:
+    """Classify transport failures without turning them into vulnerability verdicts."""
+    if re.search(
+        r"(?i)(openssl::ssl|ssl_connect|tls handshake|unexpected eof while reading|"
+        r"ssl_error|alert handshake failure|certificate verify failed)",
+        output,
+    ):
+        return {
+            "failure_kind": "tls_failure",
+            "failure_message": (
+                "The TCP endpoint responded, but TLS negotiation failed. If this is a "
+                "virtual-hosted service, verify the target hostname/SNI; an IP address "
+                "alone may not identify the expected TLS site."
+            ),
+        }
+    if re.search(
+        r"(?i)(connection refused|connection timed out|operation timed out|"
+        r"no route to host|network is unreachable|failed to connect|could not resolve|"
+        r"name or service not known|temporary failure in name resolution)",
+        output,
+    ):
+        return {
+            "failure_kind": "connection_failure",
+            "failure_message": (
+                "A connection to the target service could not be established. Check the "
+                "address, port, routing, and whether the service is listening."
+            ),
+        }
+    if re.search(
+        r"(?i)(HTTP/\d(?:\.\d)?\s+[45]\d\d|HTTP error\s*[45]\d\d|"
+        r"response code\s*[:=]?\s*[45]\d\d|returned status\s*[45]\d\d)",
+        output,
+    ):
+        return {
+            "failure_kind": "http_error",
+            "failure_message": (
+                "The service returned an HTTP error response. This is not, by itself, "
+                "evidence that the vulnerability is present or absent."
+            ),
+        }
+    return {"failure_kind": None, "failure_message": None}
+
 _CHECK_VULNERABLE_RE = re.compile(
     r"(?i)(the target is vulnerable|appears (to be )?vulnerable|is vulnerable|"
     r"checkcode::vulnerable|checkcode::appears)"
@@ -918,9 +963,12 @@ def check_module(type: str, name: str, req: ModuleCheckRequest):
             _run_console_command(console_id, f"set {key} {safe_value}")
 
         check_output = _run_console_command(console_id, "check", timeout_seconds=30.0)
+        failure = _check_failure_details(check_output)
         return {
             "module": f"{type}/{name}",
             "verdict": _check_verdict(check_output),
+            "failure_kind": failure["failure_kind"],
+            "failure_message": failure["failure_message"],
             "raw_output": check_output[-2000:].strip(),
         }
     except MsfRpcError as exc:

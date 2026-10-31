@@ -326,7 +326,7 @@ function DetailSection({
   );
 }
 
-export type TargetContext = { host: string; port?: number; serviceInfo?: string; source: "scan" };
+export type TargetContext = { host: string; hostname?: string; port?: number; serviceInfo?: string; source: "scan" };
 export type ModuleSearchRequest = { type: string; query: string; nonce: number; targetContext?: TargetContext };
 
 export function ModuleBrowser({
@@ -550,6 +550,10 @@ export function ModuleBrowser({
         if (context.port && declaredOptions.RPORT) {
           defaults.RPORT = String(context.port);
           autoSources.RPORT = "Scan";
+        }
+        if (context.hostname && declaredOptions.VHOST) {
+          defaults.VHOST = context.hostname;
+          autoSources.VHOST = "Scan hostname";
         }
         if (declaredOptions.SSL && (context.port === 443 || context.port === 8443 || context.port === 9443 || /ssl|https/i.test(context.serviceInfo || ""))) {
           defaults.SSL = "true";
@@ -1390,7 +1394,7 @@ export function ModuleBrowser({
                   </div>
                   <h1 className="text-sm md:text-base font-mono text-gray-100 break-all">{textValue(moduleInfo.fullname) || `${selected.type}/${selected.name}`}</h1>
                   <p className="text-xs text-gray-500 mt-1">Metasploit module inspector</p>
-                  {activeTargetContext && <p className="mt-1 text-[11px] text-emerald-400">Scan context · {activeTargetContext.host}{activeTargetContext.port ? `:${activeTargetContext.port}` : ""} · values are prefilled for review</p>}
+                  {activeTargetContext && <p className="mt-1 text-[11px] text-emerald-400">Scan context · {activeTargetContext.host}{activeTargetContext.port ? `:${activeTargetContext.port}` : ""}{activeTargetContext.hostname ? ` · hostname/SNI: ${activeTargetContext.hostname}` : ""} · values are prefilled for review</p>}
                   {sideEffectCodes.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {sideEffectCodes.map((code) => (

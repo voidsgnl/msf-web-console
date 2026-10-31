@@ -27,6 +27,8 @@ type SuggestionState = {
 type VerifyState = {
   status: VerifyStatus;
   verdict?: "vulnerable" | "not_vulnerable" | "unknown" | "unsupported";
+  failureKind?: "tls_failure" | "connection_failure" | "http_error" | null;
+  failureMessage?: string | null;
   rawOutput?: string;
   error?: string;
 };
@@ -38,6 +40,22 @@ const SCAN_TIMEOUT_MS = 5 * 60 * 1000;
 const CONFIRM_TIMEOUT_MS = 2 * 60 * 1000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const serviceKey = (service: DiscoveredService) => `${service.host}:${service.port}`;
+
+function hostnameFromTarget(rawTarget: string): string | null {
+  const value = rawTarget.trim();
+  // A single hostname is useful for HTTP Host / TLS SNI. Never derive one
+  // from an IP, CIDR, range, or multi-target input.
+  if (!value || /[,\s]/.test(value) || value.includes("/") || value.includes("-")) return null;
+  try {
+    const parsed = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`);
+    const hostname = parsed.hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "");
+    if (!hostname || hostname.includes(":") || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) return null;
+    if (!/^[a-z0-9.-]+$/i.test(hostname)) return null;
+    return hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
 
 function validateCustomPorts(raw: string): { value: string; error: string | null } {
   const input = raw.trim();
@@ -180,6 +198,9 @@ function verdictBadge(state: VerifyState | undefined): { label: string; style: s
   if (!state || state.status === "idle") return null;
   if (state.status === "running") return { label: "Checking…", style: "border-border text-gray-400" };
   if (state.status === "error") return { label: "Check failed", style: "border-danger/30 bg-danger/5 text-danger" };
+  if (state.failureKind === "tls_failure") return { label: "TLS negotiation failed", style: "border-warning/30 bg-warning/5 text-warning" };
+  if (state.failureKind === "connection_failure") return { label: "Connection failed", style: "border-warning/30 bg-warning/5 text-warning" };
+  if (state.failureKind === "http_error") return { label: "HTTP error", style: "border-warning/30 bg-warning/5 text-warning" };
   if (state.verdict === "vulnerable") return { label: "Appears vulnerable", style: "border-danger/30 bg-danger/5 text-danger" };
   if (state.verdict === "not_vulnerable") return { label: "Not vulnerable", style: "border-emerald-500/30 bg-emerald-500/5 text-emerald-400" };
   if (state.verdict === "unsupported") return { label: "No check method", style: "border-border text-gray-400" };
@@ -204,6 +225,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
   const runGeneration = useRef(0);
   const scanContext = useRef<{
     target: string;
+    hostname: string | null;
     resolvedTarget: string | null;
     portsSpec: string;
     baselineKeys: Set<string> | null;
@@ -272,6 +294,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
 
     scanContext.current = {
       target: trimmedTarget,
+      hostname: hostnameFromTarget(trimmedTarget),
       resolvedTarget,
       portsSpec,
       baselineKeys: baselineServiceKeys,
@@ -582,11 +605,23 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
       ) {
         options.SSL = "true";
       }
+      // VHOST is Metasploit's declared virtual-host setting on HTTP modules;
+      // only set it when the original scan input supplied a real hostname.
+      const targetHostname = scanContext.current?.hostname;
+      if (targetHostname && Object.prototype.hasOwnProperty.call(declaredOptions, "VHOST")) {
+        options.VHOST = targetHostname;
+      }
       const result = await api.modules.checkModule(candidate.type, candidate.name, options);
       if (!mounted.current) return;
       setVerifications((current) => ({
         ...current,
-        [key]: { status: "done", verdict: result.verdict, rawOutput: result.raw_output },
+        [key]: {
+          status: "done",
+          verdict: result.verdict,
+          failureKind: result.failure_kind,
+          failureMessage: result.failure_message,
+          rawOutput: result.raw_output,
+        },
       }));
     } catch (e: unknown) {
       if (!mounted.current) return;
@@ -736,7 +771,7 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                       <button
                         onClick={() => {
                           const targetType = suggestion.defaultType ?? (confirmed ? "exploit" : "auxiliary");
-                          onInvestigate(targetType, suggestion.keyword, { host: service.host, port: service.port, serviceInfo: service.info, source: "scan" });
+                          onInvestigate(targetType, suggestion.keyword, { host: service.host, port: service.port, serviceInfo: service.info, hostname: scanContext.current?.hostname ?? undefined, source: "scan" });
                         }}
                         className="rounded border border-accent/30 bg-accent/5 px-3 py-1.5 text-[11px] text-accent hover:bg-accent/10"
                       >
@@ -839,6 +874,9 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                                             CPE status compares the detected product/version with NVD's vulnerable CPE entries. It is not a live vulnerability verdict; use Verify where the module supports a check.
                                           </p>
                                         </div>
+                                      )}
+                                      {verifyState?.status === "done" && verifyState.failureMessage && (
+                                        <p className="mt-1.5 text-[10px] leading-relaxed text-warning">{verifyState.failureMessage}</p>
                                       )}
                                       {verifyState?.status === "done" && verifyState.rawOutput && (
                                         <pre className="mt-1.5 max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded bg-bg-secondary/60 p-1.5 text-[10px] text-gray-400 font-mono">

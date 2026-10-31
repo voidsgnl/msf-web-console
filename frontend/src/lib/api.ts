@@ -66,6 +66,8 @@ export type ModuleSuggestions = {
 export type ModuleCheckResult = {
   module: string;
   verdict: "vulnerable" | "not_vulnerable" | "unknown" | "unsupported";
+  failure_kind?: "tls_failure" | "connection_failure" | "http_error" | null;
+  failure_message?: string | null;
   raw_output: string;
 };
 
