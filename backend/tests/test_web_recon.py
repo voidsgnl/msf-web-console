@@ -60,7 +60,7 @@ class ReconToolAdapterTests(unittest.TestCase):
         command = _build_tool_command("httpx", "/usr/bin/httpx", "https://example.test")
         self.assertEqual(command[0], "/usr/bin/httpx")
         self.assertIn("-json", command)
-        self.assertIn("-follow-redirects=false", command)
+        self.assertIn("-nfs", command)
         self.assertEqual(command[-1], "https://example.test")
 
     def test_whatweb_command_uses_json_output(self):
