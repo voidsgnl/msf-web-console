@@ -192,9 +192,11 @@ class ReconToolAdapterTests(unittest.TestCase):
 
     def test_katana_follows_only_same_origin_entry_redirects(self):
         first = MagicMock()
+        first.__enter__.return_value = first
         first.status_code = 308
         first.headers = {"Location": "/app"}
         second = MagicMock()
+        second.__enter__.return_value = second
         second.status_code = 200
         second.headers = {}
         session = MagicMock()
@@ -209,6 +211,7 @@ class ReconToolAdapterTests(unittest.TestCase):
 
     def test_katana_blocks_cross_origin_entry_redirect(self):
         response = MagicMock()
+        response.__enter__.return_value = response
         response.status_code = 308
         response.headers = {"Location": "https://www.example.test/"}
         session = MagicMock()
