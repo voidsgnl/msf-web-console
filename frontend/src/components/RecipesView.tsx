@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { Badge } from "./ui";
 
 type Recipe = {
   id: string; title: string; category: string; summary: string; purpose: string;
@@ -34,9 +35,9 @@ const RECIPES: Recipe[] = [
 ];
 
 function Section({title,children}:{title:string;children:ReactNode}) {
-  return <section className="rounded-lg border border-border bg-bg-secondary/60 p-4">
-    <h3 className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">{title}</h3>
-    <div className="mt-2">{children}</div>
+  return <section className="card p-4">
+    <h3 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">{title}</h3>
+    <div className="mt-3">{children}</div>
   </section>;
 }
 
@@ -46,34 +47,39 @@ export function RecipesView({onOpenModule}:{onOpenModule:(type:string,query:stri
   return <div className="h-full overflow-y-auto bg-bg-primary p-4 md:p-6">
     <div className="mx-auto max-w-6xl">
       <div className="mb-5">
-        <div className="text-[10px] uppercase tracking-[0.2em] text-accent">Guided workflows</div>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">Guided workflows</div>
         <h1 className="mt-1 text-xl font-semibold text-gray-100">Recipes</h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-gray-400">Start with a focused lab task instead of an empty module browser. Each recipe explains the goal, gives you a short sequence, and opens the relevant Metasploit module for review and configuration.</p>
       </div>
-      <div className="mb-4 rounded border border-warning/30 bg-warning/5 px-4 py-3">
-        <p className="text-xs font-semibold text-warning">Authorized targets only</p>
-        <p className="mt-1 text-xs leading-relaxed text-gray-400">These workflows send real requests to the hosts you configure. Use them only on systems you own or have explicit permission to test. Nothing runs automatically when you open a recipe.</p>
+      <div role="note" className="mb-5 flex gap-3 rounded-lg border border-warning/30 bg-warning/5 px-4 py-3">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-0.5 shrink-0 text-warning">
+          <path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3z" />
+        </svg>
+        <div>
+          <p className="text-xs font-semibold text-warning">Authorized targets only</p>
+          <p className="mt-1 text-xs leading-relaxed text-gray-400">These workflows send real requests to the hosts you configure. Use them only on systems you own or have explicit permission to test. Nothing runs automatically when you open a recipe.</p>
+        </div>
       </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(240px,0.8fr)_minmax(0,1.5fr)]">
-        <div className="space-y-2">{RECIPES.map(recipe=><button key={recipe.id} type="button" onClick={()=>setSelectedId(recipe.id)}
-          className={"w-full rounded-lg border p-3 text-left transition-colors " + (selectedId===recipe.id ? "border-accent/50 bg-accent/5" : "border-border bg-bg-secondary hover:border-gray-500")}>
-          <span className="block text-[10px] uppercase tracking-widest text-gray-500">{recipe.category}</span>
-          <span className="mt-1 block text-sm font-medium text-gray-100">{recipe.title}</span>
+        <div className="space-y-2" role="listbox" aria-label="Recipes">{RECIPES.map(recipe=><button key={recipe.id} type="button" role="option" aria-selected={selectedId===recipe.id} onClick={()=>setSelectedId(recipe.id)}
+          className={"w-full rounded-lg border p-3.5 text-left transition-colors " + (selectedId===recipe.id ? "border-accent/50 bg-accent/5 shadow-glow" : "border-border bg-bg-secondary hover:border-border-strong hover:bg-bg-tertiary")}>
+          <Badge tone={selectedId===recipe.id ? "accent" : "neutral"}>{recipe.category}</Badge>
+          <span className="mt-2 block text-sm font-medium text-gray-100">{recipe.title}</span>
           <span className="mt-1 block text-xs leading-relaxed text-gray-400">{recipe.summary}</span>
         </button>)}</div>
         <div className="space-y-3">
-          <div className="rounded-lg border border-border bg-bg-secondary p-4">
-            <div className="text-[10px] uppercase tracking-widest text-accent">{selected.category}</div>
-            <h2 className="mt-1 text-lg font-semibold text-gray-100">{selected.title}</h2>
+          <div className="card p-5">
+            <Badge tone="accent">{selected.category}</Badge>
+            <h2 className="mt-2 text-lg font-semibold text-gray-100">{selected.title}</h2>
             <p className="mt-2 text-sm leading-relaxed text-gray-300">{selected.purpose}</p>
-            <div className="mt-4 rounded border border-border bg-bg-primary p-3">
-              <div className="text-[10px] uppercase tracking-widest text-gray-500">Metasploit module</div>
-              <div className="mt-1 break-all font-mono text-xs text-accent">{selected.module}</div>
-              <button type="button" onClick={()=>onOpenModule(selected.moduleType,selected.module)} className="mt-3 rounded bg-accent-dim px-3 py-2 text-xs font-medium text-black hover:bg-accent">Open module in browser</button>
+            <div className="mt-4 rounded-lg border border-border bg-bg-primary p-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Metasploit module</div>
+              <div className="mt-1.5 break-all font-mono text-xs text-accent">{selected.module}</div>
+              <button type="button" onClick={()=>onOpenModule(selected.moduleType,selected.module)} className="btn btn-primary mt-3">Open module in browser</button>
             </div>
           </div>
-          <Section title="Workflow"><ol className="space-y-2">{selected.steps.map((step,index)=><li key={step} className="flex gap-3 text-xs leading-relaxed text-gray-300">
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border font-mono text-[10px] text-accent">{index+1}</span><span>{step}</span>
+          <Section title="Workflow"><ol className="space-y-3">{selected.steps.map((step,index)=><li key={step} className="flex gap-3 text-xs leading-relaxed text-gray-300">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-accent/40 bg-accent/10 font-mono text-[10px] text-accent">{index+1}</span><span className="pt-0.5">{step}</span>
           </li>)}</ol></Section>
           <Section title="Before you run it"><p className="text-xs leading-relaxed text-gray-400">{selected.note}</p>
             <p className="mt-2 text-xs text-gray-500">Review the module description, required options, and side-effect metadata in the Module Browser. Execution always requires your separate action there.</p>
