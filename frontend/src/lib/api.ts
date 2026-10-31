@@ -6,6 +6,7 @@ export type AssessmentSummary = {
   created_at: string; updated_at: string; target_count?: number;
 };
 export type AssessmentDetail = AssessmentSummary & { targets: AssessmentTarget[] };
+export type AssessmentExecutionDetail = AssessmentExecution & { records: Record<string, unknown>[]; stderr: string };
 export type AssessmentExecution = {
   id: number; assessment_id: number; target_id: number; tool_id: string;
   target_url: string; started_at: string; finished_at: string;
@@ -158,6 +159,8 @@ export const api = {
       }),
     executions: (id: number) =>
       request<{ executions: AssessmentExecution[] }>(`/assessments/${id}/executions`),
+    execution: (id: number, executionId: number) =>
+      request<AssessmentExecutionDetail>(`/assessments/${id}/executions/${executionId}`),
   },
   auth: {
     session: () => request<{ configured: boolean; authenticated: boolean; username?: string | null }>("/auth/session"),
