@@ -122,16 +122,16 @@ export const api = {
       id: string; name: string; category: string; purpose: string;
       installed: boolean; path?: string | null;
     }[]; built_in: { name: string; available: boolean; description: string }[] }>("/web-recon/tools"),
-    probe: (url: string, authorized: boolean) =>
+    probe: (assessmentId: number, url: string, authorized: boolean) =>
       request<{
-        target: string; status_code: number; reason?: string; final_url: string;
+        execution_id: number; target: string; status_code: number; reason?: string; final_url: string;
         redirect_location?: string | null; title?: string | null;
         headers: Record<string, string>; technologies: string[];
         content_type?: string | null; body_truncated: boolean;
         bytes_inspected: number; assessment: string;
       }>("/web-recon/probe", {
         method: "POST",
-        body: JSON.stringify({ url, authorized }),
+        body: JSON.stringify({ assessment_id: assessmentId, url, authorized }),
       }),
     runTool: (assessmentId: number, toolId: "httpx" | "whatweb", url: string, authorized: boolean) =>
       request<{
