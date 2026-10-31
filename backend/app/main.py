@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.routes import auth, console, cve, db, jobs, modules, sessions, system
+from app.routes import auth, console, cve, db, jobs, modules, sessions, system, web_recon
 from app.security import (
     AuthenticationMiddleware,
     LocalOnlyMiddleware,
@@ -30,6 +30,7 @@ app.add_middleware(AuthenticationMiddleware)
 
 app.include_router(auth.router)
 app.include_router(system.router)
+app.include_router(web_recon.router)
 app.include_router(modules.router)
 app.include_router(sessions.router)
 app.include_router(db.router)
