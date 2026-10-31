@@ -150,6 +150,39 @@ class ReconToolAdapterTests(unittest.TestCase):
         )
         self.assertEqual(request.tool_id, "subfinder")
 
+    def test_katana_command_is_bounded_and_exact_origin_scoped(self):
+        command = _build_tool_command("katana", "/usr/bin/katana", "https://example.test:8443/start")
+        self.assertEqual(command[0], "/usr/bin/katana")
+        self.assertIn("-dr", command)
+        self.assertIn("-ns", command)
+        self.assertIn("-cs", command)
+        scope = command[command.index("-cs") + 1]
+        self.assertIn(r"example\\.test:8443", scope)
+        self.assertIn("-mdp", command)
+        self.assertEqual(command[command.index("-mdp") + 1], "100")
+        self.assertEqual(command[command.index("-rl") + 1], "2")
+        self.assertEqual(command[command.index("-d") + 1], "2")
+        self.assertIn("90s", command)
+
+    def test_katana_parser_extracts_endpoint_metadata(self):
+        records = _parse_tool_output(
+            "katana",
+            '{"request":{"method":"GET","endpoint":"https://example.test/login"},'
+            '"response":{"status_code":200},"source":"https://example.test/",'
+            '"tag":"a","attribute":"href"}',
+        )
+        self.assertEqual(records[0]["url"], "https://example.test/login")
+        self.assertEqual(records[0]["method"], "GET")
+        self.assertEqual(records[0]["status_code"], 200)
+        self.assertEqual(records[0]["tag"], "a")
+
+    def test_katana_request_is_an_allowed_tool_id(self):
+        request = ToolRunRequest(
+            assessment_id=1, tool_id="katana",
+            url="https://example.test", authorized=True,
+        )
+        self.assertEqual(request.tool_id, "katana")
+
     def test_rejects_unknown_adapter(self):
         with self.assertRaises(HTTPException):
             _build_tool_command("nmap", "/usr/bin/nmap", "https://example.test")
