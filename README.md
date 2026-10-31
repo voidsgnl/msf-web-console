@@ -1,32 +1,51 @@
-# MSF Web Console
+# Security Assessment Platform
 
-A self-hosted web UI for the Metasploit Framework — full RPC-driven console,
-module browser/launcher, session manager, and database views (hosts,
-services, vulns, loot, creds). FastAPI backend + React/TS frontend, talks to
-your own local `msfrpcd`.
+A local-first security assessment platform being built around independent
+reconnaissance, asset discovery, vulnerability assessment, finding analysis,
+and reporting workflows. Metasploit Framework is retained as a dedicated
+exploitation and post-exploitation integration — it is not the platform's
+general-purpose scanner or orchestration foundation.
 
-This runs entirely on your machine, against a Metasploit install you control.
-There is no remote/hosted component.
+FastAPI backend + React/TypeScript frontend. Scanner adapters execute locally
+on the backend host; the Metasploit integration communicates with the user's
+own local `msfrpcd`. There is no remote/hosted component.
 
 ## Architecture
 
 ```
-┌──────────────┐  HTTP + WS  ┌──────────────┐  msgpack-rpc   ┌───────────┐
-│ React/Vite   │ ───────────▶│ FastAPI      │ ──────────────▶│ msfrpcd   │
-│ (port 5173)  │◀─────────── │ (port 8000)  │◀────────────── │ (55553)   │
-└──────────────┘             └──────────────┘                └───────────┘
+React assessment workspace
+          |
+       FastAPI
+          |
+ Assessment orchestration
+   |          |          |
+Recon       Findings   Reporting
+adapters    normaliser and export
+   |
+httpx / WhatWeb / future independent tools
+   |
+Shared assessment data
+   |
+Explicit hand-off to Metasploit
+   |
+Exploitation → Sessions → Post-exploitation
 ```
 
-The backend never talks to any exploit target directly — it's a thin proxy
-over Metasploit's own RPC API. Every module execution, session interaction,
-and console command is handled by `msfrpcd` itself, exactly as if you'd
-typed it into `msfconsole`.
+Reconnaissance and vulnerability-assessment adapters are independent of
+Metasploit RPC. Tool output is stored as evidence and is not automatically
+treated as a confirmed vulnerability. Metasploit is invoked only through
+deliberate operator workflows for exploitation and related session handling.
+The existing Metasploit console, module, jobs, sessions, database, loot, and
+reporting capabilities are being preserved during the transformation.
+
+See [ROADMAP.md](ROADMAP.md) for the target architecture and implementation
+phases.
 
 ## Status
 
 **v0.1 — vertical slice.** Implemented:
 
-- Web Security workspace foundation: local reconnaissance-tool inventory (availability only) plus a bounded single-request HTTP probe that requires explicit authorization confirmation, does not follow redirects, limits response inspection to 64 KB, and reports technology hints without claiming vulnerability status
+- Independent reconnaissance foundation: local tool inventory, a bounded built-in HTTP probe, and explicit httpx/WhatWeb command adapters with fixed argument construction, authorization confirmation, execution timeouts, bounded output inspection, and structured evidence parsing. These adapters do not depend on Metasploit RPC and do not claim vulnerability status
 - Live console (xterm.js) bridged to a real `msfconsole` instance, tabbed
   for multiple concurrent consoles
 - Module search/browse across exploit, auxiliary, post, payload, encoder,
