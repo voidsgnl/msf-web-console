@@ -19,8 +19,10 @@ CPE_PRODUCT_IDENTITIES: dict[str, set[tuple[str, str]]] = {
     # SSH servers and libraries
     "openssh": {("openbsd", "openssh"), ("openssh", "openssh")},
     "dropbear": {
-        ("dropbear", "dropbear"),
+        # Current NVD identity plus historical/deprecated identities retained
+        # because older CVE records may still reference those CPE names.
         ("dropbear_ssh_project", "dropbear_ssh"),
+        ("dropbear_project", "dropbear"),
         ("matt_johnston", "dropbear_ssh_server"),
     },
     "libssh": {("libssh", "libssh")},
