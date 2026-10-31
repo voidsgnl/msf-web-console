@@ -6,6 +6,8 @@ export type AssessmentSummary = {
   created_at: string; updated_at: string; target_count?: number;
 };
 export type AssessmentDetail = AssessmentSummary & { targets: AssessmentTarget[] };
+export type AssessmentAsset = { id: number; assessment_id: number; asset_type: "url" | "host"; value: string; hostname: string; scope_state: "in_scope" | "out_of_scope"; source_tool: string; first_seen: string; last_seen: string };
+export type AssessmentAssetInventory = { assets: AssessmentAsset[]; counts: { total: number; in_scope: number; out_of_scope: number } };
 export type AssessmentExecutionDetail = AssessmentExecution & { records: Record<string, unknown>[]; stderr: string };
 export type AssessmentExecution = {
   id: number; assessment_id: number; target_id: number; tool_id: string;
@@ -157,6 +159,7 @@ export const api = {
       request<AssessmentTarget>(`/assessments/${id}/targets`, {
         method: "POST", body: JSON.stringify({ url, authorized }),
       }),
+    assets: (id: number) => request<AssessmentAssetInventory>(`/assessments/${id}/assets`),
     executions: (id: number) =>
       request<{ executions: AssessmentExecution[] }>(`/assessments/${id}/executions`),
     execution: (id: number, executionId: number) =>
