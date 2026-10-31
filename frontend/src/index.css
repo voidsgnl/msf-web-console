@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Note: this file deliberately uses plain CSS values (not @apply with the new
+ * design-token names) so it compiles even if tailwind.config.js is out of
+ * date. The TSX components still use the tokens as utility classes.
+ */
+
 @layer base {
   :root {
     color-scheme: dark;
@@ -15,7 +21,10 @@
     height: 100%;
   }
   body {
-    @apply bg-bg-primary font-sans text-gray-200 antialiased;
+    background-color: #0d1117;
+    color: #e5e7eb;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
   }
   ::selection {
@@ -51,12 +60,11 @@
   kbd,
   pre,
   samp {
-    @apply font-mono;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   }
 
   /* Baseline for views that style their own tables: zero specificity, so
-     their utility classes always win, but they still get collapsed borders,
-     row hover and consistent header weight. */
+     their utility classes always win. */
   :where(table) {
     border-collapse: collapse;
   }
@@ -78,11 +86,13 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    @apply rounded-full border-2 border-solid border-transparent bg-border-strong bg-clip-padding;
+    background-color: #2d3a4b;
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background-clip: padding-box;
   }
   ::-webkit-scrollbar-thumb:hover {
     background-color: #3d4c61;
-    background-clip: padding-box;
   }
   ::-webkit-scrollbar-corner {
     background: transparent;
@@ -92,73 +102,197 @@
 @layer components {
   /* Buttons */
   .btn {
-    @apply inline-flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-border-strong bg-bg-tertiary px-3.5 text-sm font-medium text-gray-200 transition-colors hover:bg-bg-elevated hover:text-white disabled:opacity-50;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 2.25rem;
+    padding: 0 0.875rem;
+    white-space: nowrap;
+    border-radius: 0.375rem;
+    border: 1px solid #2d3a4b;
+    background-color: #161d27;
+    color: #e5e7eb;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+    transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .btn:hover {
+    background-color: #1c2530;
+    color: #fff;
+  }
+  .btn:disabled {
+    opacity: 0.5;
   }
   .btn-sm {
-    @apply h-7 px-2.5 text-xs;
+    height: 1.75rem;
+    padding: 0 0.625rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
   }
   .btn-primary {
-    @apply border-transparent bg-accent-dim text-black hover:bg-accent hover:text-black;
+    border-color: transparent;
+    background-color: #2ea043;
+    color: #000;
+  }
+  .btn-primary:hover {
+    background-color: #3fb950;
+    color: #000;
   }
   .btn-ghost {
-    @apply border-transparent bg-transparent text-gray-400 hover:bg-bg-tertiary hover:text-gray-100;
+    border-color: transparent;
+    background-color: transparent;
+    color: #9ca3af;
+  }
+  .btn-ghost:hover {
+    background-color: #161d27;
+    color: #f3f4f6;
   }
   .btn-danger {
-    @apply border-danger/40 bg-danger/10 text-danger hover:bg-danger/20 hover:text-danger;
+    border-color: rgba(248, 81, 73, 0.4);
+    background-color: rgba(248, 81, 73, 0.1);
+    color: #f85149;
+  }
+  .btn-danger:hover {
+    background-color: rgba(248, 81, 73, 0.2);
+    color: #f85149;
   }
 
   /* Form controls */
   .input {
-    @apply h-9 w-full rounded-md border border-border-strong bg-bg-primary px-3 text-sm text-gray-100 transition-colors placeholder:text-gray-600 hover:border-gray-600 disabled:opacity-50;
+    height: 2.25rem;
+    width: 100%;
+    padding: 0 0.75rem;
+    border-radius: 0.375rem;
+    border: 1px solid #2d3a4b;
+    background-color: #0d1117;
+    color: #f3f4f6;
+    font-size: 0.875rem;
+    transition: border-color 0.15s;
+  }
+  .input:hover {
+    border-color: #4b5563;
+  }
+  .input:disabled {
+    opacity: 0.5;
   }
 
   /* Surfaces */
   .card {
-    @apply rounded-lg border border-border bg-bg-secondary shadow-panel;
+    border-radius: 0.5rem;
+    border: 1px solid #1f2a37;
+    background-color: #111820;
+    box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   }
   .card-header {
-    @apply flex items-center justify-between gap-3 border-b border-border px-4 py-3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #1f2a37;
   }
 
   /* Small status label */
   .badge {
-    @apply inline-flex items-center gap-1 rounded-full border border-border-strong bg-bg-tertiary px-2 py-0.5 text-[11px] font-medium leading-4 text-gray-300;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    border: 1px solid #2d3a4b;
+    background-color: #161d27;
+    color: #d1d5db;
+    font-size: 11px;
+    line-height: 1rem;
+    font-weight: 500;
   }
   .badge-accent {
-    @apply border-accent/30 bg-accent/10 text-accent;
+    border-color: rgba(63, 185, 80, 0.3);
+    background-color: rgba(63, 185, 80, 0.1);
+    color: #3fb950;
   }
   .badge-info {
-    @apply border-info/30 bg-info/10 text-info;
+    border-color: rgba(88, 166, 255, 0.3);
+    background-color: rgba(88, 166, 255, 0.1);
+    color: #58a6ff;
   }
   .badge-warning {
-    @apply border-warning/30 bg-warning/10 text-warning;
+    border-color: rgba(210, 153, 34, 0.3);
+    background-color: rgba(210, 153, 34, 0.1);
+    color: #d29922;
   }
   .badge-danger {
-    @apply border-danger/30 bg-danger/10 text-danger;
+    border-color: rgba(248, 81, 73, 0.3);
+    background-color: rgba(248, 81, 73, 0.1);
+    color: #f85149;
   }
 
   /* Data tables: add class="data-table" to a <table> */
   .data-table {
-    @apply w-full border-collapse text-sm;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
   }
   .data-table th {
-    @apply sticky top-0 z-10 border-b border-border bg-bg-secondary px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #1f2a37;
+    background-color: #111820;
+    color: #6b7280;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
   }
   .data-table td {
-    @apply border-b border-border/60 px-3 py-2 align-middle text-gray-300;
+    padding: 0.5rem 0.75rem;
+    vertical-align: middle;
+    border-bottom: 1px solid rgba(31, 42, 55, 0.6);
+    color: #d1d5db;
   }
   .data-table tbody tr {
-    @apply transition-colors hover:bg-bg-tertiary;
+    transition: background-color 0.15s;
+  }
+  .data-table tbody tr:hover {
+    background-color: #161d27;
   }
 
   .kbd {
-    @apply inline-flex h-5 min-w-[20px] items-center justify-center rounded border border-border-strong bg-bg-tertiary px-1 font-mono text-[10px] text-gray-400;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 1.25rem;
+    padding: 0 0.25rem;
+    border-radius: 0.25rem;
+    border: 1px solid #2d3a4b;
+    background-color: #161d27;
+    color: #9ca3af;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+    font-size: 10px;
   }
 
   .skeleton {
-    @apply animate-shimmer rounded bg-bg-tertiary;
+    border-radius: 0.25rem;
+    background-color: #161d27;
     background-image: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
     background-size: 200% 100%;
+    animation: msf-shimmer 1.6s linear infinite;
+  }
+}
+
+@keyframes msf-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
   }
 }
 
