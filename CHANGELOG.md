@@ -8,7 +8,7 @@
   lifecycle status of assessments.
 - Added explicit target registration and removal, duplicate protection, and
   exact scheme/host/port scope validation.
-- Added unit tests for assessment persistence, authorization confirmation,
+- Disabled WhatWeb redirect following so a scanner run cannot silently leave its approved origin.\n- Added unit tests for assessment persistence, authorization confirmation,
   lifecycle restrictions, duplicate targets, scope boundaries, execution history,
   stored evidence retrieval, and scanner timeout persistence.
 
