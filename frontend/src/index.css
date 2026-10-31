@@ -3,18 +3,146 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    color-scheme: dark;
+  }
   * {
     @apply border-border;
   }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-bg-primary font-sans text-gray-200 antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: rgba(63, 185, 80, 0.28);
+    color: #fff;
+  }
+  ::placeholder {
+    color: #6e7681;
+  }
+
+  /* Keyboard focus: visible everywhere, never on mouse click. */
+  :focus-visible {
+    outline: 2px solid rgba(63, 185, 80, 0.7);
+    outline-offset: 2px;
+  }
+  /* :where() keeps specificity at zero so any utility class still wins. */
+  :where(input:not([type="checkbox"]):not([type="radio"]), textarea, select):focus-visible {
+    outline: none;
+    border-color: #3fb950;
+    box-shadow: 0 0 0 3px rgba(63, 185, 80, 0.15);
+  }
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: #3fb950;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  code,
+  kbd,
+  pre,
+  samp {
+    @apply font-mono;
+  }
+
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
   }
   ::-webkit-scrollbar-track {
-    @apply bg-bg-primary;
+    background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-border rounded;
+    @apply rounded-full border-2 border-solid border-transparent bg-border-strong bg-clip-padding;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: #3d4c61;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+@layer components {
+  /* Buttons */
+  .btn {
+    @apply inline-flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-border-strong bg-bg-tertiary px-3.5 text-sm font-medium text-gray-200 transition-colors hover:bg-bg-elevated hover:text-white disabled:opacity-50;
+  }
+  .btn-sm {
+    @apply h-7 px-2.5 text-xs;
+  }
+  .btn-primary {
+    @apply border-transparent bg-accent-dim text-black hover:bg-accent hover:text-black;
+  }
+  .btn-ghost {
+    @apply border-transparent bg-transparent text-gray-400 hover:bg-bg-tertiary hover:text-gray-100;
+  }
+  .btn-danger {
+    @apply border-danger/40 bg-danger/10 text-danger hover:bg-danger/20 hover:text-danger;
+  }
+
+  /* Form controls */
+  .input {
+    @apply h-9 w-full rounded-md border border-border-strong bg-bg-primary px-3 text-sm text-gray-100 transition-colors placeholder:text-gray-600 hover:border-gray-600 disabled:opacity-50;
+  }
+
+  /* Surfaces */
+  .card {
+    @apply rounded-lg border border-border bg-bg-secondary shadow-panel;
+  }
+  .card-header {
+    @apply flex items-center justify-between gap-3 border-b border-border px-4 py-3;
+  }
+
+  /* Small status label */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full border border-border-strong bg-bg-tertiary px-2 py-0.5 text-[11px] font-medium leading-4 text-gray-300;
+  }
+  .badge-accent {
+    @apply border-accent/30 bg-accent/10 text-accent;
+  }
+  .badge-info {
+    @apply border-info/30 bg-info/10 text-info;
+  }
+  .badge-warning {
+    @apply border-warning/30 bg-warning/10 text-warning;
+  }
+  .badge-danger {
+    @apply border-danger/30 bg-danger/10 text-danger;
+  }
+
+  /* Data tables: add class="data-table" to a <table> */
+  .data-table {
+    @apply w-full border-collapse text-sm;
+  }
+  .data-table th {
+    @apply sticky top-0 z-10 border-b border-border bg-bg-secondary px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500;
+  }
+  .data-table td {
+    @apply border-b border-border/60 px-3 py-2 align-middle text-gray-300;
+  }
+  .data-table tbody tr {
+    @apply transition-colors hover:bg-bg-tertiary;
+  }
+
+  .kbd {
+    @apply inline-flex h-5 min-w-[20px] items-center justify-center rounded border border-border-strong bg-bg-tertiary px-1 font-mono text-[10px] text-gray-400;
+  }
+
+  .skeleton {
+    @apply animate-shimmer rounded bg-bg-tertiary;
+    background-image: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+    background-size: 200% 100%;
   }
 }
 

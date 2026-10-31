@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
-import { Sidebar, View } from "./components/Sidebar";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Sidebar, NAV } from "./components/Sidebar";
+import type { View } from "./components/Sidebar";
 import { ConsoleView } from "./components/ConsoleView";
-import { ModuleBrowser, ModuleSearchRequest, TargetContext } from "./components/ModuleBrowser";
+import { ModuleBrowser } from "./components/ModuleBrowser";
+import type { ModuleSearchRequest, TargetContext } from "./components/ModuleBrowser";
 import { ScanWizard } from "./components/ScanWizard";
 import { RecipesView } from "./components/RecipesView";
 import { SessionsView } from "./components/SessionsView";
@@ -10,6 +12,9 @@ import { JobsView } from "./components/JobsView";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
 import { LoginView } from "./components/LoginView";
 import { ContextMenu } from "./components/ContextMenu";
+import { CommandPalette } from "./components/CommandPalette";
+import type { PaletteAction } from "./components/CommandPalette";
+import { Spinner } from "./components/ui";
 import { api } from "./lib/api";
 
 type AuthStatus = "checking" | "authenticated" | "unauthenticated";
@@ -29,6 +34,7 @@ export default function App() {
   const [authConfigured, setAuthConfigured] = useState<boolean | null>(null);
   const [username, setUsername] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -76,10 +82,32 @@ export default function App() {
     };
   }, [authStatus]);
 
-  const visit = (next: View) => {
+  const visit = useCallback((next: View) => {
     setView(next);
     setVisitedViews((current) => (current.has(next) ? current : new Set(current).add(next)));
-  };
+  }, []);
+
+  // Keyboard shortcuts: Ctrl/Cmd+K opens the command palette, Alt+1..7 jumps
+  // straight to a view (matches the order shown in the sidebar).
+  useEffect(() => {
+    if (authStatus !== "authenticated") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+        return;
+      }
+      if (event.altKey && !event.ctrlKey && !event.metaKey && event.code.startsWith("Digit")) {
+        const target = NAV[Number(event.code.slice(5)) - 1];
+        if (target) {
+          event.preventDefault();
+          visit(target.id);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [authStatus, visit]);
 
   // Drives the module browser's search from outside (the scan wizard's
   // "Investigate in Modules" button) and switches to that tab.
@@ -95,7 +123,7 @@ export default function App() {
     setAuthStatus("authenticated");
   };
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await api.auth.logout();
     } catch (cause: unknown) {
@@ -105,12 +133,27 @@ export default function App() {
       setAuthStatus("unauthenticated");
       setConnected(false);
       setChecked(false);
+      setPaletteOpen(false);
     }
-  };
+  }, []);
+
+  const paletteActions = useMemo<PaletteAction[]>(
+    () => [
+      {
+        id: "sign-out",
+        label: "Sign out",
+        hint: "End this local session",
+        keywords: "logout log out exit",
+        run: () => void logout(),
+      },
+    ],
+    [logout],
+  );
 
   if (authStatus === "checking") {
     return (
-      <main className="flex h-screen w-screen items-center justify-center bg-bg-primary">
+      <main className="flex h-screen w-screen flex-col items-center justify-center gap-3 bg-bg-primary">
+        <Spinner className="h-5 w-5 text-accent" />
         <div className="text-xs uppercase tracking-[0.2em] text-gray-500">Checking local session…</div>
       </main>
     );
@@ -126,31 +169,79 @@ export default function App() {
     );
   }
 
+  const current = NAV.find((item) => item.id === view);
+  const initial = username.trim().charAt(0).toUpperCase() || "?";
+
   return (
     <div className="flex h-screen w-screen overflow-hidden">
       <ContextMenu />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onSelectView={visit}
+        actions={paletteActions}
+      />
       <Sidebar active={view} onSelect={visit} connected={connected} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         {checked && !connected && (
-          <div className="border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs text-warning">
-            Cannot reach msfrpcd. Start it and check backend/.env — see README for the exact command.
+          <div
+            role="alert"
+            className="flex items-center gap-2 border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs text-warning"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+              <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <span>Cannot reach msfrpcd. Start it and check backend/.env — see README for the exact command.</span>
           </div>
         )}
 
-        <div className="relative z-20 flex h-12 shrink-0 items-center justify-end gap-3 border-b border-border bg-bg-secondary px-4">
-          <span className="hidden max-w-40 truncate text-[10px] text-gray-500 sm:inline" title={username}>
-            Signed in as <span className="text-gray-300">{username}</span>
-          </span>
-          <WorkspaceSwitcher onWorkspaceChanged={() => setWorkspaceRevision((revision) => revision + 1)} />
-          <button
-            type="button"
-            onClick={() => void logout()}
-            className="rounded border border-border px-2.5 py-1.5 text-xs text-gray-400 hover:bg-bg-tertiary hover:text-gray-100"
-          >
-            Sign out
-          </button>
-        </div>
+        <header className="relative z-20 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-bg-secondary px-4">
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-semibold text-gray-100">{current?.label}</h1>
+            <p className="hidden truncate text-[11px] text-gray-500 md:block">{current?.description}</p>
+          </div>
+
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              aria-label="Open command palette"
+              className="hidden h-8 items-center gap-2 rounded-md border border-border-strong bg-bg-primary px-2.5 text-xs text-gray-500 transition-colors hover:border-gray-600 hover:text-gray-300 sm:flex"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <line x1="21" y1="21" x2="16.5" y2="16.5" />
+              </svg>
+              <span>Jump to…</span>
+              <span className="kbd">Ctrl K</span>
+            </button>
+
+            <WorkspaceSwitcher onWorkspaceChanged={() => setWorkspaceRevision((revision) => revision + 1)} />
+
+            <div className="flex items-center gap-2 border-l border-border pl-3">
+              <span
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-bg-elevated text-xs font-semibold text-gray-200"
+                title={`Signed in as ${username}`}
+                aria-hidden="true"
+              >
+                {initial}
+              </span>
+              <span className="hidden max-w-32 truncate text-xs text-gray-400 lg:inline" title={username}>
+                {username}
+              </span>
+              <button
+                type="button"
+                onClick={() => void logout()}
+                className="btn btn-ghost btn-sm"
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
+        </header>
 
         <div className="min-h-0 flex-1 relative">
           {visitedViews.has("console") && (
