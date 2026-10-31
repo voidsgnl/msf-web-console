@@ -59,6 +59,14 @@ class DropbearCpeIdentityTests(unittest.TestCase):
         self.assertNotIn(("dropbear", "dropbear"), identities)
 
 
+    def test_vsftpd_uses_nvd_project_vendor(self):
+        self.assertIn(("vsftpd_project", "vsftpd"), CPE_PRODUCT_IDENTITIES["vsftpd"])
+        self.assertNotIn(("vsftpd", "vsftpd"), CPE_PRODUCT_IDENTITIES["vsftpd"])
+
+    def test_gunicorn_does_not_include_unverified_vendor_alias(self):
+        self.assertEqual(CPE_PRODUCT_IDENTITIES["gunicorn"], {("gunicorn", "gunicorn")})
+
+
 class BannerProductsAreMappedTests(unittest.TestCase):
     def test_every_versioned_banner_product_has_a_cpe_mapping(self):
         for banner, port in VERSIONED_BANNERS:
