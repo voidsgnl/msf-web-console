@@ -85,7 +85,8 @@ Status: in progress.
 - [ ] Add network/service discovery (Nmap) as a separate workflow.
 - [x] Persist and deduplicate URL/host assets observed in HTTP probe, httpx, and WhatWeb evidence; track first/last seen and source tool.
 - [ ] Expand the inventory to IPs, ports, services, and passive/crawl discovery sources.
-- [x] Establish the first exact-origin target-scope boundary; extend it to discovered child assets through explicit scope expansion and approval.\n- [x] Track discovered in-scope and out-of-scope URL/host assets; discovery never changes approved targets.
+- [x] Establish the first exact-origin target-scope boundary; extend it to discovered child assets through explicit scope expansion and approval.
+- [x] Track discovered in-scope and out-of-scope URL/host assets; discovery never changes approved targets.
 - [ ] Add an explicit review-and-approve workflow for expanding assessment scope.
 
 ## Phase 3 — Vulnerability assessment
