@@ -77,7 +77,8 @@ Status: in progress.
 
 ## Phase 2 — Asset discovery and mapping
 
-- [ ] Add passive subdomain discovery (Subfinder/Amass) as a distinct workflow.
+- [x] Add passive Subfinder discovery as a distinct workflow with bounded runtime/rate, structured output, provenance, and inventory persistence.
+- [ ] Add Amass as a separately reviewed adapter; do not assume its active/passive modes are interchangeable.
 - [ ] Add controlled crawling and endpoint discovery (Katana).
 - [ ] Add content discovery (ffuf/Feroxbuster) with explicit wordlist,
       request-rate, and scope controls.
