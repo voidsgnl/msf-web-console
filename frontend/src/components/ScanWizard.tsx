@@ -782,21 +782,42 @@ export function ScanWizard({ onInvestigate }: { onInvestigate: (type: string, qu
                                             Shared CVE references · NVD keyword cross-check
                                           </p>
                                           <div className="flex flex-wrap gap-1.5">
-                                            {candidate.cve_matches.map((cveId) => (
-                                              <a
-                                                key={cveId}
-                                                href={`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cveId)}`}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="font-mono text-[10px] text-sky-300 underline decoration-sky-500/40 hover:text-sky-200"
-                                                title="Open the NVD record. Check its affected CPE/version range before treating it as applicable."
-                                              >
-                                                {cveId}
-                                              </a>
-                                            ))}
+                                            {candidate.cve_matches.map((cveId) => {
+                                              const assessment = candidate.cve_version_assessments?.find(
+                                                (item) => item.cve_id === cveId,
+                                              )?.status ?? "indeterminate";
+                                              const assessmentLabel =
+                                                assessment === "affected"
+                                                  ? "CPE range includes version"
+                                                  : assessment === "not_affected"
+                                                    ? "Outside published range"
+                                                    : "Version applicability unknown";
+                                              const assessmentStyle =
+                                                assessment === "affected"
+                                                  ? "text-warning border-warning/30"
+                                                  : assessment === "not_affected"
+                                                    ? "text-success border-success/30"
+                                                    : "text-gray-400 border-gray-600/40";
+                                              return (
+                                                <span key={cveId} className="inline-flex items-center gap-1.5 rounded border border-sky-500/20 px-1.5 py-0.5">
+                                                  <a
+                                                    href={`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cveId)}`}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="font-mono text-[10px] text-sky-300 underline decoration-sky-500/40 hover:text-sky-200"
+                                                    title="Open the NVD record."
+                                                  >
+                                                    {cveId}
+                                                  </a>
+                                                  <span className={`border-l pl-1.5 text-[9px] ${assessmentStyle}`}>
+                                                    {assessmentLabel}
+                                                  </span>
+                                                </span>
+                                              );
+                                            })}
                                           </div>
                                           <p className="text-[10px] text-gray-500 mt-1">
-                                            Shared references are not proof this detected version is affected or that the target is vulnerable.
+                                            CPE status compares the detected product/version with NVD's vulnerable CPE entries. It is not a live vulnerability verdict; use Verify where the module supports a check.
                                           </p>
                                         </div>
                                       )}
