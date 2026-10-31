@@ -67,6 +67,13 @@ class DropbearCpeIdentityTests(unittest.TestCase):
         self.assertEqual(CPE_PRODUCT_IDENTITIES["gunicorn"], {("gunicorn", "gunicorn")})
 
 
+    def test_werkzeug_uses_current_palletsprojects_identity(self):
+        self.assertEqual(CPE_PRODUCT_IDENTITIES["werkzeug"], {("palletsprojects", "werkzeug")})
+
+    def test_mysql_includes_oracle_server_identity(self):
+        self.assertIn(("oracle", "mysql_server"), CPE_PRODUCT_IDENTITIES["mysql"])
+
+
 class BannerProductsAreMappedTests(unittest.TestCase):
     def test_every_versioned_banner_product_has_a_cpe_mapping(self):
         for banner, port in VERSIONED_BANNERS:
