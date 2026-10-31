@@ -115,3 +115,125 @@ def probe_web_service(req: WebProbeRequest):
         raise HTTPException(502, f"HTTP probe failed: {exc}") from exc
     finally:
         session.close()
+
+
+# Only these fixed adapters are executable from the UI. Arguments are built
+# here (never accepted from the browser), and subprocesses never use a shell.
+RUNNABLE_TOOLS = {
+    "httpx": {
+        "name": "httpx",
+        "timeout": 30,
+        "max_output": 262144,
+    },
+    "whatweb": {
+        "name": "WhatWeb",
+        "timeout": 45,
+        "max_output": 262144,
+    },
+}
+
+
+class ToolRunRequest(BaseModel):
+    tool_id: str = Field(pattern=r"^(httpx|whatweb)$")
+    url: str = Field(min_length=1, max_length=2048)
+    authorized: bool = False
+
+
+def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[str]:
+    if tool_id == "httpx":
+        return [
+            executable, "-u", target_url, "-json", "-silent", "-no-color",
+            "-timeout", "10", "-retries", "0", "-follow-redirects=false",
+        ]
+    if tool_id == "whatweb":
+        return [
+            executable, "--log-json=-", "--no-errors", "--color=never",
+            "--max-threads=1", "--wait=1", target_url,
+        ]
+    raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
+
+
+def _parse_tool_output(tool_id: str, output: str) -> list[dict]:
+    import json
+
+    records: list[dict] = []
+    for line in output.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            item = json.loads(line)
+        except (TypeError, ValueError):
+            # Keep non-JSON output as bounded evidence; do not invent fields.
+            records.append({"raw": line[:4000]})
+            continue
+        if tool_id == "httpx" and isinstance(item, dict):
+            records.append({
+                "url": item.get("url"),
+                "status_code": item.get("status_code"),
+                "title": item.get("title"),
+                "webserver": item.get("webserver"),
+                "content_type": item.get("content_type"),
+                "technologies": item.get("tech") if isinstance(item.get("tech"), list) else [],
+                "host": item.get("host"),
+                "raw": None,
+            })
+        elif tool_id == "whatweb" and isinstance(item, dict):
+            plugins = item.get("plugins") if isinstance(item.get("plugins"), dict) else {}
+            records.append({
+                "target": item.get("target"),
+                "http_status": item.get("http_status"),
+                "title": plugins.get("title", {}).get("string") if isinstance(plugins.get("title"), dict) else None,
+                "technologies": sorted(plugins.keys()),
+                "raw": None,
+            })
+        else:
+            records.append({"raw": line[:4000]})
+    return records
+
+
+@router.post("/run")
+def run_recon_tool(req: ToolRunRequest):
+    """Run one fixed, bounded HTTP reconnaissance adapter against one authorized URL."""
+    import subprocess
+
+    if not req.authorized:
+        raise HTTPException(400, "Confirm that you own this target or have explicit permission to assess it.")
+    target_url = _normalise_url(req.url)
+    config = RUNNABLE_TOOLS.get(req.tool_id)
+    if not config:
+        raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
+    executable = shutil.which(req.tool_id)
+    if not executable:
+        raise HTTPException(409, f"{config['name']} is not installed or is not available on the backend PATH.")
+    command = _build_tool_command(req.tool_id, executable, target_url)
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=config["timeout"],
+            check=False,
+            shell=False,
+            env={"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": __import__("os").path.expanduser("~")},
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(504, f"{config['name']} exceeded its {config['timeout']}-second time limit.") from exc
+    except OSError as exc:
+        raise HTTPException(502, f"{config['name']} could not be started: {exc.strerror or 'execution error'}.") from exc
+
+    stdout = (completed.stdout or "")[:config["max_output"]]
+    stderr = (completed.stderr or "")[:4000]
+    return {
+        "tool_id": req.tool_id,
+        "tool": config["name"],
+        "target": target_url,
+        "exit_code": completed.returncode,
+        "timed_out": False,
+        "output_truncated": len(completed.stdout or "") > config["max_output"],
+        "records": _parse_tool_output(req.tool_id, stdout),
+        "stderr": stderr,
+        "assessment": "Tool output is reconnaissance evidence, not a confirmed vulnerability verdict.",
+    }
