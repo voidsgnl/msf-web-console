@@ -55,6 +55,20 @@ class WebReconTests(unittest.TestCase):
 
 
 
+class ReconToolExecutionGuardTests(unittest.TestCase):
+    def test_run_requires_explicit_authorization(self):
+        request = ToolRunRequest(tool_id="httpx", url="https://example.test", authorized=False)
+        with self.assertRaises(HTTPException) as raised:
+            run_recon_tool(request)
+        self.assertEqual(raised.exception.status_code, 400)
+
+    @patch("app.routes.web_recon.shutil.which", return_value=None)
+    def test_run_reports_missing_binary(self, _which):
+        request = ToolRunRequest(tool_id="httpx", url="https://example.test", authorized=True)
+        with self.assertRaises(HTTPException) as raised:
+            run_recon_tool(request)
+        self.assertEqual(raised.exception.status_code, 409)
+
 class ReconToolAdapterTests(unittest.TestCase):
     def test_httpx_command_uses_fixed_arguments(self):
         command = _build_tool_command("httpx", "/usr/bin/httpx", "https://example.test")
