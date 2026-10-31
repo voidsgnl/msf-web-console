@@ -70,6 +70,16 @@ class ReconToolExecutionGuardTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as raised:
             run_recon_tool(request)
         self.assertEqual(raised.exception.status_code, 403)
+    @patch("app.routes.assessments.record_tool_execution")
+    @patch("app.routes.assessments.assert_target_in_scope", return_value={"assessment_id": 1, "target_id": 2})
+    @patch("app.routes.web_recon.shutil.which", return_value="/usr/bin/httpx")
+    @patch("subprocess.run", side_effect=__import__("subprocess").TimeoutExpired(cmd="httpx", timeout=30))
+    def test_scanner_timeout_is_persisted(self, _run, _which, _scope, record):
+        request = ToolRunRequest(assessment_id=1, tool_id="httpx", url="https://example.test", authorized=True)
+        with self.assertRaises(HTTPException) as raised:
+            run_recon_tool(request)
+        self.assertEqual(raised.exception.status_code, 504)
+        self.assertEqual(record.call_args.args[5], 124)
     @patch("app.routes.assessments.assert_target_in_scope", return_value={"assessment_id": 1, "target_id": 2})
     @patch("app.routes.web_recon.shutil.which", return_value=None)
     def test_run_reports_missing_binary(self, _which, _scope):
