@@ -7,10 +7,9 @@ from app.routes.modules import suggest_modules
 
 class SuggestModulesCveMatchingTests(unittest.TestCase):
     """
-    Covers the NVD CVE cross-reference added to GET /modules/suggest:
-    a candidate module is only marked cve_matches when its own declared
-    CVE references overlap with the CVEs NVD independently reports for
-    the confirmed product/version.
+    Covers the NVD keyword cross-reference added to GET /modules/suggest.
+    A shared identifier is evidence of overlapping references only; it
+    does not prove that the detected version is in an affected CPE range.
     """
 
     def test_candidate_with_overlapping_cve_is_boosted_and_flagged(self):
@@ -32,8 +31,8 @@ class SuggestModulesCveMatchingTests(unittest.TestCase):
         self.assertEqual(len(result["candidates"]), 1)
         candidate = result["candidates"][0]
         self.assertEqual(candidate["cve_matches"], ["CVE-2011-2523"])
-        self.assertGreaterEqual(candidate["rank_weight"], 1000)
-        self.assertIn("CVE-to-module match", result["note"])
+        self.assertEqual(candidate["rank_weight"], 600)  # native Metasploit rank is preserved
+        self.assertIn("does not validate", result["note"])
 
     def test_candidate_without_overlapping_cve_is_not_flagged(self):
         module_list = {"modules": ["unix/ftp/vsftpd_234_backdoor"]}
@@ -52,7 +51,7 @@ class SuggestModulesCveMatchingTests(unittest.TestCase):
 
         candidate = result["candidates"][0]
         self.assertEqual(candidate["cve_matches"], [])
-        self.assertLess(candidate["rank_weight"], 1000)
+        self.assertEqual(candidate["rank_weight"], 600)
 
     def test_nvd_failure_degrades_to_name_matching_without_raising(self):
         module_list = {"modules": ["unix/ftp/vsftpd_234_backdoor"]}
