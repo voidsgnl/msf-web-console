@@ -9,8 +9,11 @@
 - Added explicit target registration and removal, duplicate protection, and
   exact scheme/host/port scope validation.
 - Added unit tests for assessment persistence, authorization confirmation,
-  lifecycle restrictions, duplicate targets, and scope boundaries.
+  lifecycle restrictions, duplicate targets, scope boundaries, execution history,
+  stored evidence retrieval, and scanner timeout persistence.
 
-The scanner UI is not yet connected to assessment scope. Reconnaissance
-execution must be bound to an assessment and an approved target before this
-foundation is considered complete.
+The built-in HTTP probe, httpx, and WhatWeb now require an active assessment and
+an exact approved target origin. Completed executions, timeouts, and launch
+failures are persisted; the Web Security workspace lists recent runs and can
+reopen their stored evidence. Scanner cancellation and hard output limits remain
+outstanding.
