@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from app.routes.web_recon import (
     ToolRunRequest, WebProbeRequest, _build_tool_command, _normalise_url,
-    _parse_tool_output, _technology_hints, _filter_katana_records,
+    _parse_tool_output, _technology_hints, _filter_katana_records, _resolve_same_origin_redirects,
     probe_web_service, run_recon_tool,
 )
 
@@ -157,7 +157,7 @@ class ReconToolAdapterTests(unittest.TestCase):
         self.assertIn("-dr", command)
         self.assertIn("-jc", command)
         self.assertIn("-iqp", command)
-        self.assertIn("-ns", command)
+        self.assertNotIn("-ns", command)
         self.assertIn("-cs", command)
         scope = command[command.index("-cs") + 1]
         self.assertIn(r"example\.test:8443", scope)
@@ -177,14 +177,48 @@ class ReconToolAdapterTests(unittest.TestCase):
     def test_katana_parser_extracts_endpoint_metadata(self):
         records = _parse_tool_output(
             "katana",
-            '{"request":{"method":"GET","endpoint":"https://example.test/login"},'
-            '"response":{"status_code":200},"source":"https://example.test/",'
-            '"tag":"a","attribute":"href"}',
+            '{"request":{"method":"GET","endpoint":"https://example.test/login",'
+            '"source":"https://example.test/","tag":"a","attribute":"href"},'
+            '"response":{"status_code":200,"headers":{"location":"/next"}}}',
         )
         self.assertEqual(records[0]["url"], "https://example.test/login")
         self.assertEqual(records[0]["method"], "GET")
         self.assertEqual(records[0]["status_code"], 200)
         self.assertEqual(records[0]["tag"], "a")
+        self.assertEqual(records[0]["attribute"], "href")
+        self.assertEqual(records[0]["source"], "https://example.test/")
+        self.assertEqual(records[0]["redirect_location"], "/next")
+
+
+    def test_katana_follows_only_same_origin_entry_redirects(self):
+        first = MagicMock()
+        first.status_code = 308
+        first.headers = {"Location": "/app"}
+        second = MagicMock()
+        second.status_code = 200
+        second.headers = {}
+        session = MagicMock()
+        session.get.side_effect = [first, second]
+        with patch("app.routes.web_recon.requests.Session", return_value=session):
+            resolved, chain, blocked = _resolve_same_origin_redirects("https://example.test/")
+        self.assertEqual(resolved, "https://example.test/app")
+        self.assertEqual(len(chain), 1)
+        self.assertTrue(chain[0]["followed"])
+        self.assertIsNone(blocked)
+        self.assertFalse(session.trust_env)
+
+    def test_katana_blocks_cross_origin_entry_redirect(self):
+        response = MagicMock()
+        response.status_code = 308
+        response.headers = {"Location": "https://www.example.test/"}
+        session = MagicMock()
+        session.get.return_value = response
+        with patch("app.routes.web_recon.requests.Session", return_value=session):
+            resolved, chain, blocked = _resolve_same_origin_redirects("https://example.test/")
+        self.assertEqual(resolved, "https://example.test/")
+        self.assertFalse(chain[0]["followed"])
+        self.assertIn("outside the approved", blocked["reason"])
+        self.assertEqual(session.get.call_count, 1)
 
     def test_katana_request_is_an_allowed_tool_id(self):
         request = ToolRunRequest(
