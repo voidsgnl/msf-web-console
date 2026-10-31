@@ -79,7 +79,7 @@ Status: in progress.
 
 - [x] Add passive Subfinder discovery as a distinct workflow with bounded runtime/rate, structured output, provenance, and inventory persistence.
 - [ ] Add Amass as a separately reviewed adapter; do not assume its active/passive modes are interchangeable.
-- [x] Add controlled crawling and endpoint discovery (Katana) with exact-origin scope, disabled redirects, depth/page/time/request-rate limits, and endpoint provenance.
+- [x] Add controlled crawling and endpoint discovery (Katana) with exact-origin scope, disabled redirects, JavaScript endpoint extraction, query deduplication, depth/page/time/request-rate limits, and endpoint provenance.
 - [ ] Add content discovery (ffuf/Feroxbuster) with explicit wordlist,
       request-rate, and scope controls.
 - [ ] Add network/service discovery (Nmap) as a separate workflow.
