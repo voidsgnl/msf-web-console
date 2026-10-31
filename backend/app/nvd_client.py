@@ -30,21 +30,47 @@ _MISS = object()
 
 def extract_cve_ids(value: Any) -> set[str]:
     """
-    Pull every CVE identifier out of an arbitrary record (or nested value).
+    Extract CVE IDs from Metasploit reference records and arbitrary nested data.
 
-    Metasploit vuln `refs` fields show up as a list of plain strings, a list
-    of {"ctx_id": "CVE", "ctx_val": "..."} hashes, or other shapes depending
-    on framework/database version. Rather than special-casing each shape,
-    this serializes the value to JSON and scans the text for CVE-looking
-    substrings, which is robust to all of them. The same approach also
-    works unchanged for module.info's "references" field (a list of
-    [type, value] pairs such as ["CVE", "2021-41773"]).
+    Metasploit commonly represents module references as ["CVE", "2021-41773"],
+    while database vulnerability references may use {"ctx_id": "CVE",
+    "ctx_val": "2021-41773"}. Those split forms do not contain the literal
+    "CVE-YYYY-NNNN" token, so handle their CVE context explicitly as well as
+    scanning free-form strings for complete identifiers.
     """
-    try:
-        text = json.dumps(value, default=str)
-    except (TypeError, ValueError):
-        text = str(value)
-    return {match.upper() for match in CVE_ID_RE.findall(text)}
+    found: set[str] = set()
+
+    def add(raw: Any, *, cve_context: bool = False) -> None:
+        if raw is None:
+            return
+        text = str(raw).strip()
+        matches = CVE_ID_RE.findall(text)
+        found.update(match.upper() for match in matches)
+        if cve_context and re.fullmatch(r"\d{4}-\d{4,7}", text):
+            found.add(f"CVE-{text}".upper())
+
+    def visit(item: Any) -> None:
+        if isinstance(item, dict):
+            context = str(item.get("ctx_id") or item.get("type") or "").strip().upper()
+            value = item.get("ctx_val", item.get("value"))
+            if context == "CVE":
+                add(value, cve_context=True)
+            for key, nested in item.items():
+                if key not in {"ctx_val", "value"}:
+                    visit(nested)
+        elif isinstance(item, (list, tuple)):
+            if len(item) >= 2 and str(item[0]).strip().upper() == "CVE":
+                add(item[1], cve_context=True)
+                for nested in item[2:]:
+                    visit(nested)
+            else:
+                for nested in item:
+                    visit(nested)
+        elif isinstance(item, str):
+            add(item)
+
+    visit(value)
+    return found
 
 
 class NvdError(Exception):
