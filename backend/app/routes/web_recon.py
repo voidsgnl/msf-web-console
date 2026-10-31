@@ -243,8 +243,18 @@ def run_recon_tool(req: ToolRunRequest):
             stderr_file.seek(0)
             stderr = stderr_file.read(4000)
     except subprocess.TimeoutExpired as exc:
+        finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        record_tool_execution(
+            scope, req.tool_id, target_url, started_at, finished_at,
+            124, False, [], f"Timed out after {config['timeout']} seconds.",
+        )
         raise HTTPException(504, f"{config['name']} exceeded its {config['timeout']}-second time limit.") from exc
     except OSError as exc:
+        finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        record_tool_execution(
+            scope, req.tool_id, target_url, started_at, finished_at,
+            127, False, [], exc.strerror or "Execution error.",
+        )
         raise HTTPException(502, f"{config['name']} could not be started: {exc.strerror or 'execution error'}.") from exc
 
     finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
