@@ -21,6 +21,7 @@ from typing import Any
 import requests
 
 from app.cpe_config import OTHER, evaluate_configurations
+from app.cpe_products import CPE_PRODUCT_IDENTITIES as _CPE_PRODUCT_IDENTITIES
 
 NVD_BASE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 CVE_ID_RE = re.compile(r"CVE-\d{4}-\d{4,7}", re.IGNORECASE)
@@ -175,24 +176,6 @@ def _extract_configurations(cve: dict[str, Any]) -> list[dict[str, Any]]:
                 "nodes": nodes,
             })
     return configurations
-
-# Explicit product-to-CPE mappings. Unknown products deliberately remain
-# indeterminate rather than being matched by loose substring heuristics.
-_CPE_PRODUCT_IDENTITIES: dict[str, set[tuple[str, str]]] = {
-    "vsftpd": {("vsftpd", "vsftpd")},
-    "openssh": {("openbsd", "openssh"), ("openssh", "openssh")},
-    "dropbear": {("dropbear", "dropbear")},
-    "proftpd": {("proftpd", "proftpd")},
-    "apachehttpd": {("apache", "http_server")},
-    "nginx": {("nginx", "nginx")},
-    "apachetomcat": {("apache", "tomcat")},
-    "samba": {("samba", "samba")},
-    "mysql": {("oracle", "mysql")},
-    "mariadb": {("mariadb", "mariadb")},
-    "postgresql": {("postgresql", "postgresql")},
-    "redis": {("redis", "redis")},
-    "microsoftiis": {("microsoft", "internet_information_server")},
-}
 
 
 def _product_key(value: str) -> str:
