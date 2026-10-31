@@ -98,6 +98,53 @@ class AssessmentStoreTests(unittest.TestCase):
             assessments.add_assessment_target(created["id"], request)
         self.assertEqual(raised.exception.status_code, 409)
 
+    def test_execution_populates_in_scope_and_out_of_scope_assets_without_expanding_scope(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Asset inventory"))
+        target = assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], "https://example.test")
+        saved = assessments.record_tool_execution(
+            scope, "httpx", "https://example.test",
+            "2026-10-31T10:00:00+00:00", "2026-10-31T10:00:02+00:00", 0, False,
+            [
+                {"url": "https://example.test/login", "status_code": 200},
+                {"url": "https://external.test/admin", "status_code": 200},
+                {"host": "external.test"},
+            ], "",
+        )
+        assets = assessments.list_assessment_assets(created["id"])
+        by_value = {(item["asset_type"], item["value"]): item for item in assets["assets"]}
+        self.assertEqual(by_value[("url", "https://example.test/login")]["scope_state"], "in_scope")
+        self.assertEqual(by_value[("url", "https://external.test/admin")]["scope_state"], "out_of_scope")
+        self.assertEqual(by_value[("host", "external.test")]["scope_state"], "out_of_scope")
+        detail = assessments.get_assessment(created["id"])
+        self.assertEqual([item["id"] for item in detail["targets"]], [target["id"]])
+        self.assertEqual(saved["tool_id"], "httpx")
+        self.assertEqual(assets["counts"], {"total": 4, "in_scope": 2, "out_of_scope": 2})
+
+    def test_asset_inventory_deduplicates_and_updates_last_seen(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Asset dedupe"))
+        assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], "https://example.test")
+        assessments.record_tool_execution(
+            scope, "httpx", "https://example.test", "2026-10-31T10:00:00+00:00",
+            "2026-10-31T10:00:02+00:00", 0, False, [{"url": "https://example.test/login"}], "",
+        )
+        first = assessments.list_assessment_assets(created["id"])["assets"]
+        original_first_seen = next(item["first_seen"] for item in first if item["value"] == "https://example.test/login")
+        assessments.record_tool_execution(
+            scope, "whatweb", "https://example.test", "2026-10-31T11:00:00+00:00",
+            "2026-10-31T11:00:02+00:00", 0, False, [{"url": "https://example.test/login"}], "",
+        )
+        second = assessments.list_assessment_assets(created["id"])["assets"]
+        login = next(item for item in second if item["value"] == "https://example.test/login")
+        self.assertEqual(login["first_seen"], original_first_seen)
+        self.assertEqual(login["last_seen"], "2026-10-31T11:00:02+00:00")
+        self.assertEqual(login["source_tool"], "whatweb")
+
 
 if __name__ == "__main__":
     unittest.main()
