@@ -1,8 +1,28 @@
 import unittest
 from unittest.mock import patch
 
-from app.nvd_client import NvdError
+from app.nvd_client import NvdError, extract_cve_ids
 from app.routes.modules import _missing_required_check_options, suggest_modules
+
+
+class CveReferenceExtractionTests(unittest.TestCase):
+    def test_extracts_split_metaspoloit_reference_pairs(self):
+        self.assertEqual(
+            extract_cve_ids([["CVE", "2011-2523"], ["URL", "https://example.com"]]),
+            {"CVE-2011-2523"},
+        )
+
+    def test_extracts_context_value_reference_records(self):
+        self.assertEqual(
+            extract_cve_ids({"ctx_id": "CVE", "ctx_val": "2021-41773"}),
+            {"CVE-2021-41773"},
+        )
+
+    def test_extracts_full_cve_identifiers_from_nested_text(self):
+        self.assertEqual(
+            extract_cve_ids({"description": "Related issue CVE-2024-12345"}),
+            {"CVE-2024-12345"},
+        )
 
 
 class ModuleCheckOptionPreflightTests(unittest.TestCase):
@@ -38,7 +58,7 @@ class SuggestModulesCveMatchingTests(unittest.TestCase):
     does not prove that the detected version is in an affected CPE range.
     """
 
-    def test_candidate_with_overlapping_cve_is_boosted_and_flagged(self):
+    def test_candidate_with_overlapping_cve_is_flagged_without_changing_rank(self):
         module_list = {"modules": ["unix/ftp/vsftpd_234_backdoor"]}
         module_info = {
             "rank": 600,
@@ -101,7 +121,7 @@ class SuggestModulesCveMatchingTests(unittest.TestCase):
         }
         with patch(
             "app.routes.modules.rpc.call",
-            side_effect=[module_list, generic_info, cve_info],
+            side_effect=[module_list, cve_info, generic_info],
         ), patch(
             "app.routes.modules.nvd_client.search_cve_ids_by_keyword",
             return_value={"CVE-2011-2523"},
