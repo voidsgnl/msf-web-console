@@ -208,6 +208,7 @@ class ReconToolAdapterTests(unittest.TestCase):
         self.assertTrue(chain[0]["followed"])
         self.assertIsNone(blocked)
         self.assertFalse(session.trust_env)
+        self.assertFalse(session.get.call_args.kwargs["allow_redirects"])
 
     def test_katana_blocks_cross_origin_entry_redirect(self):
         response = MagicMock()
