@@ -123,7 +123,7 @@ def _parse_http(info: str) -> ParsedBanner | None:
 def _parse_smb(info: str) -> ParsedBanner | None:
     # smb_version's info typically includes an OS/product string, e.g.
     # "Windows Server 2019 Standard 17763" or "Samba 4.7.6-Ubuntu"
-    m = _match(r"Samba\\s+([\\d]+(?:\\.[\\d]+)+)", info)
+    m = _match(r"Samba\s+([\d]+(?:\.[\d]+)+)", info)
     if m:
         # Keep the upstream version; distro package suffixes (for example
         # "-Ubuntu") are not upstream release identifiers.
