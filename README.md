@@ -139,6 +139,18 @@ npm run dev
 
 Open **http://localhost:5173** and sign in with the web-console credentials from `backend/.env`. The dev server proxies `/api` to the backend on port 8000, including authenticated WebSocket upgrades for the console and interactive sessions.
 
+## Optional reconnaissance tools
+
+Tool binaries are detected from the backend process PATH and are not installed automatically. For Katana, install the current ProjectDiscovery release with Go 1.26.10 or newer:
+
+```bash
+CGO_ENABLED=1 go install github.com/projectdiscovery/katana/cmd/katana@latest
+sudo ln -sf "$(go env GOPATH)/bin/katana" /usr/local/bin/katana
+katana -version
+```
+
+Restart the backend after installing a tool, then use **Web Security → Reconnaissance** to refresh availability. Katana's application adapter uses fixed safe defaults and does not accept browser-supplied crawler flags.
+
 ## Development checks
 
 Run all backend unit tests from the `backend` directory:
