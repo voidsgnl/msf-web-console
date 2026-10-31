@@ -143,6 +143,84 @@ def _extract_configurations(cve: dict[str, Any]) -> list[dict[str, Any]]:
     return configurations
 
 
+# Explicit product-to-CPE mappings. Unknown products deliberately remain
+# indeterminate rather than being matched by loose substring heuristics.
+_CPE_PRODUCT_IDENTITIES: dict[str, set[tuple[str, str]]] = {
+    "vsftpd": {("vsftpd", "vsftpd")},
+    "openssh": {("openbsd", "openssh"), ("openssh", "openssh")},
+    "dropbear": {("dropbear", "dropbear")},
+    "proftpd": {("proftpd", "proftpd")},
+    "apachehttpd": {("apache", "http_server")},
+    "nginx": {("nginx", "nginx")},
+    "apachetomcat": {("apache", "tomcat")},
+    "samba": {("samba", "samba")},
+    "mysql": {("oracle", "mysql")},
+    "mariadb": {("mariadb", "mariadb")},
+    "postgresql": {("postgresql", "postgresql")},
+    "redis": {("redis", "redis")},
+    "microsoftiis": {("microsoft", "internet_information_server")},
+}
+
+
+def _product_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (value or "").lower())
+
+
+def _cpe_identity(criteria: str | None) -> tuple[str, str, str] | None:
+    if not criteria:
+        return None
+    parts = criteria.split(":")
+    if len(parts) < 6 or parts[0].lower() != "cpe" or parts[1] != "2.3":
+        return None
+    return parts[3].lower(), parts[4].lower(), parts[5]
+
+
+def _cpe_version_in_range(cpe_match: dict[str, Any], detected_version: str) -> bool | None:
+    """Compare a detected version with one CPE match; None means insufficient data."""
+    target = _parse_version_tuple(detected_version)
+    if target is None:
+        return None
+
+    criteria = _cpe_identity(cpe_match.get("criteria"))
+    cpe_version = criteria[2] if criteria else "*"
+    bounds = (
+        ("version_start_including", -1, False),
+        ("version_start_excluding", 0, False),
+        ("version_end_including", 1, True),
+        ("version_end_excluding", 0, True),
+    )
+    has_bound = False
+    for key, inclusive_marker, is_upper in bounds:
+        raw_bound = cpe_match.get(key)
+        if raw_bound is None:
+            continue
+        has_bound = True
+        parsed_bound = _parse_version_tuple(str(raw_bound))
+        if parsed_bound is None:
+            return None
+        comparison = _compare_version_tuples(target, parsed_bound)
+        if key == "version_start_including" and comparison < 0:
+            return False
+        if key == "version_start_excluding" and comparison <= 0:
+            return False
+        if key == "version_end_including" and comparison > 0:
+            return False
+        if key == "version_end_excluding" and comparison >= 0:
+            return False
+
+    if has_bound:
+        return True
+
+    # When NVD supplies an exact CPE version, use it. Wildcard/ANY versions
+    # without explicit range bounds cannot establish applicability.
+    if cpe_version not in {"*", "-", ""}:
+        exact = _parse_version_tuple(cpe_version)
+        if exact is None:
+            return None
+        return _compare_version_tuples(target, exact) == 0
+    return None
+
+
 class NvdError(Exception):
     pass
 
@@ -367,6 +445,50 @@ class NvdClient:
         if not checked_any_range:
             return None
         return False
+
+
+    def assess_product_version(self, cve_id: str, product: str, version: str) -> str:
+        """
+        Assess whether an NVD vulnerable CPE entry identifies this known
+        product and whether its exact version/range includes the detected
+        version. This is CPE applicability evidence, not proof of a live
+        vulnerability; NVD configuration prerequisites and target state may
+        require additional verification.
+
+        Returns affected, not_affected, or indeterminate.
+        """
+        identities = _CPE_PRODUCT_IDENTITIES.get(_product_key(product))
+        if not identities or not version or version.lower() == "unknown":
+            return "indeterminate"
+
+        record = self.get_cve(cve_id)
+        if record is None:
+            return "indeterminate"
+
+        matched_product = False
+        saw_indeterminate_range = False
+        saw_comparable_range = False
+        for config in record.get("configurations") or []:
+            for node in config.get("cpe_matches", []):
+                if not node.get("vulnerable", True):
+                    continue
+                identity = _cpe_identity(node.get("criteria"))
+                if identity is None or (identity[0], identity[1]) not in identities:
+                    continue
+                matched_product = True
+                result = _cpe_version_in_range(node, version)
+                if result is True:
+                    return "affected"
+                if result is False:
+                    saw_comparable_range = True
+                else:
+                    saw_indeterminate_range = True
+
+        if not matched_product:
+            return "indeterminate"
+        if saw_indeterminate_range or not saw_comparable_range:
+            return "indeterminate"
+        return "not_affected"
 
     def search_cve_ids_by_keyword(self, keyword: str, version: str | None = None) -> set[str]:
         """
