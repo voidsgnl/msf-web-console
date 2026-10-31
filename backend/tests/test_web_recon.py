@@ -33,11 +33,13 @@ class WebReconTests(unittest.TestCase):
 
     def test_probe_requires_authorization_confirmation(self):
         with self.assertRaises(HTTPException) as raised:
-            probe_web_service(WebProbeRequest(url="https://example.test", authorized=False))
+            probe_web_service(WebProbeRequest(assessment_id=1, url="https://example.test", authorized=False))
         self.assertEqual(raised.exception.status_code, 400)
 
+    @patch("app.routes.assessments.record_tool_execution", return_value={"id": 11})
+    @patch("app.routes.assessments.assert_target_in_scope", return_value={"assessment_id": 1, "target_id": 2})
     @patch("app.routes.web_recon.requests.Session")
-    def test_probe_does_not_follow_redirects(self, session_factory):
+    def test_probe_does_not_follow_redirects(self, session_factory, _scope, _record):
         response = MagicMock()
         response.status_code = 302
         response.reason = "Found"
@@ -47,7 +49,7 @@ class WebReconTests(unittest.TestCase):
         response.iter_content.return_value = [b"<title>Redirect</title>"]
         session = session_factory.return_value
         session.get.return_value.__enter__.return_value = response
-        result = probe_web_service(WebProbeRequest(url="https://example.test", authorized=True))
+        result = probe_web_service(WebProbeRequest(assessment_id=1, url="https://example.test", authorized=True))
         self.assertEqual(result["status_code"], 302)
         self.assertEqual(result["redirect_location"], "https://other.example/")
         self.assertFalse(session.get.call_args.kwargs["allow_redirects"])
@@ -57,14 +59,21 @@ class WebReconTests(unittest.TestCase):
 
 class ReconToolExecutionGuardTests(unittest.TestCase):
     def test_run_requires_explicit_authorization(self):
-        request = ToolRunRequest(tool_id="httpx", url="https://example.test", authorized=False)
+        request = ToolRunRequest(assessment_id=1, tool_id="httpx", url="https://example.test", authorized=False)
         with self.assertRaises(HTTPException) as raised:
             run_recon_tool(request)
         self.assertEqual(raised.exception.status_code, 400)
 
+    @patch("app.routes.assessments.assert_target_in_scope", side_effect=HTTPException(403, "out of scope"))
+    def test_scanner_execution_rejects_target_outside_assessment_scope(self, _scope):
+        request = ToolRunRequest(assessment_id=4, tool_id="httpx", url="https://outside.test", authorized=True)
+        with self.assertRaises(HTTPException) as raised:
+            run_recon_tool(request)
+        self.assertEqual(raised.exception.status_code, 403)
+    @patch("app.routes.assessments.assert_target_in_scope", return_value={"assessment_id": 1, "target_id": 2})
     @patch("app.routes.web_recon.shutil.which", return_value=None)
-    def test_run_reports_missing_binary(self, _which):
-        request = ToolRunRequest(tool_id="httpx", url="https://example.test", authorized=True)
+    def test_run_reports_missing_binary(self, _which, _scope):
+        request = ToolRunRequest(assessment_id=1, tool_id="httpx", url="https://example.test", authorized=True)
         with self.assertRaises(HTTPException) as raised:
             run_recon_tool(request)
         self.assertEqual(raised.exception.status_code, 409)
