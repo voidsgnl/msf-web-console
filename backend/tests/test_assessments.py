@@ -75,6 +75,21 @@ class AssessmentStoreTests(unittest.TestCase):
             assessments.assert_target_in_scope(created["id"], "https://example.test")
         self.assertEqual(run_error.exception.status_code, 409)
 
+    def test_execution_records_persist_and_return_evidence(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Evidence test"))
+        target = assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], "https://example.test/path")
+        saved = assessments.record_tool_execution(
+            scope, "httpx", "https://example.test/path", "2026-10-31T10:00:00+00:00",
+            "2026-10-31T10:00:02+00:00", 0, False, [{"status_code": 200}], "",
+        )
+        history = assessments.list_assessment_executions(created["id"])["executions"]
+        self.assertEqual(history[0]["id"], saved["id"])
+        detail = assessments.get_assessment_execution(created["id"], saved["id"])
+        self.assertEqual(detail["records"], [{"status_code": 200}])
+        self.assertEqual(detail["target_id"], target["id"])
     def test_duplicate_target_is_rejected(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="Duplicate test"))
         request = assessments.TargetCreate(url="https://example.test", authorized=True)
