@@ -136,13 +136,14 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ assessment_id: assessmentId, url, authorized }),
       }),
-    runTool: (assessmentId: number, toolId: "httpx" | "whatweb" | "subfinder", url: string, authorized: boolean) =>
+    runTool: (assessmentId: number, toolId: "httpx" | "whatweb" | "subfinder" | "katana", url: string, authorized: boolean) =>
       request<{
         execution_id: number; assessment_id: number; tool_id: string; tool: string; target: string; exit_code: number;
         timed_out: boolean; output_truncated: boolean;
         records: { url?: string; target?: string; status_code?: number; http_status?: number;
           title?: string | null; webserver?: string; content_type?: string;
-          technologies?: string[]; host?: string; sources?: string[]; raw?: string | null }[];
+          technologies?: string[]; host?: string; sources?: string[]; method?: string; source?: string;
+          tag?: string; attribute?: string; raw?: string | null }[];
         stderr: string; assessment: string;
       }>("/web-recon/run", {
         method: "POST",
