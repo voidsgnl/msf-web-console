@@ -111,37 +111,39 @@ def _compare_version_tuples(a: tuple[int, ...], b: tuple[int, ...]) -> int:
 
 def _extract_configurations(cve: dict[str, Any]) -> list[dict[str, Any]]:
     """
-    Reduce NVD's configurations->nodes->cpeMatch tree to just the fields
-    needed for version-range comparison. NVD API 2.0 nests each config
-    object's applicability checks under "nodes", each with a "cpeMatch"
-    list; non-range entries (an exact single-version CPE string with no
-    versionStart*/versionEnd* bound) are kept too, with every bound as
-    None, so callers can tell "no range data for this match" apart from
-    "match exists but we couldn't parse a bound".
+    Flatten NVD's nested configuration nodes while preserving every CPE
+    match. Boolean prerequisites are intentionally not evaluated here:
+    this data is used only for product/version evidence, never as a complete
+    determination that the target satisfies the CVE configuration.
     """
     configurations: list[dict[str, Any]] = []
+
+    def visit_node(node: Any, matches: list[dict[str, Any]]) -> None:
+        if not isinstance(node, dict):
+            return
+        for cpe_match in node.get("cpeMatch") or []:
+            if not isinstance(cpe_match, dict):
+                continue
+            matches.append({
+                "criteria": cpe_match.get("criteria"),
+                "vulnerable": cpe_match.get("vulnerable", True),
+                "version_start_including": cpe_match.get("versionStartIncluding"),
+                "version_start_excluding": cpe_match.get("versionStartExcluding"),
+                "version_end_including": cpe_match.get("versionEndIncluding"),
+                "version_end_excluding": cpe_match.get("versionEndExcluding"),
+            })
+        for child in node.get("children") or []:
+            visit_node(child, matches)
+
     for config in cve.get("configurations") or []:
         if not isinstance(config, dict):
             continue
+        cpe_matches: list[dict[str, Any]] = []
         for node in config.get("nodes") or []:
-            if not isinstance(node, dict):
-                continue
-            cpe_matches = []
-            for cpe_match in node.get("cpeMatch") or []:
-                if not isinstance(cpe_match, dict):
-                    continue
-                cpe_matches.append({
-                    "criteria": cpe_match.get("criteria"),
-                    "vulnerable": cpe_match.get("vulnerable", True),
-                    "version_start_including": cpe_match.get("versionStartIncluding"),
-                    "version_start_excluding": cpe_match.get("versionStartExcluding"),
-                    "version_end_including": cpe_match.get("versionEndIncluding"),
-                    "version_end_excluding": cpe_match.get("versionEndExcluding"),
-                })
-            if cpe_matches:
-                configurations.append({"cpe_matches": cpe_matches})
+            visit_node(node, cpe_matches)
+        if cpe_matches:
+            configurations.append({"cpe_matches": cpe_matches})
     return configurations
-
 
 # Explicit product-to-CPE mappings. Unknown products deliberately remain
 # indeterminate rather than being matched by loose substring heuristics.
