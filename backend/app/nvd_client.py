@@ -20,6 +20,8 @@ from typing import Any
 
 import requests
 
+from app.cpe_config import OTHER, evaluate_configurations
+
 NVD_BASE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 CVE_ID_RE = re.compile(r"CVE-\d{4}-\d{4,7}", re.IGNORECASE)
 
@@ -109,40 +111,69 @@ def _compare_version_tuples(a: tuple[int, ...], b: tuple[int, ...]) -> int:
     return 0
 
 
+def _cpe_match_record(cpe_match: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "criteria": cpe_match.get("criteria"),
+        "vulnerable": cpe_match.get("vulnerable", True),
+        "version_start_including": cpe_match.get("versionStartIncluding"),
+        "version_start_excluding": cpe_match.get("versionStartExcluding"),
+        "version_end_including": cpe_match.get("versionEndIncluding"),
+        "version_end_excluding": cpe_match.get("versionEndExcluding"),
+    }
+
+
 def _extract_configurations(cve: dict[str, Any]) -> list[dict[str, Any]]:
     """
-    Flatten NVD's nested configuration nodes while preserving every CPE
-    match. Boolean prerequisites are intentionally not evaluated here:
-    this data is used only for product/version evidence, never as a complete
-    determination that the target satisfies the CVE configuration.
+    Convert NVD's configuration tree into plain dicts. Each configuration
+    keeps a flat "cpe_matches" list (every match in the tree, for simple
+    product/version evidence) plus a structured "nodes" tree that records each
+    node's operator, negate flag, own matches and children, so that
+    app.cpe_config can evaluate the AND/OR logic.
     """
-    configurations: list[dict[str, Any]] = []
 
-    def visit_node(node: Any, matches: list[dict[str, Any]]) -> None:
+    def build_node(node: Any) -> dict[str, Any] | None:
         if not isinstance(node, dict):
-            return
-        for cpe_match in node.get("cpeMatch") or []:
-            if not isinstance(cpe_match, dict):
-                continue
-            matches.append({
-                "criteria": cpe_match.get("criteria"),
-                "vulnerable": cpe_match.get("vulnerable", True),
-                "version_start_including": cpe_match.get("versionStartIncluding"),
-                "version_start_excluding": cpe_match.get("versionStartExcluding"),
-                "version_end_including": cpe_match.get("versionEndIncluding"),
-                "version_end_excluding": cpe_match.get("versionEndExcluding"),
-            })
-        for child in node.get("children") or []:
-            visit_node(child, matches)
+            return None
+        children = [
+            child
+            for child in (build_node(raw) for raw in node.get("children") or [])
+            if child is not None
+        ]
+        return {
+            "operator": node.get("operator"),
+            "negate": bool(node.get("negate")),
+            "cpe_matches": [
+                _cpe_match_record(cpe_match)
+                for cpe_match in node.get("cpeMatch") or []
+                if isinstance(cpe_match, dict)
+            ],
+            "children": children,
+        }
 
+    def flatten(node: dict[str, Any], matches: list[dict[str, Any]]) -> None:
+        matches.extend(node["cpe_matches"])
+        for child in node["children"]:
+            flatten(child, matches)
+
+    configurations: list[dict[str, Any]] = []
     for config in cve.get("configurations") or []:
         if not isinstance(config, dict):
             continue
+        nodes = [
+            built
+            for built in (build_node(raw) for raw in config.get("nodes") or [])
+            if built is not None
+        ]
         cpe_matches: list[dict[str, Any]] = []
-        for node in config.get("nodes") or []:
-            visit_node(node, cpe_matches)
+        for built in nodes:
+            flatten(built, cpe_matches)
         if cpe_matches:
-            configurations.append({"cpe_matches": cpe_matches})
+            configurations.append({
+                "operator": config.get("operator"),
+                "negate": bool(config.get("negate")),
+                "cpe_matches": cpe_matches,
+                "nodes": nodes,
+            })
     return configurations
 
 # Explicit product-to-CPE mappings. Unknown products deliberately remain
@@ -450,11 +481,16 @@ class NvdClient:
 
     def assess_product_version(self, cve_id: str, product: str, version: str) -> str:
         """
-        Assess whether an NVD vulnerable CPE entry identifies this known
+        Assess whether an NVD CPE configuration identifies this known
         product and whether its exact version/range includes the detected
         version. This is CPE applicability evidence, not proof of a live
-        vulnerability; NVD configuration prerequisites and target state may
-        require additional verification.
+        vulnerability.
+
+        The configuration's AND/OR/negate logic is evaluated with
+        app.cpe_config. Entries for other products that NVD lists as
+        prerequisites (for example the operating system) cannot be confirmed
+        from a service banner, so an AND that depends on one stays
+        indeterminate instead of becoming "affected".
 
         Returns affected, not_affected, or indeterminate.
         """
@@ -466,30 +502,21 @@ class NvdClient:
         if record is None:
             return "indeterminate"
 
-        matched_product = False
-        saw_indeterminate_range = False
-        saw_comparable_range = False
-        for config in record.get("configurations") or []:
-            for node in config.get("cpe_matches", []):
-                if not node.get("vulnerable", True):
-                    continue
-                identity = _cpe_identity(node.get("criteria"))
-                if identity is None or (identity[0], identity[1]) not in identities:
-                    continue
-                matched_product = True
-                result = _cpe_version_in_range(node, version)
-                if result is True:
-                    return "affected"
-                if result is False:
-                    saw_comparable_range = True
-                else:
-                    saw_indeterminate_range = True
+        def leaf(cpe_match: dict[str, Any]) -> Any:
+            identity = _cpe_identity(cpe_match.get("criteria"))
+            if identity is not None and (identity[0], identity[1]) in identities:
+                return _cpe_version_in_range(cpe_match, version)
+            # Another product. If NVD flags it as the vulnerable component it
+            # is simply not our target; if it is a prerequisite (an OS, a
+            # platform) we cannot confirm it, so it stays unknown.
+            return OTHER if cpe_match.get("vulnerable", True) else None
 
-        if not matched_product:
-            return "indeterminate"
-        if saw_indeterminate_range or not saw_comparable_range:
-            return "indeterminate"
-        return "not_affected"
+        outcome = evaluate_configurations(record.get("configurations") or [], leaf)
+        if outcome is True:
+            return "affected"
+        if outcome is False:
+            return "not_affected"
+        return "indeterminate"
 
     def search_cve_ids_by_keyword(self, keyword: str, version: str | None = None) -> set[str]:
         """
