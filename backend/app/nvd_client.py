@@ -225,8 +225,19 @@ def _cpe_version_in_range(cpe_match: dict[str, Any], detected_version: str) -> b
     if _parse_version_components(detected_version) is None:
         return None
 
-    criteria = _cpe_identity(cpe_match.get("criteria"))
+    raw_criteria = cpe_match.get("criteria")
+    criteria = _cpe_identity(raw_criteria)
     cpe_version = criteria[2] if criteria else "*"
+    if raw_criteria:
+        parts = raw_criteria.split(":")
+        # CPE 2.3 stores patch/release suffixes in the update component,
+        # not necessarily in the version component (e.g. OpenSSH 9.9:p1).
+        if len(parts) > 6 and parts[6] not in {"*", "-", ""}:
+            update = parts[6].lower()
+            if _UPSTREAM_SUFFIX_RE.fullmatch(update):
+                cpe_version = f"{cpe_version}{update}"
+            else:
+                return None
     has_bound = False
     for key in (
         "version_start_including",
