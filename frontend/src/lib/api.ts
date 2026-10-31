@@ -10,7 +10,7 @@ export type AssessmentExecutionDetail = AssessmentExecution & { records: Record<
 export type AssessmentExecution = {
   id: number; assessment_id: number; target_id: number; tool_id: string;
   target_url: string; started_at: string; finished_at: string;
-  exit_code: number; output_truncated: number;
+  exit_code: number; output_truncated: number | boolean;
 };
 
 export type Workspace = {
