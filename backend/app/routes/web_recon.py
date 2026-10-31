@@ -170,7 +170,7 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[
         if parsed.port and parsed.port != default_port:
             authority_pattern = re.escape(host_literal + ":" + str(parsed.port))
         else:
-            authority_pattern = re.escape(host_literal) + (r"(:%s)?" % default_port if parsed.port == default_port else "")
+            authority_pattern = re.escape(host_literal) + (r"(:%s)?" % default_port if parsed.port in {None, default_port} else "")
         scope_pattern = "^" + re.escape(parsed.scheme.lower()) + "://" + authority_pattern + r"(/|$)"
         return [
             executable, "-u", target_url, "-silent", "-nc", "-j", "-duc",
