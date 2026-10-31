@@ -195,7 +195,9 @@ def _parse_tool_output(tool_id: str, output: str) -> list[dict]:
 @router.post("/run")
 def run_recon_tool(req: ToolRunRequest):
     """Run one fixed, bounded HTTP reconnaissance adapter against one authorized URL."""
+    import os
     import subprocess
+    import tempfile
 
     if not req.authorized:
         raise HTTPException(400, "Confirm that you own this target or have explicit permission to assess it.")
@@ -208,31 +210,34 @@ def run_recon_tool(req: ToolRunRequest):
         raise HTTPException(409, f"{config['name']} is not installed or is not available on the backend PATH.")
     command = _build_tool_command(req.tool_id, executable, target_url)
     try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=config["timeout"],
-            check=False,
-            shell=False,
-            env={"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": __import__("os").path.expanduser("~")},
-        )
+        with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as stdout_file, tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as stderr_file:
+            completed = subprocess.run(
+                command,
+                stdout=stdout_file,
+                stderr=stderr_file,
+                timeout=config["timeout"],
+                check=False,
+                shell=False,
+                env={**os.environ, "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")},
+            )
+            stdout_file.seek(0, 2)
+            output_size = stdout_file.tell()
+            stdout_file.seek(0)
+            stdout = stdout_file.read(config["max_output"])
+            stderr_file.seek(0)
+            stderr = stderr_file.read(4000)
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(504, f"{config['name']} exceeded its {config['timeout']}-second time limit.") from exc
     except OSError as exc:
         raise HTTPException(502, f"{config['name']} could not be started: {exc.strerror or 'execution error'}.") from exc
 
-    stdout = (completed.stdout or "")[:config["max_output"]]
-    stderr = (completed.stderr or "")[:4000]
     return {
         "tool_id": req.tool_id,
         "tool": config["name"],
         "target": target_url,
         "exit_code": completed.returncode,
         "timed_out": False,
-        "output_truncated": len(completed.stdout or "") > config["max_output"],
+        "output_truncated": output_size > config["max_output"],
         "records": _parse_tool_output(req.tool_id, stdout),
         "stderr": stderr,
         "assessment": "Tool output is reconnaissance evidence, not a confirmed vulnerability verdict.",
