@@ -435,7 +435,7 @@ export function ModuleBrowser({
     void (async () => {
       await search(externalSearchRequest.query, reqType);
       if (externalSearchRequest.query.includes("/")) {
-        void select({ type: reqType, name: externalSearchRequest.query });
+        void select({ type: reqType, name: externalSearchRequest.query }, externalSearchRequest.targetContext);
       }
     })();
   }, [externalSearchRequest]);
@@ -476,7 +476,7 @@ export function ModuleBrowser({
     }
   };
 
-  const select = async (mod: ModuleRef) => {
+  const select = async (mod: ModuleRef, targetContext?: TargetContext) => {
     const generation = ++selectionGeneration.current;
     executionGeneration.current += 1;
     setExecuting(false);
@@ -535,7 +535,10 @@ export function ModuleBrowser({
       // every value before Check or Execute.
       const autoSources: Record<string, string> = {};
       const declaredOptions = data.options ?? {};
-      const context = activeTargetContext;
+      // An external scan request can call select in the same effect that sets
+      // activeTargetContext. React state updates are asynchronous, so pass the
+      // request context directly to avoid reading the previous (usually null) value.
+      const context = targetContext ?? activeTargetContext;
       if (context?.host) {
         if (declaredOptions.RHOSTS) {
           defaults.RHOSTS = context.host;
