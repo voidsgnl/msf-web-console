@@ -5,7 +5,8 @@ from fastapi import HTTPException
 
 from app.routes.web_recon import (
     ToolRunRequest, WebProbeRequest, _build_tool_command, _normalise_url,
-    _parse_tool_output, _technology_hints, probe_web_service, run_recon_tool,
+    _parse_tool_output, _technology_hints, _filter_katana_records,
+    probe_web_service, run_recon_tool,
 )
 
 class WebReconTests(unittest.TestCase):
@@ -182,6 +183,25 @@ class ReconToolAdapterTests(unittest.TestCase):
             url="https://example.test", authorized=True,
         )
         self.assertEqual(request.tool_id, "katana")
+
+    def test_katana_retains_only_exact_origin_endpoints(self):
+        records = [
+            {"url": "https://example.test/login"},
+            {"url": "https://example.test:8443/admin"},
+            {"url": "https://other.example/admin"},
+            {"url": "http://example.test/insecure"},
+            {"url": "https://user:pass@example.test/private"},
+            {"url": "https://example.test/path#fragment"},
+        ]
+        retained = _filter_katana_records(records, "https://example.test/")
+        self.assertEqual([item["url"] for item in retained], ["https://example.test/login"])
+
+    def test_katana_scope_filter_accepts_explicit_default_port(self):
+        records = [{"url": "https://example.test:443/login"}]
+        self.assertEqual(
+            _filter_katana_records(records, "https://example.test/"),
+            records,
+        )
 
     def test_rejects_unknown_adapter(self):
         with self.assertRaises(HTTPException):
