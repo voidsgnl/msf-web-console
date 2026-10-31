@@ -448,50 +448,33 @@ class NvdClient:
         if record is None:
             return None
 
-        target = _parse_version_tuple(version)
-        if target is None:
+        if _parse_version_components(version) is None:
             return None
 
         configurations = record.get("configurations") or []
         checked_any_range = False
+        indeterminate_range = False
         for node in configurations:
             for cpe_match in node.get("cpe_matches", []):
                 if not cpe_match.get("vulnerable", True):
                     continue
-                start_inc = cpe_match.get("version_start_including")
-                start_exc = cpe_match.get("version_start_excluding")
-                end_inc = cpe_match.get("version_end_including")
-                end_exc = cpe_match.get("version_end_excluding")
-                if not any((start_inc, start_exc, end_inc, end_exc)):
-                    # An exact-version (unranged) CPE match. We don't parse
-                    # the version back out of the CPE criteria string here,
-                    # so this match contributes no usable range evidence.
+                has_range = any(cpe_match.get(key) is not None for key in (
+                    "version_start_including",
+                    "version_start_excluding",
+                    "version_end_including",
+                    "version_end_excluding",
+                ))
+                if not has_range:
                     continue
 
                 checked_any_range = True
-                in_range = True
-
-                if start_inc is not None:
-                    bound = _parse_version_tuple(start_inc)
-                    if bound is not None and _compare_version_tuples(target, bound) < 0:
-                        in_range = False
-                if in_range and start_exc is not None:
-                    bound = _parse_version_tuple(start_exc)
-                    if bound is not None and _compare_version_tuples(target, bound) <= 0:
-                        in_range = False
-                if in_range and end_inc is not None:
-                    bound = _parse_version_tuple(end_inc)
-                    if bound is not None and _compare_version_tuples(target, bound) > 0:
-                        in_range = False
-                if in_range and end_exc is not None:
-                    bound = _parse_version_tuple(end_exc)
-                    if bound is not None and _compare_version_tuples(target, bound) >= 0:
-                        in_range = False
-
-                if in_range:
+                in_range = _cpe_version_in_range(cpe_match, version)
+                if in_range is True:
                     return True
+                if in_range is None:
+                    indeterminate_range = True
 
-        if not checked_any_range:
+        if not checked_any_range or indeterminate_range:
             return None
         return False
 
