@@ -3,6 +3,7 @@
 Uses Python's built-in SQLite driver so the platform data store is independent
 of Metasploit's database and requires no additional service or dependency.
 """
+import json
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -67,6 +68,21 @@ def _initialise() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_assessment_targets_assessment
                 ON assessment_targets(assessment_id);
+            CREATE TABLE IF NOT EXISTS tool_executions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                assessment_id INTEGER NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+                target_id INTEGER NOT NULL REFERENCES assessment_targets(id) ON DELETE CASCADE,
+                tool_id TEXT NOT NULL,
+                target_url TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT NOT NULL,
+                exit_code INTEGER NOT NULL,
+                output_truncated INTEGER NOT NULL DEFAULT 0,
+                result_json TEXT NOT NULL,
+                stderr TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_tool_executions_assessment
+                ON tool_executions(assessment_id, id DESC);
             """
         )
 
@@ -121,7 +137,7 @@ def create_assessment(request: AssessmentCreate):
     if not name:
         raise HTTPException(400, "Assessment name cannot be blank.")
     now = _timestamp()
-    with _connect() as connection:
+    with _connection() as connection:
         cursor = connection.execute(
             "INSERT INTO assessments (name, description, created_at, updated_at) VALUES (?, ?, ?, ?)",
             (name, request.description.strip(), now, now),
@@ -228,3 +244,59 @@ def assert_target_in_scope(assessment_id: int, target_url: str) -> dict:
         if origin == (approved.scheme.lower(), (approved.hostname or "").lower(), approved_port):
             return {"assessment_id": assessment_id, "target_id": row["id"], "approved_url": row["url"]}
     raise HTTPException(403, "Target is outside this assessment's approved scope.")
+
+
+
+def record_tool_execution(
+    scope: dict,
+    tool_id: str,
+    target_url: str,
+    started_at: str,
+    finished_at: str,
+    exit_code: int,
+    output_truncated: bool,
+    records: list[dict],
+    stderr: str,
+) -> dict:
+    _initialise()
+    with _connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO tool_executions
+                (assessment_id, target_id, tool_id, target_url, started_at,
+                 finished_at, exit_code, output_truncated, result_json, stderr)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                scope["assessment_id"], scope["target_id"], tool_id, target_url,
+                started_at, finished_at, exit_code, int(output_truncated),
+                json.dumps(records, ensure_ascii=False), stderr[:4000],
+            ),
+        )
+        row = connection.execute(
+            """
+            SELECT id, assessment_id, target_id, tool_id, target_url,
+                   started_at, finished_at, exit_code, output_truncated
+            FROM tool_executions WHERE id = ?
+            """,
+            (cursor.lastrowid,),
+        ).fetchone()
+    return dict(row)
+
+
+@router.get("/{assessment_id}/executions")
+def list_assessment_executions(assessment_id: int):
+    _initialise()
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        rows = connection.execute(
+            """
+            SELECT id, assessment_id, target_id, tool_id, target_url,
+                   started_at, finished_at, exit_code, output_truncated
+            FROM tool_executions
+            WHERE assessment_id = ?
+            ORDER BY id DESC LIMIT 100
+            """,
+            (assessment_id,),
+        ).fetchall()
+    return {"executions": [dict(row) for row in rows]}
