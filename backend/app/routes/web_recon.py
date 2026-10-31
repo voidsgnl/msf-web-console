@@ -27,6 +27,7 @@ TOOL_CATALOG = [
 
 
 class WebProbeRequest(BaseModel):
+    assessment_id: int = Field(ge=1)
     url: str = Field(min_length=1, max_length=2048)
     authorized: bool = False
 
@@ -89,6 +90,9 @@ def probe_web_service(req: WebProbeRequest):
     if not req.authorized:
         raise HTTPException(400, "Confirm that you own this target or have explicit permission to assess it.")
     target_url = _normalise_url(req.url)
+    from app.routes.assessments import assert_target_in_scope, record_tool_execution
+    scope = assert_target_in_scope(req.assessment_id, target_url)
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     session = requests.Session()
     session.trust_env = False
     try:
@@ -107,7 +111,11 @@ def probe_web_service(req: WebProbeRequest):
             headers = {key.lower():value[:300] for key,value in response.headers.items() if key.lower() in {"server","content-type","x-powered-by","x-generator","location","cf-ray","cf-cache-status","strict-transport-security"}}
             title_match = re.search(r"<title[^>]*>(.*?)</title\s*>", body, re.IGNORECASE | re.DOTALL)
             title = re.sub(r"\s+", " ", title_match.group(1)).strip()[:200] if title_match else None
-            return {"target":target_url,"status_code":response.status_code,"reason":response.reason,"final_url":response.url,"redirect_location":headers.get("location"),"title":title,"headers":headers,"technologies":_technology_hints(headers,body),"content_type":response.headers.get("Content-Type"),"body_truncated":total >= 65536,"bytes_inspected":total,"assessment":"HTTP response observed; this probe does not establish whether the application is vulnerable."}
+            result = {"target":target_url,"status_code":response.status_code,"reason":response.reason,"final_url":response.url,"redirect_location":headers.get("location"),"title":title,"headers":headers,"technologies":_technology_hints(headers,body),"content_type":response.headers.get("Content-Type"),"body_truncated":total >= 65536,"bytes_inspected":total,"assessment":"HTTP response observed; this probe does not establish whether the application is vulnerable."}
+            finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            execution = record_tool_execution(scope, "builtin-http-probe", target_url, started_at, finished_at, 0, total >= 65536, [result], "")
+            result["execution_id"] = execution["id"]
+            return result
     except requests.exceptions.SSLError as exc:
         raise HTTPException(502, f"TLS negotiation failed: {exc}") from exc
     except requests.exceptions.Timeout as exc:
