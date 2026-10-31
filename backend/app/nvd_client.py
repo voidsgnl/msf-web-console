@@ -73,6 +73,76 @@ def extract_cve_ids(value: Any) -> set[str]:
     return found
 
 
+_VERSION_NUMERIC_RE = re.compile(r"\d+(?:\.\d+)*")
+
+
+def _parse_version_tuple(version: str | None) -> tuple[int, ...] | None:
+    """
+    Parse a dotted version string into a tuple of integers for ordered
+    comparison, e.g. "7.2p2" -> (7, 2), "2.4.49-7ubuntu4" -> (2, 4, 49).
+
+    Only the leading dotted-numeric run is used: CPE version-range bounds
+    published by NVD (versionStartIncluding etc.) are themselves plain
+    dotted-numeric strings, so a distro/vendor suffix on the *detected*
+    banner version (e.g. "p2", "-7ubuntu4") has nothing to compare against
+    and is intentionally dropped rather than guessed at. Returns None if no
+    leading numeric version could be extracted at all - callers must treat
+    None as "can't compare", never as a match.
+    """
+    if not version:
+        return None
+    match = _VERSION_NUMERIC_RE.match(version.strip())
+    if not match:
+        return None
+    return tuple(int(part) for part in match.group(0).split("."))
+
+
+def _compare_version_tuples(a: tuple[int, ...], b: tuple[int, ...]) -> int:
+    """Compare two version tuples, right-padding the shorter with zeros."""
+    length = max(len(a), len(b))
+    a_padded = a + (0,) * (length - len(a))
+    b_padded = b + (0,) * (length - len(b))
+    if a_padded < b_padded:
+        return -1
+    if a_padded > b_padded:
+        return 1
+    return 0
+
+
+def _extract_configurations(cve: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Reduce NVD's configurations->nodes->cpeMatch tree to just the fields
+    needed for version-range comparison. NVD API 2.0 nests each config
+    object's applicability checks under "nodes", each with a "cpeMatch"
+    list; non-range entries (an exact single-version CPE string with no
+    versionStart*/versionEnd* bound) are kept too, with every bound as
+    None, so callers can tell "no range data for this match" apart from
+    "match exists but we couldn't parse a bound".
+    """
+    configurations: list[dict[str, Any]] = []
+    for config in cve.get("configurations") or []:
+        if not isinstance(config, dict):
+            continue
+        for node in config.get("nodes") or []:
+            if not isinstance(node, dict):
+                continue
+            cpe_matches = []
+            for cpe_match in node.get("cpeMatch") or []:
+                if not isinstance(cpe_match, dict):
+                    continue
+                cpe_matches.append({
+                    "criteria": cpe_match.get("criteria"),
+                    "vulnerable": cpe_match.get("vulnerable", True),
+                    "version_start_including": cpe_match.get("versionStartIncluding"),
+                    "version_start_excluding": cpe_match.get("versionStartExcluding"),
+                    "version_end_including": cpe_match.get("versionEndIncluding"),
+                    "version_end_excluding": cpe_match.get("versionEndExcluding"),
+                })
+            if cpe_matches:
+                configurations.append({"cpe_matches": cpe_matches})
+    return configurations
+
+
 class NvdError(Exception):
     pass
 
@@ -146,6 +216,7 @@ def _summarize(cve: dict[str, Any]) -> dict[str, Any]:
         "description": description,
         "cvss": cvss,
         "references": references,
+        "configurations": _extract_configurations(cve),
     }
 
 
@@ -221,6 +292,81 @@ class NvdClient:
         summary = _summarize(cve_record)
         self._cache.set(normalized, summary)
         return summary
+
+    def cve_affects_version(self, cve_id: str, version: str) -> bool | None:
+        """
+        Determine whether `version` falls inside a CPE version range NVD
+        published for `cve_id`.
+
+        This is the piece a CVE *reference* match (shared identifier
+        between a Metasploit module and an NVD keyword search) cannot tell
+        you: a reference overlap says "these two things both mention
+        CVE-X", not "the version in front of you is inside CVE-X's
+        affected range". This method reads NVD's own structured CPE
+        version-range data (versionStartIncluding/Excluding,
+        versionEndIncluding/Excluding) and does the comparison directly.
+
+        Returns:
+          True  - `version` falls within at least one vulnerable CPE
+                  match's published range.
+          False - NVD published range data for this CVE and `version`
+                  falls outside every range found.
+          None  - indeterminate. NVD has no record for this CVE, no
+                  version-range data was published for it (e.g. only
+                  exact-version CPE strings with no bounds), or `version`
+                  could not be parsed as a dotted numeric version. Callers
+                  must never treat None as a match.
+        """
+        record = self.get_cve(cve_id)
+        if record is None:
+            return None
+
+        target = _parse_version_tuple(version)
+        if target is None:
+            return None
+
+        configurations = record.get("configurations") or []
+        checked_any_range = False
+        for node in configurations:
+            for cpe_match in node.get("cpe_matches", []):
+                if not cpe_match.get("vulnerable", True):
+                    continue
+                start_inc = cpe_match.get("version_start_including")
+                start_exc = cpe_match.get("version_start_excluding")
+                end_inc = cpe_match.get("version_end_including")
+                end_exc = cpe_match.get("version_end_excluding")
+                if not any((start_inc, start_exc, end_inc, end_exc)):
+                    # An exact-version (unranged) CPE match. We don't parse
+                    # the version back out of the CPE criteria string here,
+                    # so this match contributes no usable range evidence.
+                    continue
+
+                checked_any_range = True
+                in_range = True
+
+                if start_inc is not None:
+                    bound = _parse_version_tuple(start_inc)
+                    if bound is not None and _compare_version_tuples(target, bound) < 0:
+                        in_range = False
+                if in_range and start_exc is not None:
+                    bound = _parse_version_tuple(start_exc)
+                    if bound is not None and _compare_version_tuples(target, bound) <= 0:
+                        in_range = False
+                if in_range and end_inc is not None:
+                    bound = _parse_version_tuple(end_inc)
+                    if bound is not None and _compare_version_tuples(target, bound) > 0:
+                        in_range = False
+                if in_range and end_exc is not None:
+                    bound = _parse_version_tuple(end_exc)
+                    if bound is not None and _compare_version_tuples(target, bound) >= 0:
+                        in_range = False
+
+                if in_range:
+                    return True
+
+        if not checked_any_range:
+            return None
+        return False
 
     def search_cve_ids_by_keyword(self, keyword: str, version: str | None = None) -> set[str]:
         """
