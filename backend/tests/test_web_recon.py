@@ -168,6 +168,12 @@ class ReconToolAdapterTests(unittest.TestCase):
         self.assertEqual(command[command.index("-d") + 1], "2")
         self.assertIn("90s", command)
 
+    def test_katana_default_port_scope_regex_is_re2_compatible(self):
+        command = _build_tool_command("katana", "/usr/bin/katana", "https://example.test/")
+        scope = command[command.index("-cs") + 1]
+        self.assertIn(r"(:443)?", scope)
+        self.assertNotIn("(?:", scope)
+
     def test_katana_parser_extracts_endpoint_metadata(self):
         records = _parse_tool_output(
             "katana",
