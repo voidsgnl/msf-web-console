@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.msf_rpc import rpc, MsfRpcError
 from app.banner_parsing import parse_service_banner
+from app.nvd_client import NvdError, extract_cve_ids, nvd_client
 
 router = APIRouter(prefix="/api/modules", tags=["modules"])
 
@@ -75,6 +76,12 @@ RANK_LABELS: list[tuple[int, str]] = [
     (0, "Manual"),
 ]
 RANK_NAME_WEIGHTS = {name.lower(): weight for weight, name in RANK_LABELS}
+
+# A candidate module whose own CVE references overlap with the CVEs NVD
+# reports for the confirmed product/version is a real CVE-to-module match,
+# not a name/description guess - so it's always sorted above every rank
+# tier (Excellent tops out at 600) rather than just nudging the score.
+CVE_MATCH_WEIGHT_BONUS = 1000
 
 
 def _rank_weight_and_label(raw_rank: Any) -> tuple[int, str]:
@@ -143,6 +150,17 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     match here is NOT a vulnerability confirmation. Use
     POST /modules/{type}/{name}/check to actually verify a specific
     candidate against the target before trusting it.
+
+    When a service banner is confirmed, candidates are additionally
+    cross-referenced against the NVD: each candidate's own CVE references
+    (from module.info) are checked against the CVEs NVD reports for the
+    confirmed product/version (via NVD's keywordSearch, independent of
+    Metasploit). A `cve_matches` list on a candidate means NVD and the
+    module's own metadata agree this module targets a CVE that affects the
+    confirmed software - a materially stronger signal than a name match,
+    and these candidates are always ranked first. Candidates without a CVE
+    match may still be relevant (NVD's keyword search and a module's own
+    refs are each imperfect) - they just lack that specific confirmation.
     """
     term = _extract_search_term(service_info)
     parsed = parse_service_banner(service_info, port)
@@ -226,6 +244,19 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
     if not raw_matches:
         return {"query": query_label, "candidates": [], "note": f"No module names matched {query_label}."}
 
+    # Cross-reference the confirmed product/version against NVD's own CVE
+    # corpus (independent of Metasploit) so candidates can be checked for a
+    # genuine CVE-to-module match below, rather than only a name match.
+    # Best-effort: NVD being unreachable/rate-limited must not break name
+    # matching, which already worked before this cross-check existed.
+    known_cve_ids: set[str] = set()
+    cve_lookup_error: str | None = None
+    if parsed and parsed.product:
+        try:
+            known_cve_ids = nvd_client.search_cve_ids_by_keyword(parsed.product, parsed.version)
+        except NvdError as exc:
+            cve_lookup_error = str(exc)
+
     # Version tokens for relevance scoring
     version_tokens: list[str] = []
     if parsed and parsed.version and parsed.version != "unknown":
@@ -303,6 +334,7 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
 
     candidates: list[dict[str, Any]] = []
     has_version_match = False
+    has_cve_match = False
     for match in candidate_pool:
         try:
             info = rpc.call("module.info", match["type"], match["name"])
@@ -313,11 +345,22 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
         weight, label = _rank_weight_and_label(info.get("rank"))
         description = str(info.get("description") or "").strip()
         snippet = description.split("\n", 1)[0][:220]
+
+        # A module whose own declared references include a CVE that NVD
+        # also lists for the confirmed product/version is a confirmed
+        # CVE-to-module match - the strongest signal this endpoint can
+        # produce without actually running `check` against the target.
+        module_cve_ids = extract_cve_ids(info.get("references"))
+        cve_matches = sorted(module_cve_ids & known_cve_ids)
+
         # Boost weight if description mentions exact version
         adjusted_weight = weight
         if any(vt in description.lower() for vt in version_tokens):
             adjusted_weight += 50
             has_version_match = True
+        if cve_matches:
+            adjusted_weight += CVE_MATCH_WEIGHT_BONUS
+            has_cve_match = True
         candidates.append({
             "type": match["type"],
             "name": match["name"],
@@ -327,13 +370,22 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
             "disclosure_date": info.get("disclosure_date"),
             "description_snippet": snippet,
             "match_basis": match_basis,
+            "cve_matches": cve_matches,
         })
 
     candidates.sort(key=lambda c: c.get("disclosure_date") or "", reverse=True)
     candidates.sort(key=lambda c: c["rank_weight"], reverse=True)
 
     # Dynamic plain-language note describing the findings
-    if parsed and "openssh" in prod_lower:
+    if has_cve_match:
+        cve_note_target = f"{parsed.product} {parsed.version}" if parsed.version != "unknown" else parsed.product
+        note = (
+            f"Confirmed {cve_note_target}. One or more candidates below reference a CVE that NVD also lists for "
+            f"this product/version (see each candidate's cve_matches) - a real CVE-to-module match, not just a "
+            f"name match. This still isn't proof your specific target is vulnerable; use Verify to run the "
+            f"module's own check."
+        )
+    elif parsed and "openssh" in prod_lower:
         note = f"Confirmed {parsed.product} {parsed.version if parsed.version != 'unknown' else ''}. SSH services are typically tested via credential login and enumeration modules rather than direct exploits."
     elif parsed and parsed.version and parsed.version != "unknown":
         if has_version_match:
@@ -344,6 +396,9 @@ def suggest_modules(service_info: str, port: int | None = None, types: str | Non
         note = f"Confirmed {parsed.product}. Showing relevant service modules."
     else:
         note = f"Service on port {port} (inferred {terms[0]}). Showing relevant modules."
+
+    if cve_lookup_error:
+        note = f"{note} (NVD CVE cross-check unavailable: {cve_lookup_error})"
 
     return {"query": query_label, "candidates": candidates[:8], "note": note}
 
