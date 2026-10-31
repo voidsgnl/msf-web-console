@@ -86,7 +86,7 @@ def _parse_version_components(version: str | None) -> tuple[tuple[int, ...], str
     is sufficiently clear for this project.
 
     OpenSSH uses p1/p2 patch suffixes (9.6p1); ProFTPD has lettered releases
-    (1.3.5e). Distro/package suffixes such as -7ubuntu4 are deliberately not
+    (1.3.5e); release candidates use rcN suffixes and sort before final releases. Distro/package suffixes such as -7ubuntu4 are deliberately not
     interpreted here: callers should normalize those in the banner parser or
     treat them as indeterminate. Unknown suffixes must never be silently
     discarded because doing so can turn distinct releases into a false match.
