@@ -157,7 +157,7 @@ class ReconToolAdapterTests(unittest.TestCase):
         self.assertIn("-ns", command)
         self.assertIn("-cs", command)
         scope = command[command.index("-cs") + 1]
-        self.assertIn(r"example\\.test:8443", scope)
+        self.assertIn(r"example\.test:8443", scope)
         self.assertIn("-mdp", command)
         self.assertEqual(command[command.index("-mdp") + 1], "100")
         self.assertEqual(command[command.index("-rl") + 1], "2")
