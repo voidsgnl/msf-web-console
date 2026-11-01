@@ -443,6 +443,30 @@ class GobusterAdapterTests(unittest.TestCase):
         self.assertLess(records[0]["body_similarity"], 0.92)
         self.assertEqual(summary["distinct_response"], 1)
 
+    def test_gobuster_body_signature_normalizes_common_dynamic_values(self):
+        first = _gobuster_body_signature(
+            b"<p>Request 123e4567-e89b-12d3-a456-426614174000 at 2026-11-01T12:00:00Z</p>"
+            b'<input name="csrf" value="abcdefgh12345678">'
+        )
+        second = _gobuster_body_signature(
+            b"<p>Request 123e4567-e89b-12d3-a456-426614174999 at 2026-11-02T13:30:00Z</p>"
+            b'<input name="csrf" value="zyxwvuts87654321">'
+        )
+        self.assertEqual(first["fingerprint"], second["fingerprint"])
+
+    @patch("app.routes.web_recon._fetch_gobuster_candidate_body")
+    def test_gobuster_rejects_cross_origin_fingerprint_followup(self, fetch_body):
+        baseline = _gobuster_body_signature(b"<html><body>generic missing page</body></html>")
+        records = [{"url": "https://outside.example/admin", "status_code": 200, "content_length": 100}]
+        summary = _classify_gobuster_records(records, {
+            "status_codes": [200], "min_length": 100, "max_length": 100,
+            "reference_length": 100, "length_tolerance": 128,
+            "body_signatures": [{"status_code": 200, **baseline}],
+        }, "https://example.test/")
+        self.assertEqual(records[0]["response_classification"], "unverified")
+        self.assertEqual(summary["unverified"], 1)
+        fetch_body.assert_not_called()
+
     def test_gobuster_marks_missing_response_metadata_unverified(self):
         records = [{"url": "https://example.test/unknown", "status_code": 200, "content_length": None}]
         summary = _classify_gobuster_records(records, {
