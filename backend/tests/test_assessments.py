@@ -241,5 +241,52 @@ class AssessmentStoreTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 404)
 
 
+    def test_assessment_wide_record_management_comparison_and_history(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Evidence workspace"))
+        target = assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], target["url"])
+        first = assessments.record_tool_execution(
+            scope, "httpx", target["url"], "2026-11-01T10:00:00+00:00",
+            "2026-11-01T10:00:02+00:00", 0, False,
+            [{"url": "https://example.test/a", "status_code": 200},
+             {"url": "https://example.test/same", "status_code": 200}], "",
+        )
+        second = assessments.record_tool_execution(
+            scope, "httpx", target["url"], "2026-11-01T11:00:00+00:00",
+            "2026-11-01T11:00:02+00:00", 0, False,
+            [{"url": "https://example.test/b", "status_code": 200},
+             {"url": "https://example.test/same", "status_code": 200}], "",
+        )
+        first_records = assessments.get_assessment_execution(created["id"], first["id"])["records"]
+        chosen = first_records[0]["record_id"]
+        bulk = assessments.bulk_update_assessment_records(
+            created["id"], {"record_ids": [chosen], "record_type": "finding", "reviewed": True}
+        )
+        self.assertEqual(bulk["updated"], 1)
+        listed = assessments.list_assessment_records(created["id"])
+        classified = next(item for item in listed["records"] if item["record_id"] == chosen)
+        self.assertEqual(classified["record_type"], "finding")
+        self.assertIsNotNone(classified["reviewed_at"])
+        filtered = assessments.list_assessment_records(created["id"], q="/same")
+        self.assertEqual(len(filtered["records"]), 2)
+        compared = assessments.compare_assessment_runs(created["id"], first["id"], second["id"])
+        self.assertEqual(len(compared["added"]), 1)
+        self.assertEqual(len(compared["removed"]), 1)
+        self.assertEqual(len(compared["unchanged"]), 1)
+        history = assessments.assessment_history_report(created["id"])
+        self.assertEqual(history["total_runs"], 2)
+        self.assertEqual(history["total_records"], 4)
+        self.assertEqual(history["findings"], 1)
+        self.assertEqual(history["evidence"], 3)
+        deleted = assessments.bulk_delete_assessment_records(
+            created["id"], {"record_ids": [chosen]}
+        )
+        self.assertEqual(deleted["deleted"], 1)
+        self.assertEqual(assessments.list_assessment_records(created["id"])["total"], 3)
+
+
+
 if __name__ == "__main__":
     unittest.main()
