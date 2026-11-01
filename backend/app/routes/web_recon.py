@@ -31,10 +31,12 @@ def request_job_cancellation(job_id: str) -> bool:
 
 
 def _register_job_event(job_id: str) -> threading.Event:
-    event = threading.Event()
     with _JOB_EVENTS_LOCK:
-        _JOB_EVENTS[job_id] = event
-    return event
+        event = _JOB_EVENTS.get(job_id)
+        if event is None:
+            event = threading.Event()
+            _JOB_EVENTS[job_id] = event
+        return event
 
 
 def _remove_job_event(job_id: str) -> None:
