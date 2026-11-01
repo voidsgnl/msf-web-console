@@ -579,10 +579,10 @@ def delete_execution_record(assessment_id: int, execution_id: int, record_id: st
         if row is None:
             raise HTTPException(404, "Execution not found in this assessment.")
         records = json.loads(row["result_json"])
-        retained = [
-            item for index, item in enumerate(records)
-            if (item.get("_record_id") or f"legacy-{execution_id}-{index}") != record_id
-        ]
+        for index, item in enumerate(records):
+            if not item.get("_record_id"):
+                item["_record_id"] = f"legacy-{execution_id}-{index}"
+        retained = [item for item in records if item.get("_record_id") != record_id]
         if len(retained) == len(records):
             raise HTTPException(404, "Record not found in this execution.")
         connection.execute(
