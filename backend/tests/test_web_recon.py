@@ -12,7 +12,7 @@ from app.routes.web_recon import (
     ToolRunRequest, WebProbeRequest, ManualPathCheckRequest, _normalise_manual_path, _check_manual_path,
     check_manual_directories, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
-    _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _classify_gobuster_records, _fetch_gobuster_candidate_body, _resolve_wordlist, _list_wordlists, _wordlist_roots, _classify_manual_path_records, _collect_manual_path_baseline,
+    _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _extract_html_response_features, _classify_gobuster_records, _fetch_gobuster_candidate_body, _resolve_wordlist, _list_wordlists, _wordlist_roots, _classify_manual_path_records, _collect_manual_path_baseline,
     probe_web_service, run_recon_tool, _run_bounded_process, list_tools,
 )
 
@@ -212,6 +212,24 @@ class ManualPathCheckTests(unittest.TestCase):
         for value in ("https://outside.example/admin", "//outside.example/admin", "../admin", "%2e%2e/admin", "admin?debug=1", r"admin\\login"):
             with self.subTest(value=value), self.assertRaises(HTTPException):
                 _normalise_manual_path(value)
+
+    def test_extract_html_response_features_counts_controls_without_values(self):
+        body = b"""<html><form action="/login"><input type="email" value="private@example.test">
+        <input type="password" value="secret"><button>Sign in</button></form>
+        <a href="/register">Register</a><script src="/app.js"></script></html>"""
+        features = _extract_html_response_features(body)
+        self.assertEqual(features, {
+            "form_count": 1, "input_count": 2, "password_input_count": 1,
+            "email_input_count": 1, "link_count": 1, "script_count": 1,
+            "button_count": 1,
+        })
+        self.assertNotIn("private@example.test", str(features))
+        self.assertNotIn("secret", str(features))
+
+    def test_extract_html_response_features_handles_malformed_html(self):
+        features = _extract_html_response_features(b"<form><input type=password><button>Login")
+        self.assertEqual(features["form_count"], 1)
+        self.assertEqual(features["password_input_count"], 1)
 
     @patch("app.routes.web_recon.requests.Session")
     def test_manual_path_probe_does_not_follow_redirects_and_reads_response_metadata(self, session_factory):
