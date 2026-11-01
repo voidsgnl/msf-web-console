@@ -106,7 +106,8 @@ Status: adapter implementation complete; validation and platform-wide normalisat
       rate limits, severity filters, disabled redirects/OAST, and evidence-only findings.
 - [x] Add specialist web checks (Nikto, passive WPScan, and HTTPS-only testssl.sh) as bounded opt-in adapters.
 - [x] Add an analyst-controlled evidence lifecycle with stable record IDs, review/dismiss/restore, notes, and evidence-versus-finding classification.
-- [ ] Define a single platform-owned finding schema shared by all adapters; current parsers produce tool-specific evidence records.
+- [x] Add a versioned common evidence envelope with trusted tool provenance, target, observation time/type, bounded summary, and neutral severity/confidence/verification defaults.
+- [ ] Define a platform-owned finding schema and cross-tool correlation model; adapter payloads remain tool-specific evidence, not a unified vulnerability verdict.
 - [ ] Correlate and deduplicate equivalent observations across tools while retaining every source and execution reference.
 - [ ] Add consistent severity, confidence, verification state, and remediation fields without converting fingerprints or HTTP errors into vulnerability claims.
 
