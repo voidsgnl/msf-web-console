@@ -797,12 +797,15 @@ class GobusterAdapterTests(unittest.TestCase):
         "exclude_length": 37900, "status_codes": [200], "min_length": 37900,
         "max_length": 37900, "reference_length": 37900, "length_tolerance": 379,
     })
-    @patch("subprocess.run")
+    @patch("app.routes.web_recon._run_bounded_process")
     def test_gobuster_run_persists_parsed_same_origin_results(self, run_process, _probe, _which, _scope, record):
-        def fake_run(command, **kwargs):
-            kwargs["stdout"].write("/admin (Status: 200) [Size: 123]\n")
-            return type("Completed", (), {"returncode": 0})()
-        run_process.side_effect = fake_run
+        run_process.return_value = {
+            "returncode": 0,
+            "stdout": "/admin (Status: 200) [Size: 123]\\n",
+            "stderr": "",
+            "output_size": 35,
+            "output_truncated": False,
+        }
         with tempfile.TemporaryDirectory() as directory:
             wordlist = os.path.join(directory, "common.txt")
             with open(wordlist, "w", encoding="utf-8") as handle:
