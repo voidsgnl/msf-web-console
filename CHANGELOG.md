@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Grouped Gobuster likely soft-404 results by a stable response key derived from HTTP status, normalized page title, media type, and shared not-found markers. Matching paths now appear in collapsible groups with per-path status, response size, similarity, and classification evidence preserved; distinct response signatures remain separate. Added backend coverage for group separation across title and media-type differences.
+
 - Expanded Gobuster response classification to recognize application-level soft 404s. Normalized random-path baselines now record common not-found phrases; a phrase repeated across multiple baselines and a candidate is labelled "likely soft 404". Responses in the 80–92% similarity band are labelled "needs verification" rather than being presented as distinct discoveries. Existing wildcard, distinct-response, and unverified outcomes remain available, and the Directories UI shows the additional counts.
 
 - Fixed Gobuster wildcard preflight fidelity: random baseline paths now use the same UUID format Gobuster itself uses, avoiding path-shape-dependent soft-404 responses that could cause Gobuster to reject the scan even when a measured exclusion was supplied.
