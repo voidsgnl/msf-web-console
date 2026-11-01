@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Added a first-class assessment service inventory derived from Nmap evidence. Open TCP services are deduplicated by host/port/protocol and retain service/product/version fingerprints, first/last-seen timestamps, and source provenance. In-scope versus out-of-scope classification is explicit; closed ports, UDP observations, malformed ports, and non-Nmap records are excluded. The Web Security workspace now displays discovered services separately from URL/host assets.
+
 - Added persistent asynchronous reconnaissance jobs with queued/running/terminal states, status polling, operator cancellation, partial-output retention, and startup recovery for jobs interrupted by a backend restart. The Web Security workspace now queues long-running scanners and displays job history and stop controls; the existing synchronous API remains available for compatibility. Concurrent scanner execution is capped at two background processes; queued jobs wait for capacity and can be stopped before launch.
 
 
