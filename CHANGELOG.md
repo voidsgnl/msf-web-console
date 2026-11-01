@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Manual path analysis now records bounded form methods, sanitized action paths, input names/types, autocomplete hints, and required-field flags without collecting values or query strings.
+
+## Unreleased
+
 - Manual path checks now report privacy-preserving HTML structure counts (forms, inputs, password/email fields, links, scripts, and buttons) to help distinguish application pages without collecting form values or following links.
 
 ## Unreleased
