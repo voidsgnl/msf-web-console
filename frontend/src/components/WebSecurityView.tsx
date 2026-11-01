@@ -43,7 +43,17 @@ export function WebSecurityView() {
   const addTargetToScope=async()=>{if(!assessmentId||!authorized||!target.trim())return;setAssessmentError(null);try{await api.assessments.addTarget(assessmentId,target.trim(),true);await loadAssessments(assessmentId);}catch(e){setAssessmentError(e instanceof Error?e.message:String(e));}};
   const targetIsInScope=()=>{if(!assessment||assessment.status!=="active"||!target.trim())return false;try{const candidate=new URL(target.trim().includes("://")?target.trim():"https://"+target.trim());return assessment.targets.some(item=>new URL(item.url).origin===candidate.origin);}catch{return false;}};
   const groups=useMemo(()=>CATEGORIES.map(category=>({category,items:tools.filter(tool=>tool.category===category)})).filter(group=>group.items.length),[tools]);
-  const visibleToolRecords=useMemo(()=>toolResult?.tool_id==="katana"&&!showAllKatana?toolResult.records.filter(record=>record.display_default!==false):toolResult?.records??[],[toolResult,showAllKatana]);
+  const visibleToolRecords=useMemo(()=>toolResult?.tool_id==="katana"&&!showAllKatana?toolResult.records.filter(record=>record.display_default!==false):toolResult?.tool_id==="gobuster"?(toolResult.records??[]).filter(record=>record.response_classification!=="likely_soft_404"):toolResult?.records??[],[toolResult,showAllKatana]);
+  const gobusterSoft404Groups=useMemo(()=>{
+    if(toolResult?.tool_id!=="gobuster")return [];
+    const groups=new Map<string,typeof toolResult.records>();
+    toolResult.records.forEach((record,index)=>{
+      if(record.response_classification!=="likely_soft_404")return;
+      const key=record.response_group_id??`unfingerprinted-${index}`;
+      groups.set(key,[...(groups.get(key)??[]),record]);
+    });
+    return Array.from(groups,([id,records])=>({id,records}));
+  },[toolResult]);
   const katanaCounts=useMemo(()=>{const records=toolResult?.tool_id==="katana"?toolResult.records:[];return {pages:records.filter(r=>r.resource_type==="page").length,apis:records.filter(r=>r.resource_type==="api_candidate").length,assets:records.filter(r=>r.resource_type==="static_asset").length,redirects:records.filter(r=>r.resource_type==="redirect").length,frameworkRedirects:records.filter(r=>r.resource_type==="framework_redirect").length,unverified:records.filter(r=>r.fetch_state==="discovered_unverified").length,malformed:records.filter(r=>r.resource_type==="malformed").length};},[toolResult]);
   const runProbe=async(event:FormEvent)=>{event.preventDefault();if(!authorized||!target.trim()||!assessmentId||!targetIsInScope()||probing)return;setProbing(true);setProbe(null);setProbeError(null);try{setProbe(await api.webRecon.probe(assessmentId,target.trim(),true));await loadAssessments(assessmentId);}catch(e){setProbeError(e instanceof Error?e.message:String(e));}finally{setProbing(false);}};
   const runTool=async(toolId:"httpx"|"whatweb"|"subfinder"|"katana"|"gobuster")=>{if(!authorized||!target.trim()||!assessmentId||!targetIsInScope()||runningTool)return;if(toolId==="gobuster"&&!selectedWordlistId){setToolError("Select an available backend wordlist first.");return;}setRunningTool(toolId);setToolResult(null);setToolError(null);try{setToolResult(await api.webRecon.runTool(assessmentId,toolId,target.trim(),true,toolId==="gobuster"?{wordlist_id:selectedWordlistId,extensions:gobusterExtensions}:undefined));await loadAssessments(assessmentId);}catch(e){setToolError(e instanceof Error?e.message:String(e));}finally{setRunningTool(null);}};
