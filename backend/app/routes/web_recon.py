@@ -313,8 +313,29 @@ def check_manual_directories(req: ManualPathCheckRequest):
 @router.get("/tools")
 def list_tools():
     """Report local tool availability; never executes the tools."""
-    tools = [{**item, "installed": (path := shutil.which(item["id"])) is not None, "path": path} for item in TOOL_CATALOG]
-    return {"tools": tools, "built_in": [{"name":"HTTP response probe","available":True,"description":"One bounded HTTP GET; no crawling or vulnerability testing."}]}
+    tools = []
+    for item in TOOL_CATALOG:
+        path = shutil.which(item["id"])
+        execution_enabled = item["id"] in RUNNABLE_TOOLS
+        tools.append({
+            **item,
+            "installed": path is not None,
+            "path": path,
+            "execution_enabled": execution_enabled,
+            "status": (
+                "ready" if execution_enabled and path
+                else "not_installed" if execution_enabled
+                else "not_integrated"
+            ),
+        })
+    return {
+        "tools": tools,
+        "built_in": [{
+            "name": "HTTP response probe",
+            "available": True,
+            "description": "One bounded HTTP GET; no crawling or vulnerability testing.",
+        }],
+    }
 
 
 @router.post("/probe")
