@@ -1,4 +1,5 @@
 import hashlib
+import html
 import os
 import re
 import uuid
@@ -337,6 +338,24 @@ def _gobuster_body_signature(body: bytes, encoding: str | None = None) -> dict:
         r"\1\2<dynamic-token>",
         text,
     )
+    decoded_text = html.unescape(text)
+    title_match = re.search(r"(?is)<title[^>]*>(.*?)</title>", decoded_text)
+    title = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", title_match.group(1))).strip().lower() if title_match else ""
+    searchable = re.sub(r"<[^>]+>", " ", decoded_text).lower()
+    soft_404_phrases = (
+        "profile not found",
+        "this profile doesn't exist",
+        "this profile does not exist",
+        "this profile has been removed",
+        "page not found",
+        "404 not found",
+        "the requested url was not found",
+        "the requested resource was not found",
+        "the requested page could not be found",
+        "we couldn't find the page",
+        "we could not find the page",
+    )
+    soft_404_markers = sorted(phrase for phrase in soft_404_phrases if phrase in searchable)
     normalised = re.sub(r"\s+", " ", text).strip().lower()
     tokens = re.findall(r"[a-z0-9][a-z0-9_./:-]{2,}", normalised)
     if len(tokens) >= 3:
@@ -347,6 +366,8 @@ def _gobuster_body_signature(body: bytes, encoding: str | None = None) -> dict:
         "fingerprint": hashlib.sha256(normalised.encode("utf-8")).hexdigest(),
         "shingles": shingles,
         "normalised_length": len(normalised),
+        "title": title,
+        "soft_404_markers": soft_404_markers,
     }
 def _gobuster_body_similarity(left: dict, right: dict) -> float:
     left_shingles = left.get("shingles") or set()
@@ -377,7 +398,9 @@ def _fetch_gobuster_candidate_body(url: str) -> tuple[int, dict] | None:
                 body.extend(chunk)
                 if len(body) > 1048576:
                     return None
-            return response.status_code, _gobuster_body_signature(bytes(body), response.encoding)
+            signature = _gobuster_body_signature(bytes(body), response.encoding)
+            signature["content_type"] = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+            return response.status_code, signature
     except requests.exceptions.RequestException:
         return None
     finally:
@@ -419,6 +442,7 @@ def _probe_gobuster_wildcard_length(target_url: str) -> dict:
                     body_signatures.append({
                         "status_code": response.status_code,
                         **_gobuster_body_signature(bytes(body), response.encoding),
+                        "content_type": response.headers.get("Content-Type", "").split(";")[0].strip().lower(),
                     })
             except requests.exceptions.SSLError as exc:
                 raise HTTPException(502, f"Gobuster wildcard probe TLS negotiation failed: {exc}") from exc
