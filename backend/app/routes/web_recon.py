@@ -1979,6 +1979,7 @@ def run_recon_tool(req: ToolRunRequest, cancel_event=None):
 
     return {
         "execution_id": execution["id"],
+        "cancelled": bool(completed.get("cancelled")),
         "assessment_id": req.assessment_id,
         "tool_id": req.tool_id,
         "tool": config["name"],
