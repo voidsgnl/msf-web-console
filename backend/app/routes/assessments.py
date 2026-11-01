@@ -612,6 +612,21 @@ def list_assessment_executions(assessment_id: int):
         ).fetchall()
     return {"executions": [dict(row) for row in rows]}
 
+@router.get("/{assessment_id}/execution-jobs")
+def list_assessment_execution_jobs(assessment_id: int):
+    return list_execution_jobs(assessment_id)
+
+
+@router.get("/{assessment_id}/execution-jobs/{job_id}")
+def get_assessment_execution_job(assessment_id: int, job_id: str):
+    return get_execution_job(assessment_id, job_id)
+
+
+@router.post("/{assessment_id}/execution-jobs/{job_id}/cancel")
+def cancel_assessment_execution_job(assessment_id: int, job_id: str):
+    return request_execution_job_cancel(assessment_id, job_id)
+
+
 @router.get("/{assessment_id}/executions/{execution_id}")
 def get_assessment_execution(assessment_id: int, execution_id: int):
     _initialise()
