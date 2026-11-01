@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from app.routes.web_recon import (
     ToolRunRequest, WebProbeRequest, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
-    _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _resolve_wordlist, _list_wordlists, _wordlist_roots,
+    _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _classify_gobuster_records, _resolve_wordlist, _list_wordlists, _wordlist_roots,
     probe_web_service, run_recon_tool,
 )
 
