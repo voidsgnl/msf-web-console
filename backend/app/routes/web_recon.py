@@ -1327,8 +1327,17 @@ def _parse_specialist_tool_output(tool_id: str, output: str, target_url: str) ->
             return []
         records = []
         for host_node in root.findall(".//host"):
-            address_node = host_node.find("./address")
+            address_node = next(
+                (node for node in host_node.findall("./address")
+                 if node.get("addrtype") in {"ipv4", "ipv6"}),
+                host_node.find("./address"),
+            )
             host_value = address_node.get("addr") if address_node is not None else (urlsplit(target_url).hostname or "")
+            hostnames = [
+                str(node.get("name")).lower().rstrip(".")
+                for node in host_node.findall("./hostnames/hostname")
+                if node.get("name")
+            ][:20]
             for port_node in host_node.findall("./ports/port"):
                 state_node = port_node.find("state")
                 if state_node is None or state_node.get("state") != "open":
@@ -1336,6 +1345,7 @@ def _parse_specialist_tool_output(tool_id: str, output: str, target_url: str) ->
                 service_node = port_node.find("service")
                 records.append({
                     "host": host_value,
+                    "hostnames": hostnames,
                     "port": int(port_node.get("portid", "0")),
                     "protocol": port_node.get("protocol", "tcp"),
                     "state": "open",
