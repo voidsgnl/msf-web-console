@@ -157,6 +157,8 @@ class ReconToolAdapterTests(unittest.TestCase):
         self.assertIn("-dr", command)
         self.assertIn("-jc", command)
         self.assertIn("-iqp", command)
+        self.assertIn("-or", command)
+        self.assertIn("-ob", command)
         self.assertNotIn("-ns", command)
         self.assertIn("-cs", command)
         scope = command[command.index("-cs") + 1]
@@ -188,6 +190,18 @@ class ReconToolAdapterTests(unittest.TestCase):
         self.assertEqual(records[0]["attribute"], "href")
         self.assertEqual(records[0]["source"], "https://example.test/")
         self.assertEqual(records[0]["redirect_location"], "/next")
+
+    def test_katana_parser_discards_incomplete_json_response(self):
+        complete = (
+            '{"request":{"method":"GET","endpoint":"https://example.test/login"},'
+            '"response":{"status_code":200}}\n'
+        )
+        incomplete = (
+            '{"request":{"method":"GET","endpoint":"https://example.test/admin"},'
+            '"response":{"status_code":'
+        )
+        records = _parse_tool_output("katana", complete + incomplete)
+        self.assertEqual([record["url"] for record in records], ["https://example.test/login"])
 
 
     def test_katana_follows_only_same_origin_entry_redirects(self):

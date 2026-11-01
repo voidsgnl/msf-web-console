@@ -173,7 +173,7 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[
             authority_pattern = re.escape(host_literal) + (r"(:%s)?" % default_port if parsed.port in {None, default_port} else "")
         scope_pattern = "^" + re.escape(parsed.scheme.lower()) + "://" + authority_pattern + r"(/|$)"
         return [
-            executable, "-u", target_url, "-silent", "-nc", "-j", "-duc",
+            executable, "-u", target_url, "-silent", "-nc", "-j", "-duc", "-or", "-ob",
             "-d", "3", "-jc", "-iqp", "-mdp", "100", "-ct", "90s", "-mrs", "1048576",
             "-timeout", "8", "-retry", "0", "-rl", "2", "-c", "1", "-p", "1",
             # Keep crawler redirects disabled. The adapter resolves only same-origin
@@ -243,6 +243,10 @@ def _parse_tool_output(tool_id: str, output: str) -> list[dict]:
         try:
             records.append(normalise(json.loads(line)))
         except (TypeError, ValueError):
+            if tool_id == "katana":
+                # The bounded stdout read can end in the middle of a JSON
+                # record. Do not persist that partial response as evidence.
+                continue
             records.append({"raw": line[:4000]})
     return records
 
