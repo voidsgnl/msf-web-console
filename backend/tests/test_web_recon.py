@@ -390,6 +390,17 @@ class GobusterAdapterTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(HTTPException):
                 _normalise_gobuster_extensions(invalid)
 
+    def test_wordlist_catalog_only_exposes_supported_text_lists(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with open(os.path.join(directory, "common.txt"), "w", encoding="utf-8") as handle:
+                handle.write("admin\\n")
+            with open(os.path.join(directory, "notes.md"), "w", encoding="utf-8") as handle:
+                handle.write("not a wordlist")
+            with patch.dict(os.environ, {"MSF_WEB_WORDLIST_DIRS": directory}):
+                lists = __import__("app.routes.web_recon", fromlist=["_list_wordlists"])._list_wordlists()
+        self.assertEqual([item["name"] for item in lists], ["common.txt"])
+        self.assertEqual(lists[0]["id"], "0:common.txt")
+
     def test_wordlist_resolution_is_limited_to_configured_root(self):
         with tempfile.TemporaryDirectory() as directory:
             root = os.path.realpath(directory)
