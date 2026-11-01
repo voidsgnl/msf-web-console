@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Added fixed, bounded adapters for Nikto, passive-mode WPScan, passive Amass enumeration, testssl.sh TLS analysis, and a top-100 TCP Nmap connect/service scan. Specialist output is normalized into assessment evidence; active scope remains tied to the explicitly approved target, Amass discoveries are not auto-approved, and Nmap does not expose arbitrary ports, UDP, scripts, or OS detection.
+
+## Unreleased
+
 - Updated the application startup script to prepend Go, local-user, and RubyGems executable directories to the backend PATH and print a per-tool availability check before FastAPI starts. This ensures user-installed scanners are discoverable by the backend.
 
 ## Unreleased
