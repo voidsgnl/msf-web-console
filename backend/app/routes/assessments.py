@@ -141,6 +141,7 @@ class ExecutionRecordUpdate(BaseModel):
     review_state: str | None = Field(default=None, pattern=r"^(active|dismissed)$")
     reviewed: bool | None = None
     notes: str | None = Field(default=None, max_length=4000)
+    record_type: str | None = Field(default=None, pattern=r"^(evidence|finding)$")
 
 
 def _assessment_or_404(connection: sqlite3.Connection, assessment_id: int) -> sqlite3.Row:
@@ -482,13 +483,14 @@ def get_assessment_execution(assessment_id: int, execution_id: int):
             item = dict(record) if isinstance(record, dict) else {"raw": str(record)}
             record_id = item.get("_record_id") or f"legacy-{execution_id}-{index}"
             metadata = connection.execute(
-                "SELECT review_state, reviewed_at, notes FROM execution_record_metadata WHERE record_id = ? AND execution_id = ?",
+                "SELECT review_state, reviewed_at, notes, record_type FROM execution_record_metadata WHERE record_id = ? AND execution_id = ?",
                 (record_id, execution_id),
             ).fetchone()
             item["record_id"] = record_id
             item["review_state"] = metadata["review_state"] if metadata else "active"
             item["reviewed_at"] = metadata["reviewed_at"] if metadata else None
             item["notes"] = metadata["notes"] if metadata else ""
+            item["record_type"] = metadata["record_type"] if metadata else "evidence"
             enriched.append(item)
         result["records"] = enriched
     return result
@@ -523,6 +525,8 @@ def update_execution_record(
         raise HTTPException(400, "Review state cannot be null.")
     if "reviewed" in changes and request.reviewed is None:
         raise HTTPException(400, "Reviewed state cannot be null.")
+    if "record_type" in changes and request.record_type is None:
+        raise HTTPException(400, "Record type cannot be null.")
     with _connection() as connection:
         _assessment_or_404(connection, assessment_id)
         row = connection.execute(
@@ -547,7 +551,7 @@ def update_execution_record(
             )
         now = _timestamp()
         existing = connection.execute(
-            "SELECT review_state, reviewed_at, notes FROM execution_record_metadata WHERE record_id = ?",
+            "SELECT review_state, reviewed_at, notes, record_type FROM execution_record_metadata WHERE record_id = ?",
             (record_id,),
         ).fetchone()
         state = request.review_state if "review_state" in changes else (existing["review_state"] if existing else "active")
@@ -555,22 +559,24 @@ def update_execution_record(
             now if request.reviewed else None
         ) if "reviewed" in changes else (existing["reviewed_at"] if existing else None)
         notes = request.notes if "notes" in changes else (existing["notes"] if existing else "")
+        record_type = request.record_type if "record_type" in changes else (existing["record_type"] if existing else "evidence")
         connection.execute(
             """
             INSERT INTO execution_record_metadata
-                (record_id, execution_id, assessment_id, review_state, reviewed_at, notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (record_id, execution_id, assessment_id, review_state, reviewed_at, notes, created_at, updated_at, record_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(record_id) DO UPDATE SET
                 review_state = excluded.review_state,
                 reviewed_at = excluded.reviewed_at,
                 notes = excluded.notes,
+                record_type = excluded.record_type,
                 updated_at = excluded.updated_at
             """,
-            (record_id, execution_id, assessment_id, state, reviewed_at, notes or "", now, now),
+            (record_id, execution_id, assessment_id, state, reviewed_at, notes or "", now, now, record_type),
         )
     return {
         "record_id": record_id, "review_state": state,
-        "reviewed_at": reviewed_at, "notes": notes or "",
+        "reviewed_at": reviewed_at, "notes": notes or "", "record_type": record_type,
     }
 
 
