@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from app.routes.web_recon import (
     ToolRunRequest, WebProbeRequest, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
-    _parse_gobuster_output, _normalise_gobuster_extensions, _resolve_wordlist,
+    _parse_gobuster_output, _normalise_gobuster_extensions, _resolve_wordlist, _list_wordlists,
     probe_web_service, run_recon_tool,
 )
 
@@ -397,7 +397,7 @@ class GobusterAdapterTests(unittest.TestCase):
             with open(os.path.join(directory, "notes.md"), "w", encoding="utf-8") as handle:
                 handle.write("not a wordlist")
             with patch.dict(os.environ, {"MSF_WEB_WORDLIST_DIRS": directory}):
-                lists = __import__("app.routes.web_recon", fromlist=["_list_wordlists"])._list_wordlists()
+                lists = _list_wordlists()
         self.assertEqual([item["name"] for item in lists], ["common.txt"])
         self.assertEqual(lists[0]["id"], "0:common.txt")
 
