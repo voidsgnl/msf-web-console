@@ -168,6 +168,37 @@ class AssessmentStoreTests(unittest.TestCase):
         self.assertEqual(login["source_tool"], "whatweb")
 
 
+    def test_manual_path_checks_remain_evidence_without_promoting_paths_to_assets(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Manual path observations"))
+        assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], "https://example.test")
+        saved = assessments.record_tool_execution(
+            scope, "manual-path-check", "https://example.test/",
+            "2026-11-01T10:00:00+00:00", "2026-11-01T10:00:05+00:00", 0, False,
+            [
+                {"url": "https://example.test/admin", "status_code": 200,
+                 "classification_reason": "HTTP response observed; endpoint validity is unverified."},
+                {"url": "https://example.test/xxxxxx", "status_code": 200,
+                 "classification_reason": "Generic application response."},
+            ],
+            "",
+        )
+
+        inventory = assessments.list_assessment_assets(created["id"])
+        values = {item["value"] for item in inventory["assets"]}
+        self.assertIn("https://example.test", values)
+        self.assertNotIn("https://example.test/admin", values)
+        self.assertNotIn("https://example.test/xxxxxx", values)
+
+        execution = assessments.get_assessment_execution(created["id"], saved["id"])
+        self.assertEqual(len(execution["records"]), 2)
+        self.assertEqual(
+            {record["url"] for record in execution["records"]},
+            {"https://example.test/admin", "https://example.test/xxxxxx"},
+        )
+
     def test_record_review_dismiss_restore_and_notes_persist(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="Record lifecycle"))
         assessments.add_assessment_target(
