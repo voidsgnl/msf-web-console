@@ -124,7 +124,7 @@ class ManualPathCheckTests(unittest.TestCase):
         self.assertIn("not a confirmed endpoint", result["classification_reason"])
 
     @patch("app.routes.web_recon._gobuster_body_similarity", return_value=0.25)
-    def test_single_shared_marker_with_low_similarity_needs_verification(self, _similarity):
+    def test_single_baseline_marker_is_not_trusted_at_low_similarity(self, _similarity):
         baseline = {
             "status_code": 200, "content_type": "text/html",
             "fingerprint": "baseline", "shingles": {"generic page", "not found"},
@@ -138,8 +138,8 @@ class ManualPathCheckTests(unittest.TestCase):
                 "soft_404_markers": ["page not found"],
             },
         }
-        result = _classify_manual_path_records([candidate], [baseline, baseline.copy()])[0]
-        self.assertEqual(result["response_classification"], "needs_verification")
+        result = _classify_manual_path_records([candidate], [baseline])[0]
+        self.assertEqual(result["response_classification"], "distinct_response")
         self.assertEqual(result["body_similarity"], 0.25)
         self.assertEqual(result["shared_not_found_marker_count"], 0)
         self.assertEqual(result["shared_not_found_markers"], [])
