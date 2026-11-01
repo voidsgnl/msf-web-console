@@ -76,6 +76,9 @@ Status: in progress.
 - [x] Add a platform-owned SQLite assessment store independent of Metasploit's database, with assessment lifecycle and target-scope CRUD APIs.\n- [x] Require explicit authorization when registering targets; enforce exact scheme/host/port scope matching in the platform scope guard.\n- [x] Bind the built-in web probe, httpx, and WhatWeb executions to an active assessment and exact approved origin.\n- [x] Persist completed runs, timeouts, and launch failures with timestamps, exit status, parsed evidence, and bounded stderr.\n- [x] Expose assessment execution history and stored evidence in the Web Security workspace.\n- [x] Enforce a combined stdout/stderr capture ceiling and terminate the scanner process group when the ceiling is exceeded.
 - [x] Enforce wall-clock timeouts with process-group termination so child processes do not outlive timed-out scans.
 - [ ] Add operator-requested cancellation for in-progress runs and parser-version metadata.
+- [x] Add a cancellation signal to the bounded process runner; it terminates
+      the scanner process group and retains captured partial output. The
+      operator-facing asynchronous job lifecycle is still outstanding.
 - [x] Distinguish installed executables from implemented adapters in the tool
       catalogue; only the five explicitly supported adapters are executable.
       Planned tools remain visible as "Not integrated" rather than appearing
