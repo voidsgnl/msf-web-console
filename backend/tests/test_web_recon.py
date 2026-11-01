@@ -360,9 +360,9 @@ class GobusterAdapterTests(unittest.TestCase):
 
     def test_gobuster_parser_supports_legacy_and_current_output_and_deduplicates(self):
         output = (
-            "/admin (Status: 200) [Size: 123]\\n"
-            "[Status: 301, Size: 0, Words: 1, Lines: 1, Duration: 2ms] https://example.test/login\\n"
-            "/admin (Status: 200) [Size: 123]\\n"
+            "/admin (Status: 200) [Size: 123]\n"
+            "[Status: 301, Size: 0, Words: 1, Lines: 1, Duration: 2ms] https://example.test/login\n"
+            "/admin (Status: 200) [Size: 123]\n"
         )
         records = _parse_gobuster_output(output, "https://example.test/")
         self.assertEqual(len(records), 2)
@@ -375,11 +375,11 @@ class GobusterAdapterTests(unittest.TestCase):
 
     def test_gobuster_parser_rejects_cross_origin_and_unstructured_lines(self):
         output = (
-            "https://other.example/admin (Status: 200) [Size: 1]\\n"
-            "https://user@example.test/private (Status: 200) [Size: 1]\\n"
-            "https://example.test/path#fragment (Status: 200) [Size: 1]\\n"
-            "/safe (Status: 200) [Size: 2]\\n"
-            "Progress: 100 / 100\\n"
+            "https://other.example/admin (Status: 200) [Size: 1]\n"
+            "https://user@example.test/private (Status: 200) [Size: 1]\n"
+            "https://example.test/path#fragment (Status: 200) [Size: 1]\n"
+            "/safe (Status: 200) [Size: 2]\n"
+            "Progress: 100 / 100\n"
         )
         records = _parse_gobuster_output(output, "https://example.test/")
         self.assertEqual([record["url"] for record in records], ["https://example.test/safe"])
@@ -395,7 +395,7 @@ class GobusterAdapterTests(unittest.TestCase):
             root = os.path.realpath(directory)
             wordlist = os.path.join(root, "common.txt")
             with open(wordlist, "w", encoding="utf-8") as handle:
-                handle.write("admin\\nlogin\\n")
+                handle.write("admin\nlogin\n")
             with patch.dict(os.environ, {"MSF_WEB_WORDLIST_DIRS": root}):
                 self.assertEqual(str(_resolve_wordlist("0:common.txt")), wordlist)
                 with self.assertRaises(HTTPException):
@@ -409,13 +409,13 @@ class GobusterAdapterTests(unittest.TestCase):
     @patch("subprocess.run")
     def test_gobuster_run_persists_parsed_same_origin_results(self, run_process, _which, _scope, record):
         def fake_run(command, **kwargs):
-            kwargs["stdout"].write("/admin (Status: 200) [Size: 123]\\n")
+            kwargs["stdout"].write("/admin (Status: 200) [Size: 123]\n")
             return type("Completed", (), {"returncode": 0})()
         run_process.side_effect = fake_run
         with tempfile.TemporaryDirectory() as directory:
             wordlist = os.path.join(directory, "common.txt")
             with open(wordlist, "w", encoding="utf-8") as handle:
-                handle.write("admin\\n")
+                handle.write("admin\n")
             with patch.dict(os.environ, {"MSF_WEB_WORDLIST_DIRS": directory}):
                 result = run_recon_tool(ToolRunRequest(
                     assessment_id=1, tool_id="gobuster", url="https://example.test",
