@@ -525,6 +525,7 @@ def _classify_gobuster_records(records: list[dict], wildcard_profile: dict, targ
     reference_length = int(wildcard_profile.get("reference_length", 0))
     tolerance = int(wildcard_profile.get("length_tolerance", 128))
     similarity_threshold = 0.92
+    review_similarity_threshold = 0.80
     max_fingerprint_checks = 100
     approved_origin = _origin_key(target_url)
     candidates = []
@@ -557,6 +558,8 @@ def _classify_gobuster_records(records: list[dict], wildcard_profile: dict, targ
     }
 
     suspected = 0
+    likely_soft_404 = 0
+    needs_verification = 0
     distinct = 0
     unverified = 0
     fingerprint_checks = 0
@@ -599,20 +602,47 @@ def _classify_gobuster_records(records: list[dict], wildcard_profile: dict, targ
                 for item in comparable
             )
             record["body_similarity"] = round(similarity, 4)
-            if similarity >= similarity_threshold:
+            baseline_marker_counts: dict[str, int] = {}
+            for item in comparable:
+                for marker in item.get("soft_404_markers", []):
+                    baseline_marker_counts[marker] = baseline_marker_counts.get(marker, 0) + 1
+            stable_baseline_markers = {
+                marker for marker, count in baseline_marker_counts.items() if count >= 2
+            }
+            shared_soft_404_markers = sorted(
+                set(signature.get("soft_404_markers", [])) & stable_baseline_markers
+            )
+            if shared_soft_404_markers:
+                record["response_classification"] = "likely_soft_404"
+                record["soft_404_markers"] = shared_soft_404_markers
+                record["classification_reason"] = (
+                    "Response contains an application-level not-found message also present "
+                    "in multiple random-path baselines: "
+                    + ", ".join(shared_soft_404_markers)
+                    + ". Treat as a likely soft 404, not a confirmed endpoint."
+                )
+                likely_soft_404 += 1
+            elif similarity >= similarity_threshold:
                 record["response_classification"] = "suspected_wildcard"
                 record["classification_reason"] = (
                     f"Normalized response body matches a random-path baseline "
                     f"({similarity:.1%} similarity; HTTP {status}; {length:,} bytes). "
-                    "Review before treating this as a real path."
+                    "Review before treating it as a real path."
                 )
                 suspected += 1
+            elif similarity >= review_similarity_threshold:
+                record["response_classification"] = "needs_verification"
+                record["classification_reason"] = (
+                    f"Response is similar to, but not conclusive against, the random-path baseline "
+                    f"({similarity:.1%} similarity; review band {review_similarity_threshold:.0%}–{similarity_threshold:.0%}). "
+                    "Verify the page content before treating it as a discovered endpoint."
+                )
+                needs_verification += 1
             else:
                 record["response_classification"] = "distinct_response"
                 record["classification_reason"] = (
                     f"Response body differs from the random-path baseline "
-                    f"({similarity:.1%} similarity; threshold {similarity_threshold:.0%}). "
-                    "This is a distinct response, not proof that the path is valid."
+                    f"({similarity:.1%} similarity). This is a distinct response, not proof that the path is valid."
                 )
                 distinct += 1
         elif isinstance(status, int) and isinstance(length, int):
@@ -637,9 +667,12 @@ def _classify_gobuster_records(records: list[dict], wildcard_profile: dict, targ
         "reference_length": reference_length,
         "length_tolerance": tolerance,
         "body_similarity_threshold": similarity_threshold,
+        "review_similarity_threshold": review_similarity_threshold,
         "body_fingerprint_checks": fingerprint_checks,
         "body_fingerprint_check_limit": max_fingerprint_checks,
         "suspected_wildcard": suspected,
+        "likely_soft_404": likely_soft_404,
+        "needs_verification": needs_verification,
         "distinct_response": distinct,
         "unverified": unverified,
         "total": len(records),
