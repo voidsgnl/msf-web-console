@@ -376,7 +376,11 @@ class GobusterAdapterTests(unittest.TestCase):
         response.iter_content.return_value = [b"x" * 37900]
         session = session_factory.return_value
         session.get.return_value = response
-        self.assertEqual(_probe_gobuster_wildcard_length("https://example.test/"), 37900)
+        profile = _probe_gobuster_wildcard_length("https://example.test/")
+        self.assertEqual(profile["exclude_length"], 37900)
+        self.assertEqual(profile["status_codes"], [200])
+        self.assertEqual(profile["reference_length"], 37900)
+        self.assertEqual(profile["length_tolerance"], 379)
         self.assertFalse(session.trust_env)
         self.assertFalse(session.get.call_args.kwargs["allow_redirects"])
         self.assertRegex(session.get.call_args.args[0], r"/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -392,10 +396,36 @@ class GobusterAdapterTests(unittest.TestCase):
             responses.append(response)
         session = session_factory.return_value
         session.get.side_effect = responses
-        self.assertEqual(
-            _probe_gobuster_wildcard_length("https://example.test/"),
-            "37892-37900",
-        )
+        profile = _probe_gobuster_wildcard_length("https://example.test/")
+        self.assertEqual(profile["exclude_length"], "37892-37900")
+        self.assertEqual(profile["min_length"], 37892)
+        self.assertEqual(profile["max_length"], 37900)
+
+    def test_gobuster_classifies_near_baseline_as_suspected_without_dropping_records(self):
+        records = [
+            {"url": "https://example.test/owa", "status_code": 200, "content_length": 37860},
+            {"url": "https://example.test/admin", "status_code": 200, "content_length": 41000},
+            {"url": "https://example.test/login", "status_code": 302, "content_length": 0},
+        ]
+        summary = _classify_gobuster_records(records, {
+            "status_codes": [200], "min_length": 37858, "max_length": 37880,
+            "reference_length": 37870, "length_tolerance": 128,
+        })
+        self.assertEqual(len(records), 3)
+        self.assertEqual(records[0]["response_classification"], "suspected_wildcard")
+        self.assertEqual(records[1]["response_classification"], "distinct_response")
+        self.assertEqual(records[2]["response_classification"], "distinct_response")
+        self.assertEqual(summary["suspected_wildcard"], 1)
+        self.assertEqual(summary["distinct_response"], 2)
+
+    def test_gobuster_marks_missing_response_metadata_unverified(self):
+        records = [{"url": "https://example.test/unknown", "status_code": 200, "content_length": None}]
+        summary = _classify_gobuster_records(records, {
+            "status_codes": [200], "min_length": 100, "max_length": 100,
+            "reference_length": 100, "length_tolerance": 128,
+        })
+        self.assertEqual(records[0]["response_classification"], "unverified")
+        self.assertEqual(summary["unverified"], 1)
 
     def test_gobuster_parser_supports_legacy_and_current_output_and_deduplicates(self):
         output = (
