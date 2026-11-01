@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from app.routes.web_recon import (
     ToolRunRequest, WebProbeRequest, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
-    _parse_gobuster_output, _normalise_gobuster_extensions, _resolve_wordlist, _list_wordlists,
+    _parse_gobuster_output, _normalise_gobuster_extensions, _resolve_wordlist, _list_wordlists, _wordlist_roots,
     probe_web_service, run_recon_tool,
 )
 
@@ -400,6 +400,13 @@ class GobusterAdapterTests(unittest.TestCase):
                 lists = _list_wordlists()
         self.assertEqual([item["name"] for item in lists], ["common.txt"])
         self.assertEqual(lists[0]["id"], "0:common.txt")
+
+    def test_wordlist_roots_include_project_local_wordlists_by_default(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("app.routes.web_recon._project_wordlist_root", return_value=__import__("pathlib").Path(directory)):
+                with patch.dict(os.environ, {}, clear=True):
+                    roots = _wordlist_roots()
+        self.assertEqual(str(roots[0]), os.path.realpath(directory))
 
     def test_wordlist_resolution_is_limited_to_configured_root(self):
         with tempfile.TemporaryDirectory() as directory:
