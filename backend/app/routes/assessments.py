@@ -6,6 +6,7 @@ of Metasploit's database and requires no additional service or dependency.
 import json
 import os
 import sqlite3
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -97,6 +98,19 @@ def _initialise() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_assessment_assets_assessment
                 ON assessment_assets(assessment_id, scope_state, asset_type);
+            CREATE TABLE IF NOT EXISTS execution_record_metadata (
+                record_id TEXT PRIMARY KEY,
+                execution_id INTEGER NOT NULL REFERENCES tool_executions(id) ON DELETE CASCADE,
+                assessment_id INTEGER NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+                review_state TEXT NOT NULL DEFAULT 'active'
+                    CHECK (review_state IN ('active', 'dismissed')),
+                reviewed_at TEXT,
+                notes TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_execution_record_metadata_assessment
+                ON execution_record_metadata(assessment_id, review_state, reviewed_at);
             """
         )
 
@@ -117,6 +131,12 @@ class AssessmentStatusUpdate(BaseModel):
 class TargetCreate(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
     authorized: bool = False
+
+
+class ExecutionRecordUpdate(BaseModel):
+    review_state: str | None = Field(default=None, pattern=r"^(active|dismissed)$")
+    reviewed: bool | None = None
+    notes: str | None = Field(default=None, max_length=4000)
 
 
 def _assessment_or_404(connection: sqlite3.Connection, assessment_id: int) -> sqlite3.Row:
@@ -357,8 +377,13 @@ def record_tool_execution(
 ) -> dict:
     _initialise()
     with _connection() as connection:
+        stored_records = []
+        for record in records:
+            item = dict(record) if isinstance(record, dict) else {"raw": str(record)}
+            item.setdefault("_record_id", uuid.uuid4().hex)
+            stored_records.append(item)
         _store_discovered_assets(
-            connection, scope["assessment_id"], tool_id, target_url, records, finished_at
+            connection, scope["assessment_id"], tool_id, target_url, stored_records, finished_at
         )
         cursor = connection.execute(
             """
@@ -370,7 +395,7 @@ def record_tool_execution(
             (
                 scope["assessment_id"], scope["target_id"], tool_id, target_url,
                 started_at, finished_at, exit_code, int(output_truncated),
-                json.dumps(records, ensure_ascii=False), stderr[:4000],
+                json.dumps(stored_records, ensure_ascii=False), stderr[:4000],
             ),
         )
         row = connection.execute(
@@ -447,5 +472,120 @@ def get_assessment_execution(assessment_id: int, execution_id: int):
         raise HTTPException(404, "Execution not found in this assessment.")
     result = dict(row)
     result["output_truncated"] = bool(result["output_truncated"])
-    result["records"] = json.loads(result.pop("result_json"))
+    records = json.loads(result.pop("result_json"))
+    enriched = []
+    for index, record in enumerate(records):
+        item = dict(record) if isinstance(record, dict) else {"raw": str(record)}
+        record_id = item.get("_record_id") or f"legacy-{execution_id}-{index}"
+        metadata = connection.execute(
+            "SELECT review_state, reviewed_at, notes FROM execution_record_metadata WHERE record_id = ? AND execution_id = ?",
+            (record_id, execution_id),
+        ).fetchone()
+        item["record_id"] = record_id
+        item["review_state"] = metadata["review_state"] if metadata else "active"
+        item["reviewed_at"] = metadata["reviewed_at"] if metadata else None
+        item["notes"] = metadata["notes"] if metadata else ""
+        enriched.append(item)
+    result["records"] = enriched
     return result
+
+
+def _rebuild_assessment_assets(connection: sqlite3.Connection, assessment_id: int) -> None:
+    """Rebuild inventory from retained execution evidence after a record deletion."""
+    connection.execute("DELETE FROM assessment_assets WHERE assessment_id = ?", (assessment_id,))
+    executions = connection.execute(
+        "SELECT tool_id, target_url, finished_at, result_json FROM tool_executions WHERE assessment_id = ? ORDER BY id",
+        (assessment_id,),
+    ).fetchall()
+    for execution in executions:
+        try:
+            records = json.loads(execution["result_json"])
+        except (TypeError, ValueError):
+            records = []
+        _store_discovered_assets(
+            connection, assessment_id, execution["tool_id"], execution["target_url"],
+            records if isinstance(records, list) else [], execution["finished_at"],
+        )
+
+
+@router.patch("/{assessment_id}/executions/{execution_id}/records/{record_id}")
+def update_execution_record(
+    assessment_id: int, execution_id: int, record_id: str, request: ExecutionRecordUpdate
+):
+    _initialise()
+    changes = request.model_fields_set
+    if not changes:
+        raise HTTPException(400, "Provide at least one record field to update.")
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        row = connection.execute(
+            "SELECT result_json FROM tool_executions WHERE id = ? AND assessment_id = ?",
+            (execution_id, assessment_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Execution not found in this assessment.")
+        records = json.loads(row["result_json"])
+        record = next(
+            (item for index, item in enumerate(records)
+             if (item.get("_record_id") or f"legacy-{execution_id}-{index}") == record_id),
+            None,
+        )
+        if record is None:
+            raise HTTPException(404, "Record not found in this execution.")
+        now = _timestamp()
+        existing = connection.execute(
+            "SELECT review_state, reviewed_at, notes FROM execution_record_metadata WHERE record_id = ?",
+            (record_id,),
+        ).fetchone()
+        state = request.review_state if "review_state" in changes else (existing["review_state"] if existing else "active")
+        reviewed_at = (
+            now if request.reviewed else None
+        ) if "reviewed" in changes else (existing["reviewed_at"] if existing else None)
+        notes = request.notes if "notes" in changes else (existing["notes"] if existing else "")
+        connection.execute(
+            """
+            INSERT INTO execution_record_metadata
+                (record_id, execution_id, assessment_id, review_state, reviewed_at, notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(record_id) DO UPDATE SET
+                review_state = excluded.review_state,
+                reviewed_at = excluded.reviewed_at,
+                notes = excluded.notes,
+                updated_at = excluded.updated_at
+            """,
+            (record_id, execution_id, assessment_id, state, reviewed_at, notes or "", now, now),
+        )
+    return {
+        "record_id": record_id, "review_state": state,
+        "reviewed_at": reviewed_at, "notes": notes or "",
+    }
+
+
+@router.delete("/{assessment_id}/executions/{execution_id}/records/{record_id}")
+def delete_execution_record(assessment_id: int, execution_id: int, record_id: str):
+    """Permanently remove one stored evidence record, retaining the execution history."""
+    _initialise()
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        row = connection.execute(
+            "SELECT result_json FROM tool_executions WHERE id = ? AND assessment_id = ?",
+            (execution_id, assessment_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Execution not found in this assessment.")
+        records = json.loads(row["result_json"])
+        retained = [
+            item for index, item in enumerate(records)
+            if (item.get("_record_id") or f"legacy-{execution_id}-{index}") != record_id
+        ]
+        if len(retained) == len(records):
+            raise HTTPException(404, "Record not found in this execution.")
+        connection.execute(
+            "UPDATE tool_executions SET result_json = ? WHERE id = ? AND assessment_id = ?",
+            (json.dumps(retained, ensure_ascii=False), execution_id, assessment_id),
+        )
+        connection.execute(
+            "DELETE FROM execution_record_metadata WHERE record_id = ?", (record_id,)
+        )
+        _rebuild_assessment_assets(connection, assessment_id)
+    return {"deleted": True, "record_id": record_id}
