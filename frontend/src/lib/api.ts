@@ -149,7 +149,9 @@ export const api = {
           response_content_type?: string | null; response_preview?: string; content_length?: number; bytes_inspected?: number;
           body_truncated?: boolean; redirect_location?: string | null; fetch_state?: string;
           response_features?: { form_count: number; input_count: number; password_input_count: number;
-            email_input_count: number; link_count: number; script_count: number; button_count: number };
+            email_input_count: number; link_count: number; script_count: number; button_count: number;
+            forms: { method: string; action: string; inputs: { type: string; name: string | null;
+              autocomplete: string | null; required: boolean }[] }[] };
           response_classification?: "likely_soft_404" | "needs_verification" | "distinct_response" | "baseline_unavailable"; body_similarity?: number | null;
           response_fingerprint?: string; soft_404_markers?: string[]; shared_not_found_markers?: string[];
           shared_not_found_marker_count?: number; baseline_samples_compared?: number;
