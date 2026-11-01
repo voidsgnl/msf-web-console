@@ -551,7 +551,7 @@ RUNNABLE_TOOLS = {
 
 class ToolRunRequest(BaseModel):
     assessment_id: int = Field(ge=1)
-    tool_id: str = Field(pattern=r"^(httpx|whatweb|subfinder|katana|gobuster|ffuf|feroxbuster|nuclei|nikto|wpscan|amass|testssl\\.sh|nmap)$")
+    tool_id: str = Field(pattern=r"^(httpx|whatweb|subfinder|katana|gobuster|ffuf|feroxbuster|nuclei|nikto|wpscan|amass|testssl[.]sh|nmap)$")
     url: str = Field(min_length=1, max_length=2048)
     authorized: bool = False
     wordlist_id: str | None = Field(default=None, max_length=512)
