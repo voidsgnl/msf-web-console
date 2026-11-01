@@ -138,7 +138,7 @@ class ManualPathCheckTests(unittest.TestCase):
                 "soft_404_markers": ["page not found"],
             },
         }
-        result = _classify_manual_path_records([candidate], [baseline])[0]
+        result = _classify_manual_path_records([candidate], [baseline, baseline.copy()])[0]
         self.assertEqual(result["response_classification"], "needs_verification")
         self.assertEqual(result["body_similarity"], 0.25)
         self.assertEqual(result["shared_not_found_marker_count"], 0)
