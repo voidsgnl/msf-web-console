@@ -305,9 +305,12 @@ def _parse_gobuster_output(output: str, target_url: str) -> list[dict]:
             continue
         candidate = urljoin(base, match.group("path"))
         try:
-            if _origin_key(candidate) != approved_origin:
-                continue
             parsed = urlsplit(candidate)
+            if (
+                _origin_key(candidate) != approved_origin
+                or parsed.username or parsed.password or parsed.fragment
+            ):
+                continue
         except ValueError:
             continue
         size_value = match.groupdict().get("size")
@@ -590,6 +593,8 @@ def run_recon_tool(req: ToolRunRequest):
     wordlist_path: str | None = None
     gobuster_extensions = ""
     if req.tool_id == "gobuster":
+        if urlsplit(target_url).query:
+            raise HTTPException(400, "Remove the query string before running directory enumeration.")
         if not req.wordlist_id:
             raise HTTPException(400, "Select an available backend wordlist before running Gobuster.")
         wordlist_path = str(_resolve_wordlist(req.wordlist_id))
