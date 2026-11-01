@@ -9,7 +9,7 @@ from app.routes.web_recon import (
     ToolRunRequest, WebProbeRequest, ManualPathCheckRequest, _normalise_manual_path, _check_manual_path,
     check_manual_directories, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
-    _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _classify_gobuster_records, _fetch_gobuster_candidate_body, _resolve_wordlist, _list_wordlists, _wordlist_roots,
+    _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _classify_gobuster_records, _fetch_gobuster_candidate_body, _resolve_wordlist, _list_wordlists, _wordlist_roots, _classify_manual_path_records,
     probe_web_service, run_recon_tool,
 )
 
@@ -63,6 +63,44 @@ class WebReconTests(unittest.TestCase):
 
 
 class ManualPathCheckTests(unittest.TestCase):
+    def test_manual_path_matching_random_baseline_is_labelled_likely_soft_404(self):
+        baseline = {
+            "status_code": 200, "content_type": "text/html",
+            "fingerprint": "same", "shingles": {"profile not found", "page unavailable"},
+            "soft_404_markers": ["profile not found"],
+        }
+        candidate = {
+            "url": "https://example.test/unknown", "status_code": 200,
+            "_body_signature": {
+                "fingerprint": "same", "content_type": "text/html",
+                "shingles": {"profile not found", "page unavailable"},
+                "soft_404_markers": ["profile not found"],
+            },
+        }
+        result = _classify_manual_path_records([candidate], [baseline])[0]
+        self.assertEqual(result["response_classification"], "likely_soft_404")
+        self.assertEqual(result["body_similarity"], 1.0)
+        self.assertIn("not a confirmed endpoint", result["classification_reason"])
+
+    def test_manual_path_distinct_response_is_not_confirmed_as_endpoint(self):
+        baseline = {
+            "status_code": 200, "content_type": "text/html",
+            "fingerprint": "baseline", "shingles": {"profile not found", "page unavailable"},
+            "soft_404_markers": ["profile not found"],
+        }
+        candidate = {
+            "url": "https://example.test/register", "status_code": 200,
+            "_body_signature": {
+                "fingerprint": "registration", "content_type": "text/html",
+                "shingles": {"create account", "email address", "submit form"},
+                "soft_404_markers": [],
+            },
+        }
+        result = _classify_manual_path_records([candidate], [baseline])[0]
+        self.assertEqual(result["response_classification"], "distinct_response")
+        self.assertIn("not proof of a functional endpoint", result["classification_reason"])
+
+
     def test_manual_paths_are_relative_and_reject_traversal_or_query_components(self):
         self.assertEqual(_normalise_manual_path(" /owa "), "owa")
         self.assertEqual(_normalise_manual_path("api/v1/health"), "api/v1/health")
