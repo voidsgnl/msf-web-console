@@ -4,7 +4,7 @@
 
 ## Unreleased
 
-- Added a Manual directory checks option for analyst-supplied known paths. It accepts up to 25 relative paths per run, performs bounded same-origin GET requests with a two-request concurrency limit, does not follow redirects, records status/title/content type/response size, and saves each run as assessment evidence. External URLs, query strings, fragments, backslashes, and traversal segments are rejected; results are response observations rather than automatic endpoint validation.
+- Added a Manual directory checks option for analyst-supplied known paths. It accepts up to 25 relative paths per run, performs bounded same-origin GET requests with a two-request concurrency limit, does not follow redirects, records status/title/content type/response size plus an expandable, text-only preview capped at 800 characters, and saves each run as assessment evidence. External URLs, query strings, fragments, backslashes, and traversal segments are rejected; results are response observations rather than automatic endpoint validation.
 
 - Grouped Gobuster likely soft-404 results by a stable response key derived from HTTP status, normalized page title, media type, and shared not-found markers. Matching paths now appear in collapsible groups with per-path status, response size, similarity, and classification evidence preserved; distinct response signatures remain separate. Added backend coverage for group separation across title and media-type differences.
 
