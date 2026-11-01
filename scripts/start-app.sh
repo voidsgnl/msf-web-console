@@ -16,6 +16,24 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd)"
 BACKEND_DIR="${REPO_ROOT}/backend"
 FRONTEND_DIR="${REPO_ROOT}/frontend"
 
+# Scanner binaries are installed in user-level locations as well as system
+# directories. Export them before uvicorn starts so shutil.which() in FastAPI
+# sees the same tools as the interactive shell.
+RUBY_GEM_BIN=""
+if command -v ruby >/dev/null 2>&1; then
+  RUBY_GEM_BIN="$(ruby -e 'require "rubygems"; print Gem.user_dir' 2>/dev/null)/bin"
+fi
+export PATH="${HOME}/go/bin:${HOME}/.local/bin${RUBY_GEM_BIN:+:${RUBY_GEM_BIN}}:${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
+
+echo "Reconnaissance tool paths inherited by the backend:"
+for tool in httpx whatweb katana ffuf gobuster feroxbuster nuclei nikto wpscan subfinder amass testssl.sh nmap; do
+  if command -v "${tool}" >/dev/null 2>&1; then
+    printf "  [available] %-12s %s\\n" "${tool}" "$(command -v "${tool}")"
+  else
+    printf "  [missing]   %s\\n" "${tool}"
+  fi
+done
+
 BACKEND_HOST="127.0.0.1"
 BACKEND_PORT="8000"
 
