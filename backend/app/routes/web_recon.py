@@ -291,8 +291,8 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str, wordlist
 
 def _parse_gobuster_output(output: str, target_url: str) -> list[dict]:
     records: list[dict] = []
-    legacy = re.compile(r"^(?P<path>\\S+)\\s+\\(Status:\\s*(?P<status>\\d{3})\\)(?:\\s+\\[Size:\\s*(?P<size>\\d+)\\])?")
-    modern = re.compile(r"^\\[Status:\\s*(?P<status>\\d{3}),\\s*Size:\\s*(?P<size>\\d+)[^]]*\\]\\s+(?P<path>\\S+)")
+    legacy = re.compile(r"^(?P<path>\S+)\s+\(Status:\s*(?P<status>\d{3})\)(?:\s+\[Size:\s*(?P<size>\d+)\])?")
+    modern = re.compile(r"^\[Status:\s*(?P<status>\d{3}),\s*Size:\s*(?P<size>\d+)[^]]*\]\s+(?P<path>\S+)")
     base = target_url.rstrip("/") + "/"
     approved_origin = _origin_key(target_url)
     for line in output.splitlines():
