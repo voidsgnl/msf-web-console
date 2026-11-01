@@ -81,7 +81,9 @@ Status: adapter implementation complete; validation and platform-wide normalisat
 - [x] Expose assessment execution history and stored evidence in the Web Security workspace.
 - [x] Enforce combined stdout/stderr capture ceilings and wall-clock timeouts; terminate scanner process groups when either limit is reached.
 - [x] Add a cancellation signal to the bounded process runner; it terminates the scanner process group and retains captured partial output.
-- [ ] Add an asynchronous execution-job lifecycle with polling, persisted running/cancelled states, and an operator-facing Cancel action.
+- [x] Add persistent asynchronous execution jobs with queued/running/completed/failed/cancelled/interrupted states, status polling, and an operator Cancel action.
+- [x] Retain partial scanner output as evidence when an operator cancels a running process.
+- [x] Mark jobs interrupted on backend startup when their prior process could not have survived a restart.
 - [ ] Persist parser-version metadata with each execution and its evidence.
 - [x] Distinguish installed executables from implemented adapters in the tool catalogue. All 13 catalogued adapters have fixed execution implementations; readiness still depends on the executable being installed.
 
