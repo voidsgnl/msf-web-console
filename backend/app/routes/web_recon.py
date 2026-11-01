@@ -1,3 +1,4 @@
+import os
 import re
 import shutil
 from datetime import datetime, timezone
@@ -135,17 +136,104 @@ RUNNABLE_TOOLS = {
     # Passive sources only; no active DNS or HTTP probing.
     "subfinder": {"name": "Subfinder (passive)", "timeout": 150, "max_output": 1048576},
     "katana": {"name": "Katana (controlled crawl)", "timeout": 120, "max_output": 1048576},
+    "gobuster": {"name": "Gobuster (directory enumeration)", "timeout": 180, "max_output": 1048576},
 }
 
 
 class ToolRunRequest(BaseModel):
     assessment_id: int = Field(ge=1)
-    tool_id: str = Field(pattern=r"^(httpx|whatweb|subfinder|katana)$")
+    tool_id: str = Field(pattern=r"^(httpx|whatweb|subfinder|katana|gobuster)$")
     url: str = Field(min_length=1, max_length=2048)
     authorized: bool = False
+    wordlist_id: str | None = Field(default=None, max_length=512)
+    extensions: str = Field(default="", max_length=120)
 
 
-def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[str]:
+
+def _wordlist_roots() -> list[Path]:
+    configured = os.environ.get("MSF_WEB_WORDLIST_DIRS")
+    values = configured.split(os.pathsep) if configured else [
+        "/usr/share/seclists/Discovery/Web-Content",
+        "/usr/share/wordlists",
+        "/usr/share/dirb/wordlists",
+        "/usr/share/dirbuster/wordlists",
+    ]
+    roots: list[Path] = []
+    for value in values:
+        if not value.strip():
+            continue
+        try:
+            resolved = Path(value).expanduser().resolve(strict=True)
+        except OSError:
+            continue
+        if resolved.is_dir() and resolved not in roots:
+            roots.append(resolved)
+    return roots
+
+
+def _list_wordlists() -> list[dict]:
+    """Expose bounded wordlist choices without exposing arbitrary filesystem access."""
+    allowed_suffixes = {".txt", ".lst", ".wordlist"}
+    results: list[dict] = []
+    for root_index, root in enumerate(_wordlist_roots()):
+        for current, directories, filenames in os.walk(root, followlinks=False):
+            current_path = Path(current)
+            depth = len(current_path.relative_to(root).parts)
+            directories[:] = [name for name in directories if not (current_path / name).is_symlink()] if depth < 2 else []
+            for filename in filenames:
+                candidate = current_path / filename
+                if candidate.suffix.lower() not in allowed_suffixes or candidate.is_symlink():
+                    continue
+                try:
+                    resolved = candidate.resolve(strict=True)
+                    size = resolved.stat().st_size
+                except OSError:
+                    continue
+                if not resolved.is_file() or not resolved.is_relative_to(root) or size <= 0 or size > 64 * 1024 * 1024:
+                    continue
+                results.append({"id": f"{root_index}:{candidate.relative_to(root).as_posix()}", "name": candidate.relative_to(root).as_posix(), "size_bytes": size})
+                if len(results) >= 100:
+                    return sorted(results, key=lambda item: item["name"].lower())
+    return sorted(results, key=lambda item: item["name"].lower())
+
+
+def _resolve_wordlist(wordlist_id: str) -> Path:
+    try:
+        root_index_text, relative_text = wordlist_id.split(":", 1)
+        root_index = int(root_index_text)
+        relative = Path(relative_text)
+    except (ValueError, AttributeError):
+        raise HTTPException(400, "Select a valid backend wordlist.") from None
+    roots = _wordlist_roots()
+    if root_index < 0 or root_index >= len(roots) or relative.is_absolute() or ".." in relative.parts:
+        raise HTTPException(400, "Select a valid backend wordlist.")
+    root = roots[root_index]
+    candidate = root / relative
+    try:
+        resolved = candidate.resolve(strict=True)
+        size = resolved.stat().st_size
+    except OSError:
+        raise HTTPException(400, "The selected wordlist is no longer available.") from None
+    if not resolved.is_file() or not resolved.is_relative_to(root) or candidate.is_symlink():
+        raise HTTPException(400, "The selected wordlist is outside the configured wordlist directories.")
+    if resolved.suffix.lower() not in {".txt", ".lst", ".wordlist"} or size <= 0 or size > 64 * 1024 * 1024:
+        raise HTTPException(400, "The selected wordlist must be a non-empty text list no larger than 64 MiB.")
+    return resolved
+
+
+def _normalise_gobuster_extensions(value: str) -> str:
+    extensions = [item.strip().lower().lstrip(".") for item in value.split(",") if item.strip()]
+    if len(extensions) > 10 or any(not re.fullmatch(r"[a-z0-9]{1,10}", item) for item in extensions):
+        raise HTTPException(400, "Extensions must be up to 10 comma-separated alphanumeric suffixes.")
+    return ",".join(dict.fromkeys(extensions))
+
+
+@router.get("/wordlists")
+def list_wordlists():
+    return {"wordlists": _list_wordlists()}
+
+
+def _build_tool_command(tool_id: str, executable: str, target_url: str, wordlist_path: str | None = None, extensions: str = "") -> list[str]:
     if tool_id == "httpx":
         return [
             executable, "-json", "-silent", "-no-color", "-no-stdin", "-nfs",
@@ -161,6 +249,19 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[
         if not hostname:
             raise HTTPException(400, "A valid approved hostname is required for passive subdomain discovery.")
         return [executable, "-d", hostname, "-silent", "-json", "-cs", "-duc", "-mr", "100", "-timeout", "10", "-max-time", "2", "-rl", "5"]
+    if tool_id == "gobuster":
+        if not wordlist_path:
+            raise HTTPException(400, "Select an available backend wordlist before running Gobuster.")
+        command = [
+            executable, "dir", "-u", target_url, "-w", wordlist_path,
+            "-t", "2", "--delay", "500ms", "--timeout", "8s",
+            "--no-progress", "--quiet", "--no-error", "--no-color",
+            "--output", "-", "-e", "-l",
+            "-s", "200,204,301,302,307,401,403",
+        ]
+        if extensions:
+            command.extend(["-x", extensions])
+        return command
     if tool_id == "katana":
         parsed = urlsplit(target_url)
         hostname = (parsed.hostname or "").lower()
@@ -188,8 +289,48 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[
     raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
 
 
-def _parse_tool_output(tool_id: str, output: str) -> list[dict]:
+def _parse_gobuster_output(output: str, target_url: str) -> list[dict]:
+    records: list[dict] = []
+    legacy = re.compile(r"^(?P<path>\\S+)\\s+\\(Status:\\s*(?P<status>\\d{3})\\)(?:\\s+\\[Size:\\s*(?P<size>\\d+)\\])?")
+    modern = re.compile(r"^\\[Status:\\s*(?P<status>\\d{3}),\\s*Size:\\s*(?P<size>\\d+)[^]]*\\]\\s+(?P<path>\\S+)")
+    base = target_url.rstrip("/") + "/"
+    approved_origin = _origin_key(target_url)
+    for line in output.splitlines():
+        value = line.strip()
+        if not value:
+            continue
+        match = legacy.match(value) or modern.match(value)
+        if not match:
+            continue
+        candidate = urljoin(base, match.group("path"))
+        try:
+            if _origin_key(candidate) != approved_origin:
+                continue
+            parsed = urlsplit(candidate)
+        except ValueError:
+            continue
+        size_value = match.groupdict().get("size")
+        records.append({
+            "url": candidate, "path": parsed.path or "/",
+            "status_code": int(match.group("status")),
+            "content_length": int(size_value) if size_value else None,
+            "discovery_type": "directory" if (parsed.path or "").endswith("/") else "path",
+            "source": "gobuster",
+        })
+    deduplicated: dict[str, dict] = {}
+    for record in records:
+        if record["url"] in deduplicated:
+            deduplicated[record["url"]]["observations"] += 1
+        else:
+            record["observations"] = 1
+            deduplicated[record["url"]] = record
+    return list(deduplicated.values())
+
+
+def _parse_tool_output(tool_id: str, output: str, target_url: str | None = None) -> list[dict]:
     import json
+    if tool_id == "gobuster":
+        return _parse_gobuster_output(output, target_url or "")
 
     def normalise(item: object) -> dict:
         if tool_id == "httpx" and isinstance(item, dict):
@@ -445,7 +586,14 @@ def run_recon_tool(req: ToolRunRequest):
     redirect_note: dict | None = None
     if req.tool_id == "katana":
         crawl_target, redirect_chain, redirect_note = _resolve_same_origin_redirects(target_url)
-    command = _build_tool_command(req.tool_id, executable, crawl_target)
+    wordlist_path: str | None = None
+    gobuster_extensions = ""
+    if req.tool_id == "gobuster":
+        if not req.wordlist_id:
+            raise HTTPException(400, "Select an available backend wordlist before running Gobuster.")
+        wordlist_path = str(_resolve_wordlist(req.wordlist_id))
+        gobuster_extensions = _normalise_gobuster_extensions(req.extensions)
+    command = _build_tool_command(req.tool_id, executable, crawl_target, wordlist_path, gobuster_extensions)
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     try:
         with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as stdout_file, tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as stderr_file:
@@ -486,7 +634,7 @@ def run_recon_tool(req: ToolRunRequest):
         raise HTTPException(502, f"{config['name']} could not be started: {exc.strerror or 'execution error'}.") from exc
 
     finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    records = _parse_tool_output(req.tool_id, stdout)
+    records = _parse_tool_output(req.tool_id, stdout, target_url)
     if req.tool_id == "katana":
         records = _filter_katana_records(records, target_url)
         records = _classify_katana_records(records)
@@ -510,6 +658,9 @@ def run_recon_tool(req: ToolRunRequest):
         "redirect_chain": redirect_chain if req.tool_id == "katana" else [],
         "stderr": stderr,
         "assessment": (
+            "Gobuster ran directory/file enumeration only against the exact approved origin, using a backend-selected wordlist, two workers, a 500 ms per-worker delay, an 8-second request timeout, and no redirect following. Only matching paths are retained as evidence; discoveries never expand approved scope."
+            if req.tool_id == "gobuster"
+            else (
             "Subfinder uses passive data sources only. Discovered hostnames are inventory leads, "
             "not approved targets; this adapter does not initiate DNS probes or HTTP requests."
             if req.tool_id == "subfinder"
@@ -521,6 +672,7 @@ def run_recon_tool(req: ToolRunRequest):
                 + (f" Redirect note: {redirect_note.get('reason') or redirect_note.get('error')}" if redirect_note else "")
                 if req.tool_id == "katana"
                 else "Tool output is reconnaissance evidence, not a confirmed vulnerability verdict."
+            )
             )
         ),
     }
