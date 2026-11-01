@@ -140,6 +140,18 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ assessment_id: assessmentId, url, authorized }),
       }),
+    checkManualPaths: (assessmentId: number, url: string, paths: string[], authorized: boolean) =>
+      request<{
+        execution_id: number; assessment_id: number; tool_id: "manual-path-check"; target: string;
+        records: { url: string; status_code?: number; reason?: string; response_title?: string | null;
+          response_content_type?: string | null; content_length?: number; bytes_inspected?: number;
+          body_truncated?: boolean; redirect_location?: string | null; fetch_state?: string;
+          classification_reason: string }[];
+        assessment: string;
+      }>("/web-recon/directories/check", {
+        method: "POST",
+        body: JSON.stringify({ assessment_id: assessmentId, url, paths, authorized }),
+      }),
     runTool: (assessmentId: number, toolId: "httpx" | "whatweb" | "subfinder" | "katana" | "gobuster", url: string, authorized: boolean, options?: { wordlist_id?: string; extensions?: string }) =>
       request<{
         execution_id: number; assessment_id: number; tool_id: string; tool: string; target: string; exit_code: number;
