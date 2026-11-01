@@ -401,6 +401,20 @@ class GobusterAdapterTests(unittest.TestCase):
         self.assertEqual([item["name"] for item in lists], ["common.txt"])
         self.assertEqual(lists[0]["id"], "0:common.txt")
 
+    def test_wordlist_catalog_discovers_standard_nested_seclists_web_content_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            nested = os.path.join(directory, "SecLists", "Discovery", "Web-Content")
+            os.makedirs(nested)
+            wordlist = os.path.join(nested, "raft-medium-directories.txt")
+            with open(wordlist, "w", encoding="utf-8") as handle:
+                handle.write("admin\\nlogin\\n")
+            with patch.dict(os.environ, {"MSF_WEB_WORDLIST_DIRS": directory}):
+                lists = _list_wordlists()
+                selected = _resolve_wordlist("0:SecLists/Discovery/Web-Content/raft-medium-directories.txt")
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0]["name"], "SecLists/Discovery/Web-Content/raft-medium-directories.txt")
+        self.assertEqual(str(selected), wordlist)
+
     def test_wordlist_roots_include_project_local_wordlists_by_default(self):
         with tempfile.TemporaryDirectory() as directory:
             with patch("app.routes.web_recon._project_wordlist_root", return_value=__import__("pathlib").Path(directory)):
