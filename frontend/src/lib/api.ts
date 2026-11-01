@@ -163,7 +163,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ assessment_id: assessmentId, url, paths, authorized }),
       }),
-    runTool: (assessmentId: number, toolId: "httpx" | "whatweb" | "subfinder" | "katana" | "gobuster", url: string, authorized: boolean, options?: { wordlist_id?: string; extensions?: string }) =>
+    runTool: (assessmentId: number, toolId: "httpx" | "whatweb" | "subfinder" | "katana" | "gobuster" | "ffuf" | "feroxbuster", url: string, authorized: boolean, options?: { wordlist_id?: string; extensions?: string }) =>
       request<{
         execution_id: number; assessment_id: number; tool_id: string; tool: string; target: string; exit_code: number;
         timed_out: boolean; output_truncated: boolean;

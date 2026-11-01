@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Added fixed FFUF and Feroxbuster directory/file adapters using backend-selected wordlists, exact approved-origin scope, one worker, a 2 requests/second rate limit, bounded execution/output, no redirects, and structured same-origin JSON evidence. Recursive, DNS, virtual-host, and arbitrary-argument modes remain disabled.
 - Manual path responses now include heuristic page fingerprints for login, registration, dashboard/account, not-found/error, possible SPA shell, generic form, and unclassified pages, with confidence and supporting evidence.
 
 ## Unreleased

@@ -13,6 +13,7 @@ from app.routes.web_recon import (
     check_manual_directories, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
     _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _extract_html_response_features, _classify_gobuster_records, _fetch_gobuster_candidate_body, _resolve_wordlist, _list_wordlists, _wordlist_roots, _classify_manual_path_records, _collect_manual_path_baseline,
+    _parse_content_discovery_json, _fingerprint_html_page,
     probe_web_service, run_recon_tool, _run_bounded_process, list_tools,
 )
 
@@ -988,3 +989,50 @@ class GobusterAdapterTests(unittest.TestCase):
             authorized=True, wordlist_id="0:common.txt", extensions="php,html",
         )
         self.assertEqual(request.tool_id, "gobuster")
+
+
+class ContentDiscoveryAdapterTests(unittest.TestCase):
+    def test_ffuf_command_is_fixed_and_bounded(self):
+        command = _build_tool_command(
+            "ffuf", "/usr/bin/ffuf", "https://example.test/app",
+            "/wordlists/common.txt",
+        )
+        self.assertIn("https://example.test/app/FUZZ", command)
+        self.assertIn("-json", command)
+        self.assertIn("-noninteractive", command)
+        self.assertEqual(command[command.index("-t") + 1], "1")
+        self.assertEqual(command[command.index("-rate") + 1], "2")
+        self.assertEqual(command[command.index("-timeout") + 1], "8")
+        self.assertNotIn("-recursion", command)
+        self.assertNotIn("-x", command)
+
+    def test_feroxbuster_command_is_fixed_and_bounded(self):
+        command = _build_tool_command(
+            "feroxbuster", "/usr/bin/feroxbuster", "https://example.test/app",
+            "/wordlists/common.txt",
+        )
+        self.assertEqual(command[command.index("--url") + 1], "https://example.test/app/")
+        self.assertIn("--json", command)
+        self.assertIn("--no-recursion", command)
+        self.assertEqual(command[command.index("--threads") + 1], "1")
+        self.assertEqual(command[command.index("--rate-limit") + 1], "2")
+        self.assertEqual(command[command.index("--timeout") + 1], "8")
+        self.assertNotIn("--redirects", command)
+
+    def test_content_discovery_parsers_keep_same_origin_results(self):
+        ffuf = _parse_content_discovery_json(
+            "ffuf",
+            '{"url":"https://example.test/admin","status":200,"length":123}\n'
+            '{"url":"https://other.example/admin","status":200,"length":123}\n',
+            "https://example.test/",
+        )
+        ferox = _parse_content_discovery_json(
+            "feroxbuster",
+            '{"type":"configuration"}\n'
+            '{"type":"response","url":"https://example.test/login","path":"/login","status":302,"content_length":42}\n',
+            "https://example.test/",
+        )
+        self.assertEqual(ffuf[0]["url"], "https://example.test/admin")
+        self.assertEqual(ffuf[0]["content_length"], 123)
+        self.assertEqual(ferox[0]["status_code"], 302)
+        self.assertEqual(ferox[0]["source"], "feroxbuster")

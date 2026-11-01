@@ -90,7 +90,7 @@ Status: in progress.
 - [ ] Add Amass as a separately reviewed adapter; do not assume its active/passive modes are interchangeable.
 - [x] Add controlled crawling and endpoint discovery (Katana) with exact-origin scope, disabled redirects, JavaScript endpoint extraction, query deduplication, depth/page/time/request-rate limits, and endpoint provenance.
 - [x] Add Gobuster directory/file enumeration with backend-allowlisted wordlists, exact-origin scope, fixed concurrency/request delay, validated extensions, disabled redirects, bounded runtime/output, and evidence persistence. DNS and virtual-host modes remain disabled.
-- [ ] Add content discovery (ffuf/Feroxbuster) with explicit wordlist,
+- [x] Add content discovery (ffuf/Feroxbuster) with explicit wordlist,
       request-rate, and scope controls.
 - [ ] Add network/service discovery (Nmap) as a separate workflow.
 - [x] Persist and deduplicate URL/host assets observed in HTTP probe, httpx, and WhatWeb evidence; track first/last seen and source tool.

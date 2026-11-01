@@ -538,12 +538,14 @@ RUNNABLE_TOOLS = {
     "subfinder": {"name": "Subfinder (passive)", "timeout": 150, "max_output": 1048576},
     "katana": {"name": "Katana (controlled crawl)", "timeout": 120, "max_output": 1048576},
     "gobuster": {"name": "Gobuster (directory enumeration)", "timeout": 180, "max_output": 1048576},
+    "ffuf": {"name": "FFUF (directory enumeration)", "timeout": 180, "max_output": 1048576},
+    "feroxbuster": {"name": "Feroxbuster (directory enumeration)", "timeout": 180, "max_output": 1048576},
 }
 
 
 class ToolRunRequest(BaseModel):
     assessment_id: int = Field(ge=1)
-    tool_id: str = Field(pattern=r"^(httpx|whatweb|subfinder|katana|gobuster)$")
+    tool_id: str = Field(pattern=r"^(httpx|whatweb|subfinder|katana|gobuster|ffuf|feroxbuster)$")
     url: str = Field(min_length=1, max_length=2048)
     authorized: bool = False
     wordlist_id: str | None = Field(default=None, max_length=512)
@@ -686,6 +688,25 @@ def _build_tool_command(
         if extensions:
             command.extend(["-x", extensions])
         return command
+    if tool_id == "ffuf":
+        if not wordlist_path:
+            raise HTTPException(400, "Select an available backend wordlist before running FFUF.")
+        return [
+            executable, "-u", target_url.rstrip("/") + "/FUZZ", "-w", wordlist_path,
+            "-json", "-noninteractive", "-s", "-c", "-r",
+            "-t", "1", "-rate", "2", "-timeout", "8",
+            "-mc", "200,204,301,302,307,401,403",
+        ]
+    if tool_id == "feroxbuster":
+        if not wordlist_path:
+            raise HTTPException(400, "Select an available backend wordlist before running Feroxbuster.")
+        return [
+            executable, "--url", target_url.rstrip("/") + "/",
+            "--wordlist", wordlist_path, "--json", "--silent",
+            "--no-recursion", "--threads", "1", "--rate-limit", "2",
+            "--timeout", "8", "--status-codes", "200,204,301,302,307,401,403",
+            "--output", "/dev/stdout",
+        ]
     if tool_id == "katana":
         parsed = urlsplit(target_url)
         hostname = (parsed.hostname or "").lower()
@@ -916,6 +937,67 @@ def _parse_gobuster_output(output: str, target_url: str) -> list[dict]:
     return list(deduplicated.values())
 
 
+def _parse_content_discovery_json(tool_id: str, output: str, target_url: str) -> list[dict]:
+    import json
+
+    approved_origin = _origin_key(target_url)
+    records: list[dict] = []
+    for line in output.splitlines():
+        value = line.strip()
+        if not value:
+            continue
+        try:
+            item = json.loads(value)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(item, dict):
+            continue
+        if tool_id == "ffuf":
+            if not isinstance(item.get("url"), str) or not isinstance(item.get("status"), int):
+                continue
+            endpoint = item["url"]
+            status = item["status"]
+            content_length = item.get("length")
+            method = "GET"
+            source = "ffuf"
+        else:
+            if item.get("type") != "response" or not isinstance(item.get("url"), str):
+                continue
+            endpoint = item["url"]
+            status = item.get("status")
+            content_length = item.get("content_length")
+            method = str(item.get("method") or "GET")[:12]
+            source = "feroxbuster"
+        try:
+            parsed = urlsplit(endpoint)
+            if (
+                _origin_key(endpoint) != approved_origin
+                or parsed.username or parsed.password or parsed.fragment
+                or parsed.scheme.lower() not in {"http", "https"}
+            ):
+                continue
+        except (TypeError, ValueError):
+            continue
+        records.append({
+            "url": endpoint,
+            "path": parsed.path or "/",
+            "status_code": status if isinstance(status, int) else None,
+            "content_length": content_length if isinstance(content_length, int) else None,
+            "method": method,
+            "discovery_type": "directory" if (parsed.path or "").endswith("/") else "path",
+            "source": source,
+        })
+    deduplicated: dict[tuple[str, str], dict] = {}
+    for record in records:
+        key = (record["method"], record["url"])
+        if key in deduplicated:
+            deduplicated[key]["observations"] += 1
+        else:
+            record["observations"] = 1
+            deduplicated[key] = record
+    return list(deduplicated.values())
+
+
 def _classify_gobuster_records(records: list[dict], wildcard_profile: dict, target_url: str) -> dict:
     """Compare near-baseline responses with normalized body fingerprints."""
     baseline_statuses = set(wildcard_profile.get("status_codes", []))
@@ -1091,6 +1173,8 @@ def _parse_tool_output(tool_id: str, output: str, target_url: str | None = None)
     import json
     if tool_id == "gobuster":
         return _parse_gobuster_output(output, target_url or "")
+    if tool_id in {"ffuf", "feroxbuster"}:
+        return _parse_content_discovery_json(tool_id, output, target_url or "")
 
     def normalise(item: object) -> dict:
         if tool_id == "httpx" and isinstance(item, dict):
@@ -1485,11 +1569,11 @@ def run_recon_tool(req: ToolRunRequest):
         crawl_target, redirect_chain, redirect_note = _resolve_same_origin_redirects(target_url)
     wordlist_path: str | None = None
     gobuster_extensions = ""
-    if req.tool_id == "gobuster":
+    if req.tool_id in {"gobuster", "ffuf", "feroxbuster"}:
         if urlsplit(target_url).query:
-            raise HTTPException(400, "Remove the query string before running directory enumeration.")
+            raise HTTPException(400, "Remove the query string before running content discovery.")
         if not req.wordlist_id:
-            raise HTTPException(400, "Select an available backend wordlist before running Gobuster.")
+            raise HTTPException(400, "Select an available backend wordlist before running content discovery.")
         wordlist_path = str(_resolve_wordlist(req.wordlist_id))
         gobuster_extensions = _normalise_gobuster_extensions(req.extensions)
     gobuster_wildcard_profile = (
@@ -1554,6 +1638,38 @@ def run_recon_tool(req: ToolRunRequest):
         scope, req.tool_id, target_url, started_at, finished_at,
         completed["returncode"], completed["output_truncated"], records, stderr,
     )
+    if req.tool_id == "gobuster":
+        assessment_text = (
+            "Gobuster ran directory/file enumeration only against the exact approved origin. "
+            "Random-path baseline responses were used for Gobuster's size exclusion and normalized "
+            "body fingerprints. Up to 100 near-size candidates are safely re-fetched on the approved "
+            "origin without following redirects and compared against baseline body signatures; "
+            "candidates beyond that cap remain unverified. Similar responses are flagged as suspected "
+            "wildcard results; distinct responses still require analyst review. Discoveries never "
+            "expand approved scope."
+        )
+    elif req.tool_id in {"ffuf", "feroxbuster"}:
+        assessment_text = (
+            f"{config['name']} ran fixed directory/file enumeration only against the exact approved "
+            "origin, using a backend-selected wordlist, one worker, a 2 requests/second rate limit, "
+            "and redirects disabled. Only same-origin JSON results are retained as evidence; "
+            "discoveries never expand approved scope."
+        )
+    elif req.tool_id == "subfinder":
+        assessment_text = (
+            "Subfinder uses passive data sources only. Discovered hostnames are inventory leads, "
+            "not approved targets; this adapter does not initiate DNS probes or HTTP requests."
+        )
+    elif req.tool_id == "katana":
+        assessment_text = (
+            "Katana used a shallow, time- and page-bounded crawl restricted to the approved "
+            "scheme/host/port. The entry URL was preflighted and only same-origin redirects "
+            "were followed; crawler-discovered page redirects remain disabled. Cross-origin "
+            "redirects are not followed, and discovered URLs do not expand approved scope."
+            + (f" Redirect note: {redirect_note.get('reason') or redirect_note.get('error')}" if redirect_note else "")
+        )
+    else:
+        assessment_text = "Tool output is reconnaissance evidence, not a confirmed vulnerability verdict."
 
     return {
         "execution_id": execution["id"],
@@ -1568,22 +1684,5 @@ def run_recon_tool(req: ToolRunRequest):
         "wildcard_summary": gobuster_summary,
         "redirect_chain": redirect_chain if req.tool_id == "katana" else [],
         "stderr": stderr,
-        "assessment": (
-            "Gobuster ran directory/file enumeration only against the exact approved origin. Random-path baseline responses were used for Gobuster's size exclusion and normalized body fingerprints. Up to 100 near-size candidates are safely re-fetched on the approved origin without following redirects and compared against baseline body signatures; candidates beyond that cap remain unverified. Similar responses are flagged as suspected wildcard results; distinct responses still require analyst review. Discoveries never expand approved scope."
-            if req.tool_id == "gobuster"
-            else (
-            "Subfinder uses passive data sources only. Discovered hostnames are inventory leads, "
-            "not approved targets; this adapter does not initiate DNS probes or HTTP requests."
-            if req.tool_id == "subfinder"
-            else (
-                "Katana used a shallow, time- and page-bounded crawl restricted to the approved "
-                "scheme/host/port. The entry URL was preflighted and only same-origin redirects "
-                "were followed; crawler-discovered page redirects remain disabled. Cross-origin "
-                "redirects are not followed, and discovered URLs do not expand approved scope."
-                + (f" Redirect note: {redirect_note.get('reason') or redirect_note.get('error')}" if redirect_note else "")
-                if req.tool_id == "katana"
-                else "Tool output is reconnaissance evidence, not a confirmed vulnerability verdict."
-            )
-            )
-        ),
+        "assessment": assessment_text,
     }
