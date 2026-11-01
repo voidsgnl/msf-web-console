@@ -318,21 +318,21 @@ def _gobuster_body_signature(body: bytes, encoding: str | None = None) -> dict:
     """Create a stable signature and token-shingle set for a response body."""
     text = body.decode(encoding or "utf-8", errors="replace")
     text = re.sub(
-        r"(?i)\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b",
+        r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
         "<dynamic-uuid>",
         text,
     )
     text = re.sub(
-        r"\\b20\\d{2}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z?\\b",
+        r"\b20\d{2}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?\b",
         "<dynamic-time>",
         text,
     )
     text = re.sub(
-        r"(?i)(csrf(?:token)?|nonce|authenticity_token|requestverificationtoken)([\\s:=\"']+)[a-z0-9._~-]{8,}",
-        r"\\1\\2<dynamic-token>",
+        r"(?i)(csrf(?:token)?|nonce|authenticity_token|requestverificationtoken)([\s:=\"']+)[a-z0-9._~-]{8,}",
+        r"\1\2<dynamic-token>",
         text,
     )
-    normalised = re.sub(r"\\s+", " ", text).strip().lower()
+    normalised = re.sub(r"\s+", " ", text).strip().lower()
     tokens = re.findall(r"[a-z0-9][a-z0-9_./:-]{2,}", normalised)
     if len(tokens) >= 3:
         shingles = {" ".join(tokens[index:index + 3]) for index in range(len(tokens) - 2)}
