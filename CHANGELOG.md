@@ -4,6 +4,9 @@
 
 ## Unreleased
 
+- Kept analyst-supplied manual path checks in execution evidence without automatically promoting each tested URL into the asset inventory. The approved target remains inventoried, and the inventory is rebuilt from retained evidence when viewed so paths promoted by older versions are removed. Added regression coverage confirming manual observations remain accessible in execution history.
+
+
 - Consolidated Gobuster wordlist enumeration and analyst-supplied path checks behind one input-mode selector and one Run Gobuster action. Wordlist mode uses the selected backend wordlist and extensions; manual mode sends the entered relative paths through the existing bounded, same-origin GET checker. The separate Check paths action has been removed.
 
 - Reworked the Gobuster card into compact horizontal controls with independently collapsible settings and manual path-check sections. Manual paths now use a properly sized editable textarea and accept comma-separated or newline-separated entries. The check action remains available once paths are entered and reports missing authorization, assessment, target, or scope prerequisites inline instead of appearing mysteriously disabled; results are collapsible too.
