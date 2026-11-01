@@ -187,7 +187,7 @@ def _classify_manual_path_records(records: list[dict], baseline_signatures: list
         stable_baseline_markers = (
             {marker for marker, count in marker_counts.items() if count >= 2}
             if len(comparable) >= 2
-            else set(marker_counts)
+            else set()
         )
         shared = sorted(candidate_markers & stable_baseline_markers)
         record["body_similarity"] = round(best, 4) if comparable else None
