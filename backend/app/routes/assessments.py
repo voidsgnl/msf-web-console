@@ -331,12 +331,16 @@ def _store_discovered_assets(
     for record in records:
         if not isinstance(record, dict) or record.get("resource_type") == "malformed" or record.get("kind") == "redirect_chain":
             continue
-        for key in ("url", "target", "final_url"):
-            value = record.get(key)
-            if isinstance(value, str) and value:
-                candidate = _asset_url(value)
-                if candidate:
-                    candidates.add(("url", candidate[0], candidate[1]))
+        # Manual path checks are analyst-supplied probes, not discovery results.
+        # Keep their full observations in execution evidence, but do not promote
+        # every tested path into the asset inventory before it is reviewed.
+        if tool_id != "manual-path-check":
+            for key in ("url", "target", "final_url"):
+                value = record.get(key)
+                if isinstance(value, str) and value:
+                    candidate = _asset_url(value)
+                    if candidate:
+                        candidates.add(("url", candidate[0], candidate[1]))
         host_value = record.get("host")
         if isinstance(host_value, str) and host_value.strip():
             host = host_value.strip().lower().rstrip(".")
@@ -420,6 +424,9 @@ def list_assessment_assets(assessment_id: int):
     _initialise()
     with _connection() as connection:
         _assessment_or_404(connection, assessment_id)
+        # Inventory is derived from retained evidence. Rebuilding also removes
+        # legacy manual-path-check URLs that older versions promoted blindly.
+        _rebuild_assessment_assets(connection, assessment_id)
         rows = connection.execute(
             """
             SELECT id, assessment_id, asset_type, value, hostname, scope_state,
