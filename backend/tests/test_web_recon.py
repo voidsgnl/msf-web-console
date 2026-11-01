@@ -223,7 +223,7 @@ class ManualPathCheckTests(unittest.TestCase):
             "email_input_count": 1, "link_count": 1, "script_count": 1,
             "button_count": 1,
             "forms": [{
-                "method": "GET", "action": "(current page)",
+                "method": "GET", "action": "/login",
                 "inputs": [
                     {"type": "email", "name": None, "autocomplete": None, "required": False},
                     {"type": "password", "name": None, "autocomplete": None, "required": False},
