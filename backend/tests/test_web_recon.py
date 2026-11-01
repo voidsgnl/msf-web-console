@@ -352,6 +352,7 @@ class GobusterAdapterTests(unittest.TestCase):
         self.assertEqual(command[command.index("-t") + 1], "2")
         self.assertEqual(command[command.index("--delay") + 1], "500ms")
         self.assertEqual(command[command.index("--timeout") + 1], "8s")
+        self.assertNotIn("-l", command)  # Not supported by all packaged Gobuster versions.
         self.assertEqual(command[command.index("-s") + 1], "200,204,301,302,307,401,403")
         self.assertEqual(command[command.index("-x") + 1], "php,html")
         self.assertNotIn("-r", command)
