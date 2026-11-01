@@ -1212,7 +1212,7 @@ def _terminate_process_group(process) -> None:
         pass
 
 
-def _run_bounded_process(command: list[str], config: dict, env: dict) -> dict:
+def _run_bounded_process(command: list[str], config: dict, env: dict, cancel_event=None) -> dict:
     """Run an adapter with a wall-clock deadline and a combined stdout/stderr cap.
 
     Pipes are drained continuously so a noisy child cannot deadlock on a full
@@ -1267,7 +1267,12 @@ def _run_bounded_process(command: list[str], config: dict, env: dict) -> dict:
 
     deadline = time.monotonic() + float(config["timeout"])
     timed_out = False
+    cancelled = False
     while process.poll() is None:
+        if cancel_event is not None and cancel_event.is_set():
+            cancelled = True
+            _terminate_process_group(process)
+            break
         if output_limit_reached.is_set():
             _terminate_process_group(process)
             break
@@ -1303,6 +1308,7 @@ def _run_bounded_process(command: list[str], config: dict, env: dict) -> dict:
         "stderr": stderr[:4000],
         "output_size": output_size,
         "output_truncated": output_limit_reached.is_set(),
+        "cancelled": cancelled,
     }
 
 
