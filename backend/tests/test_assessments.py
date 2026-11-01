@@ -128,6 +128,20 @@ class AssessmentStoreTests(unittest.TestCase):
         self.assertEqual(discovered_host["source_tool"], "nmap")
         self.assertEqual(observation["severity"], "unknown")
 
+    def test_persistent_job_state_and_restart_recovery(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Job lifecycle"))
+        job = assessments.create_execution_job(created["id"], "nuclei", "https://example.test")
+        self.assertEqual(job["state"], "queued")
+        running = assessments.update_execution_job(job["id"], "running")
+        self.assertEqual(running["state"], "running")
+        self.assertIsNotNone(running["started_at"])
+        self.assertEqual(assessments.get_execution_job(created["id"], job["id"])["id"], job["id"])
+        self.assertEqual(assessments.list_execution_jobs(created["id"])["jobs"][0]["id"], job["id"])
+        self.assertEqual(assessments.recover_stale_execution_jobs(), 1)
+        recovered = assessments.get_execution_job(created["id"], job["id"])
+        self.assertEqual(recovered["state"], "interrupted")
+        self.assertIsNotNone(recovered["finished_at"])
+
     def test_duplicate_target_is_rejected(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="Duplicate test"))
         request = assessments.TargetCreate(url="https://example.test", authorized=True)
