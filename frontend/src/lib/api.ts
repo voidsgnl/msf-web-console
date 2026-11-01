@@ -9,7 +9,7 @@ export type AssessmentDetail = AssessmentSummary & { targets: AssessmentTarget[]
 export type AssessmentAsset = { id: number; assessment_id: number; asset_type: "url" | "host"; value: string; hostname: string; scope_state: "in_scope" | "out_of_scope"; source_tool: string; first_seen: string; last_seen: string };
 export type AssessmentAssetInventory = { assets: AssessmentAsset[]; counts: { total: number; in_scope: number; out_of_scope: number } };
 export type AssessmentExecutionRecord = Record<string, unknown> & {
-  record_id: string; review_state: "active" | "dismissed"; reviewed_at: string | null; notes: string;
+  record_id: string; review_state: "active" | "dismissed"; reviewed_at: string | null; notes: string; record_type: "evidence" | "finding";
 };
 export type AssessmentExecutionDetail = AssessmentExecution & { records: AssessmentExecutionRecord[]; stderr: string };
 export type AssessmentExecution = {
@@ -174,8 +174,8 @@ export const api = {
     execution: (id: number, executionId: number) =>
       request<AssessmentExecutionDetail>(`/assessments/${id}/executions/${executionId}`),
     updateExecutionRecord: (id: number, executionId: number, recordId: string, changes: {
-      review_state?: "active" | "dismissed"; reviewed?: boolean; notes?: string;
-    }) => request<{ record_id: string; review_state: "active" | "dismissed"; reviewed_at: string | null; notes: string }>(
+      review_state?: "active" | "dismissed"; reviewed?: boolean; notes?: string; record_type?: "evidence" | "finding";
+    }) => request<{ record_id: string; review_state: "active" | "dismissed"; reviewed_at: string | null; notes: string; record_type: "evidence" | "finding" }>(
       `/assessments/${id}/executions/${executionId}/records/${encodeURIComponent(recordId)}`,
       { method: "PATCH", body: JSON.stringify(changes) },
     ),
@@ -183,6 +183,22 @@ export const api = {
       request<{ deleted: boolean; record_id: string }>(
         `/assessments/${id}/executions/${executionId}/records/${encodeURIComponent(recordId)}`,
         { method: "DELETE" },
+      ),
+    records: (id: number, filters?: { q?: string; tool_id?: string; record_type?: string; review_state?: string; reviewed?: string; sort_by?: string }) => {
+      const params = new URLSearchParams();
+      Object.entries(filters ?? {}).forEach(([key, value]) => { if (value) params.set(key, value); });
+      return request<{ records: (AssessmentExecutionRecord & { execution_id: number; tool_id: string; target_url: string; started_at: string; finished_at: string; exit_code: number })[]; total: number }>(
+        `/assessments/${id}/records?${params.toString()}`
+      );
+    },
+    bulkUpdateRecords: (id: number, record_ids: string[], changes: { review_state?: "active" | "dismissed"; reviewed?: boolean; record_type?: "evidence" | "finding" }) =>
+      request<{ updated: number }>(`/assessments/${id}/records/bulk`, { method: "PATCH", body: JSON.stringify({ record_ids, ...changes }) }),
+    bulkDeleteRecords: (id: number, record_ids: string[]) =>
+      request<{ deleted: number }>(`/assessments/${id}/records/bulk`, { method: "DELETE", body: JSON.stringify({ record_ids }) }),
+    history: (id: number) => request<{ assessment_id: number; total_runs: number; total_records: number; findings: number; evidence: number; reviewed: number; dismissed: number; by_tool: { tool_id: string; runs: number; first_run: string; last_run: string; successful_runs: number }[] }>(`/assessments/${id}/history`),
+    compareRuns: (id: number, baseline_id: number, comparison_id: number) =>
+      request<{ baseline: { id: number; tool_id: string; target_url: string }; comparison: { id: number; tool_id: string; target_url: string }; added: Record<string, unknown>[]; removed: Record<string, unknown>[]; unchanged: Record<string, unknown>[] }>(
+        `/assessments/${id}/compare?${new URLSearchParams({ baseline_id: String(baseline_id), comparison_id: String(comparison_id) })}`
       ),
   },
   auth: {
