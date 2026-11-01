@@ -1153,7 +1153,6 @@ def _classify_katana_records(records: list[dict]) -> list[dict]:
         output.append(record)
     return output
 
-@router.post("/run")
 def _terminate_process_group(process) -> None:
     """Stop the scanner and any child processes it started."""
     import signal
@@ -1171,10 +1170,10 @@ def _terminate_process_group(process) -> None:
 
     try:
         process.wait(timeout=2)
-        return
     except subprocess.TimeoutExpired:
         pass
 
+    # Kill any descendants that may still be holding inherited output pipes.
     try:
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
@@ -1258,6 +1257,10 @@ def _run_bounded_process(command: list[str], config: dict, env: dict) -> dict:
             break
         time.sleep(min(0.05, remaining))
 
+    for reader in readers:
+        reader.join(timeout=0.25)
+    if any(reader.is_alive() for reader in readers):
+        _terminate_process_group(process)
     for reader in readers:
         reader.join(timeout=2)
 
