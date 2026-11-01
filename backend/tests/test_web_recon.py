@@ -373,6 +373,7 @@ class GobusterAdapterTests(unittest.TestCase):
         response = MagicMock()
         response.__enter__.return_value = response
         response.headers = {"Content-Length": "100"}
+        response.status_code = 200
         response.iter_content.return_value = [b"x" * 37900]
         session = session_factory.return_value
         session.get.return_value = response
@@ -392,6 +393,7 @@ class GobusterAdapterTests(unittest.TestCase):
         for length in (37892, 37894, 37892, 37894, 37900):
             response = MagicMock()
             response.__enter__.return_value = response
+            response.status_code = 200
             response.iter_content.return_value = [b"x" * length]
             responses.append(response)
         session = session_factory.return_value
@@ -507,7 +509,10 @@ class GobusterAdapterTests(unittest.TestCase):
     @patch("app.routes.assessments.record_tool_execution", return_value={"id": 77})
     @patch("app.routes.assessments.assert_target_in_scope", return_value={"assessment_id": 1, "target_id": 2})
     @patch("app.routes.web_recon.shutil.which", return_value="/usr/bin/gobuster")
-    @patch("app.routes.web_recon._probe_gobuster_wildcard_length", return_value=37900)
+    @patch("app.routes.web_recon._probe_gobuster_wildcard_length", return_value={
+        "exclude_length": 37900, "status_codes": [200], "min_length": 37900,
+        "max_length": 37900, "reference_length": 37900, "length_tolerance": 379,
+    })
     @patch("subprocess.run")
     def test_gobuster_run_persists_parsed_same_origin_results(self, run_process, _probe, _which, _scope, record):
         def fake_run(command, **kwargs):
