@@ -14,7 +14,7 @@ from app.routes.web_recon import (
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
     _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _extract_html_response_features, _classify_gobuster_records, _fetch_gobuster_candidate_body, _resolve_wordlist, _list_wordlists, _wordlist_roots, _classify_manual_path_records, _collect_manual_path_baseline,
     _parse_content_discovery_json, _parse_nuclei_output, _parse_specialist_tool_output, _fingerprint_html_page,
-    probe_web_service, run_recon_tool, _run_bounded_process, list_tools,
+    probe_web_service, run_recon_tool, queue_recon_tool, _run_bounded_process, list_tools,
 )
 
 class WebReconTests(unittest.TestCase):
@@ -382,6 +382,22 @@ class ReconToolExecutionGuardTests(unittest.TestCase):
             timer.cancel()
         self.assertTrue(result["cancelled"])
         self.assertIn("started", result["stdout"])
+    @patch("app.routes.assessments.create_execution_job", return_value={"id": "job-123", "assessment_id": 1, "tool_id": "httpx", "target_url": "https://example.test", "state": "queued"})
+    @patch("app.routes.assessments.assert_target_in_scope", return_value={"assessment_id": 1, "target_id": 2})
+    @patch("app.routes.web_recon.shutil.which", return_value="/usr/bin/httpx")
+    def test_queue_route_returns_persistent_job_and_schedules_worker(self, _which, _scope, create_job):
+        from fastapi import BackgroundTasks
+        background = BackgroundTasks()
+        request = ToolRunRequest(
+            assessment_id=1, tool_id="httpx", url="https://example.test", authorized=True,
+        )
+        result = queue_recon_tool(request, background)
+        self.assertEqual(result["id"], "job-123")
+        self.assertEqual(result["state"], "queued")
+        self.assertEqual(len(background.tasks), 1)
+        self.assertEqual(background.tasks[0].args[0], "job-123")
+        create_job.assert_called_once_with(1, "httpx", "https://example.test")
+
     @patch("app.routes.assessments.assert_target_in_scope", return_value={"assessment_id": 1, "target_id": 2})
     @patch("app.routes.web_recon.shutil.which", return_value=None)
     def test_run_reports_missing_binary(self, _which, _scope):
