@@ -488,6 +488,39 @@ class GobusterAdapterTests(unittest.TestCase):
         self.assertEqual(summary["likely_soft_404"], 1)
         self.assertEqual(summary["distinct_response"], 0)
 
+    @patch("app.routes.web_recon._fetch_gobuster_candidate_body")
+    def test_gobuster_soft_404_groups_require_matching_status_title_type_and_markers(self, fetch_body):
+        baseline_body = b"<html><title>Profile not found</title><body>Profile not found</body></html>"
+        baseline = _gobuster_body_signature(baseline_body)
+        same_group = _gobuster_body_signature(
+            b"<html><title>Profile not found</title><body>Profile not found for this path</body></html>"
+        )
+        different_title = _gobuster_body_signature(
+            b"<html><title>Account unavailable</title><body>Profile not found</body></html>"
+        )
+        different_type = dict(same_group, content_type="application/json")
+        fetch_body.side_effect = [
+            (200, same_group),
+            (200, same_group),
+            (200, different_title),
+            (200, different_type),
+        ]
+        records = [
+            {"url": f"https://example.test/{path}", "status_code": 200, "content_length": 100}
+            for path in ("one", "two", "three", "four")
+        ]
+        _classify_gobuster_records(records, {
+            "status_codes": [200], "min_length": 100, "max_length": 100,
+            "reference_length": 100, "length_tolerance": 128,
+            "body_signatures": [
+                {"status_code": 200, **baseline},
+                {"status_code": 200, **baseline},
+            ],
+        }, "https://example.test/")
+        self.assertEqual(records[0]["response_group_id"], records[1]["response_group_id"])
+        self.assertNotEqual(records[0]["response_group_id"], records[2]["response_group_id"])
+        self.assertNotEqual(records[0]["response_group_id"], records[3]["response_group_id"])
+
     @patch("app.routes.web_recon._gobuster_body_similarity", return_value=0.905)
     @patch("app.routes.web_recon._fetch_gobuster_candidate_body")
     def test_gobuster_borderline_body_similarity_needs_verification(self, fetch_body, _similarity):
