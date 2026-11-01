@@ -26,3 +26,6 @@ backend/data/*.sqlite3-journal
 
 # Logs
 *.log
+
+# Local reconnaissance wordlists (never commit downloaded datasets)
+/wordlists/
