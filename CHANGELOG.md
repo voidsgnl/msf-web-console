@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Manual path baseline collection now reports attempted, successful, and failed random-path samples with failure reasons. If all baseline probes fail, response classification is explicitly marked unavailable rather than leaving HTTP observations ambiguously unclassified; the Gobuster card displays baseline health and per-record classification labels.
+
 - Added random-path response baselining to manual path checks. Three bounded same-origin random paths are compared with analyst-supplied responses using normalized body fingerprints, token-shingle similarity, matching status/content type, and shared not-found markers. Strong matches are labelled likely soft 404; distinct responses remain unconfirmed observations. Baseline counts and per-record comparison evidence are retained, with redirects disabled and concurrency capped at two.
 
 - Made `MSF_WEB_WORDLIST_DIRS` authoritative when explicitly set, preventing host-installed wordlists from leaking into configured catalogs and keeping catalog results deterministic. Default project/system wordlist roots remain active when the variable is unset.
