@@ -153,7 +153,17 @@ katana -version
 
 Restart the backend after installing a tool, then use **Web Security → Reconnaissance** to refresh availability. Katana's application adapter uses fixed safe defaults and does not accept browser-supplied crawler flags.
 
-Gobuster is detected independently. The adapter exposes directory/file mode only; it does not enable DNS or virtual-host brute forcing. Wordlists are discovered from these default directories: `/usr/share/seclists/Discovery/Web-Content`, `/usr/share/wordlists`, `/usr/share/dirb/wordlists`, and `/usr/share/dirbuster/wordlists`. To use a different location, set `MSF_WEB_WORDLIST_DIRS` in `backend/.env` to a colon-separated list of directories and restart the backend. Only non-empty `.txt`, `.lst`, and `.wordlist` files up to 64 MiB are offered; browser requests select a listed wordlist ID and cannot submit arbitrary filesystem paths. The adapter uses two workers, a fixed 500 ms per-worker delay, an 8-second request timeout, and does not follow redirects.
+Gobuster is detected independently. The adapter exposes directory/file mode only; it does not enable DNS or virtual-host brute forcing. Wordlists are discovered from the repository-root `wordlists/` directory first (local-only and excluded from Git), followed by common system locations such as `/usr/share/seclists/Discovery/Web-Content`, `/usr/share/wordlists`, `/usr/share/dirb/wordlists`, and `/usr/share/dirbuster/wordlists`.
+
+To keep SecLists inside the project without committing its contents, run these commands from the repository root:
+
+```bash
+mkdir -p wordlists
+git clone --depth 1 --filter=blob:none --sparse https://github.com/danielmiessler/SecLists.git wordlists/SecLists
+git -C wordlists/SecLists sparse-checkout set Discovery/Web-Content
+```
+
+Restart the backend after adding wordlists. The selector will discover lists under `wordlists/SecLists/Discovery/Web-Content` automatically; no environment variable is needed. To use additional locations, set `MSF_WEB_WORDLIST_DIRS` in `backend/.env` to a colon-separated list of directories and restart the backend. Only non-empty `.txt`, `.lst`, and `.wordlist` files up to 64 MiB are offered; browser requests select a listed wordlist ID and cannot submit arbitrary filesystem paths. The adapter uses two workers, a fixed 500 ms per-worker delay, an 8-second request timeout, and does not follow redirects.
 
 ## Development checks
 
