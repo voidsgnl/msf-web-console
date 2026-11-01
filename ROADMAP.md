@@ -106,7 +106,7 @@ Status: in progress.
 - [ ] Correlate assets, services, software fingerprints, CVEs, and findings.
 - [ ] Enrich CVEs from NVD without treating keyword matches as proof of impact.
 - [ ] Build attack-path and exposure context from confirmed relationships.
-- [ ] Add triage states, analyst notes, and false-positive handling.
+- [x] Add triage states, analyst notes, dismissal/restore, and analyst-controlled finding/evidence classification.
 
 ## Phase 5 — Metasploit exploitation integration
 
@@ -127,6 +127,9 @@ Status: in progress.
 - [ ] Keep post-exploitation actions visibly separate from discovery.
 
 ## Phase 7 — Reporting and workflow polish
+
+- [x] Add assessment-wide evidence search, filtering, sorting, bulk triage, record detail, clipboard copy, and JSON/CSV export.
+- [x] Add run-to-run comparison and historical execution/triage summaries.
 
 - [ ] Produce platform-wide reports spanning assets, findings, evidence,
       exploitation outcomes, and remediation.
