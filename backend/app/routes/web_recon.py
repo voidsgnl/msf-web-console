@@ -180,10 +180,10 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[
             # Keep crawler redirects disabled. The adapter resolves only same-origin
             # redirects from the explicitly approved entry URL before starting Katana.
             # Do not use -ns: it disables Katana's default host scope.
-            # Katana's -fr flag is a URL-output filter, not a guaranteed request-level gate.
-            # Keep the supported option for narrow suppression, but rely on the app's
-            # post-parse classification to keep malformed URLs out of the default inventory.
-            "-dr", "-fr", r"(%5[cC]|\\)", "-cs", scope_pattern,
+            # Use crawl-out-scope to reject malformed candidates before fetching them.
+            # Keep filter-regex as defense-in-depth for any malformed URLs emitted by
+            # discovery paths that do not pass through the crawl scope.
+            "-dr", "-cos", r"(%5[cC]|\\)", "-fr", r"(%5[cC]|\\)", "-cs", scope_pattern,
         ]
     raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
 

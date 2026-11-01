@@ -159,6 +159,8 @@ class ReconToolAdapterTests(unittest.TestCase):
         self.assertIn("-iqp", command)
         self.assertIn("-or", command)
         self.assertIn("-ob", command)
+        self.assertIn("-cos", command)
+        self.assertEqual(command[command.index("-cos") + 1], r"(%5[cC]|\\)")
         self.assertIn("-fr", command)
         self.assertEqual(command[command.index("-fr") + 1], r"(%5[cC]|\\)")
         self.assertNotIn("-ns", command)
