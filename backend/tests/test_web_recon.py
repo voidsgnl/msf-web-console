@@ -84,6 +84,7 @@ class ManualPathCheckTests(unittest.TestCase):
         self.assertEqual(result["status_code"], 302)
         self.assertEqual(result["response_title"], "Moved")
         self.assertEqual(result["response_content_type"], "text/html")
+        self.assertIn("Moved", result["response_preview"])
         self.assertEqual(result["redirect_location"], "/login")
         self.assertFalse(session.get.call_args.kwargs["allow_redirects"])
         self.assertFalse(session.trust_env)
