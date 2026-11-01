@@ -128,6 +128,7 @@ export const api = {
       id: string; name: string; category: string; purpose: string;
       installed: boolean; path?: string | null;
     }[]; built_in: { name: string; available: boolean; description: string }[] }>("/web-recon/tools"),
+    wordlists: () => request<{ wordlists: { id: string; name: string; size_bytes: number }[] }>("/web-recon/wordlists"),
     probe: (assessmentId: number, url: string, authorized: boolean) =>
       request<{
         execution_id: number; target: string; status_code: number; reason?: string; final_url: string;
@@ -139,12 +140,13 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ assessment_id: assessmentId, url, authorized }),
       }),
-    runTool: (assessmentId: number, toolId: "httpx" | "whatweb" | "subfinder" | "katana", url: string, authorized: boolean) =>
+    runTool: (assessmentId: number, toolId: "httpx" | "whatweb" | "subfinder" | "katana" | "gobuster", url: string, authorized: boolean, options?: { wordlist_id?: string; extensions?: string }) =>
       request<{
         execution_id: number; assessment_id: number; tool_id: string; tool: string; target: string; exit_code: number;
         timed_out: boolean; output_truncated: boolean;
         records: { url?: string; target?: string; status_code?: number; http_status?: number;
-          title?: string | null; webserver?: string; content_type?: string;
+          title?: string | null; webserver?: string; content_type?: string; content_length?: number | null;
+          discovery_type?: "directory" | "path"; observations?: number;
           technologies?: string[]; host?: string; sources?: string[]; method?: string; source?: string;
           tag?: string; attribute?: string; redirect_location?: string | null;
           kind?: string; redirects?: { from: string; to?: string; status_code: number; followed: boolean; reason?: string }[];
@@ -153,7 +155,7 @@ export const api = {
         stderr: string; assessment: string;
       }>("/web-recon/run", {
         method: "POST",
-        body: JSON.stringify({ assessment_id: assessmentId, tool_id: toolId, url, authorized }),
+        body: JSON.stringify({ assessment_id: assessmentId, tool_id: toolId, url, authorized, ...options }),
       }),
   },
   assessments: {
