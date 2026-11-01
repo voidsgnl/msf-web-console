@@ -138,8 +138,9 @@ class AssessmentStoreTests(unittest.TestCase):
             scope, "nmap", "https://example.test",
             "2026-11-02T00:00:00+00:00", "2026-11-02T00:00:10+00:00", 0, False,
             [
-                {"host": "example.test", "port": 443, "protocol": "tcp", "state": "open",
-                 "service": "https", "product": "nginx", "version": "1.2"},
+                {"host": "192.0.2.10", "hostnames": ["example.test"], "port": 443,
+                 "protocol": "tcp", "state": "open", "service": "https",
+                 "product": "nginx", "version": "1.2"},
                 {"host": "other.example.test", "port": 22, "protocol": "tcp", "state": "open",
                  "service": "ssh"},
                 {"host": "example.test", "port": 23, "protocol": "tcp", "state": "closed",
@@ -154,8 +155,8 @@ class AssessmentStoreTests(unittest.TestCase):
         inventory = assessments.list_assessment_services(created["id"])
         self.assertEqual(inventory["counts"], {"total": 2, "in_scope": 1, "out_of_scope": 1})
         by_endpoint = {(item["hostname"], item["port"]): item for item in inventory["services"]}
-        self.assertEqual(by_endpoint[("example.test", 443)]["product"], "nginx")
-        self.assertEqual(by_endpoint[("example.test", 443)]["scope_state"], "in_scope")
+        self.assertEqual(by_endpoint[("192.0.2.10", 443)]["product"], "nginx")
+        self.assertEqual(by_endpoint[("192.0.2.10", 443)]["scope_state"], "in_scope")
         self.assertEqual(by_endpoint[("other.example.test", 22)]["scope_state"], "out_of_scope")
         self.assertEqual(
             assessments.list_assessment_assets(created["id"])["counts"]["out_of_scope"], 1
