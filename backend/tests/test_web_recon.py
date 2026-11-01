@@ -1,3 +1,5 @@
+import os
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -6,6 +8,7 @@ from fastapi import HTTPException
 from app.routes.web_recon import (
     ToolRunRequest, WebProbeRequest, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
+    _parse_gobuster_output, _normalise_gobuster_extensions, _resolve_wordlist,
     probe_web_service, run_recon_tool,
 )
 
@@ -335,3 +338,72 @@ class ReconToolAdapterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GobusterAdapterTests(unittest.TestCase):
+    def test_gobuster_command_is_directory_only_bounded_and_does_not_follow_redirects(self):
+        command = _build_tool_command(
+            "gobuster", "/usr/bin/gobuster", "https://example.test/app",
+            "/usr/share/wordlists/common.txt", "php,html",
+        )
+        self.assertEqual(command[:3], ["/usr/bin/gobuster", "dir", "-u"])
+        self.assertIn("-w", command)
+        self.assertEqual(command[command.index("-w") + 1], "/usr/share/wordlists/common.txt")
+        self.assertEqual(command[command.index("-t") + 1], "2")
+        self.assertEqual(command[command.index("--delay") + 1], "500ms")
+        self.assertEqual(command[command.index("--timeout") + 1], "8s")
+        self.assertEqual(command[command.index("-s") + 1], "200,204,301,302,307,401,403")
+        self.assertEqual(command[command.index("-x") + 1], "php,html")
+        self.assertNotIn("-r", command)
+        self.assertNotIn("dns", command)
+        self.assertNotIn("vhost", command)
+
+    def test_gobuster_parser_supports_legacy_and_current_output_and_deduplicates(self):
+        output = (
+            "/admin (Status: 200) [Size: 123]\\n"
+            "[Status: 301, Size: 0, Words: 1, Lines: 1, Duration: 2ms] https://example.test/login\\n"
+            "/admin (Status: 200) [Size: 123]\\n"
+        )
+        records = _parse_gobuster_output(output, "https://example.test/")
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0]["url"], "https://example.test/admin")
+        self.assertEqual(records[0]["status_code"], 200)
+        self.assertEqual(records[0]["content_length"], 123)
+        self.assertEqual(records[0]["observations"], 2)
+        self.assertEqual(records[1]["url"], "https://example.test/login")
+        self.assertEqual(records[1]["status_code"], 301)
+
+    def test_gobuster_parser_rejects_cross_origin_and_unstructured_lines(self):
+        output = (
+            "https://other.example/admin (Status: 200) [Size: 1]\\n"
+            "/safe (Status: 200) [Size: 2]\\n"
+            "Progress: 100 / 100\\n"
+        )
+        records = _parse_gobuster_output(output, "https://example.test/")
+        self.assertEqual([record["url"] for record in records], ["https://example.test/safe"])
+
+    def test_gobuster_extensions_are_normalised_and_validated(self):
+        self.assertEqual(_normalise_gobuster_extensions(" .PHP,html,php "), "php,html")
+        for invalid in ("php,../etc", "x" * 11, ",".join(["txt"] * 11)):
+            with self.subTest(invalid=invalid), self.assertRaises(HTTPException):
+                _normalise_gobuster_extensions(invalid)
+
+    def test_wordlist_resolution_is_limited_to_configured_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = os.path.realpath(directory)
+            wordlist = os.path.join(root, "common.txt")
+            with open(wordlist, "w", encoding="utf-8") as handle:
+                handle.write("admin\\nlogin\\n")
+            with patch.dict(os.environ, {"MSF_WEB_WORDLIST_DIRS": root}):
+                self.assertEqual(str(_resolve_wordlist("0:common.txt")), wordlist)
+                with self.assertRaises(HTTPException):
+                    _resolve_wordlist("0:../outside.txt")
+                with self.assertRaises(HTTPException):
+                    _resolve_wordlist("/etc/passwd")
+
+    def test_gobuster_is_an_allowed_request_tool(self):
+        request = ToolRunRequest(
+            assessment_id=1, tool_id="gobuster", url="https://example.test",
+            authorized=True, wordlist_id="0:common.txt", extensions="php,html",
+        )
+        self.assertEqual(request.tool_id, "gobuster")
