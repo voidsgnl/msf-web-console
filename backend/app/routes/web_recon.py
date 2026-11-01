@@ -975,7 +975,7 @@ def run_recon_tool(req: ToolRunRequest):
         "redirect_chain": redirect_chain if req.tool_id == "katana" else [],
         "stderr": stderr,
         "assessment": (
-            "Gobuster ran directory/file enumeration only against the exact approved origin. Random-path baseline responses were used for Gobuster's size exclusion and normalized body fingerprints. Near-size candidates are safely re-fetched on the approved origin without following redirects and compared against baseline body signatures. Similar responses are flagged as suspected wildcard results; distinct responses still require analyst review. Discoveries never expand approved scope."
+            "Gobuster ran directory/file enumeration only against the exact approved origin. Random-path baseline responses were used for Gobuster's size exclusion and normalized body fingerprints. Up to 100 near-size candidates are safely re-fetched on the approved origin without following redirects and compared against baseline body signatures; candidates beyond that cap remain unverified. Similar responses are flagged as suspected wildcard results; distinct responses still require analyst review. Discoveries never expand approved scope."
             if req.tool_id == "gobuster"
             else (
             "Subfinder uses passive data sources only. Discovered hostnames are inventory leads, "
