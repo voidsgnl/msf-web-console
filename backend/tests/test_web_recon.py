@@ -12,10 +12,19 @@ from app.routes.web_recon import (
     check_manual_directories, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
     _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _classify_gobuster_records, _fetch_gobuster_candidate_body, _resolve_wordlist, _list_wordlists, _wordlist_roots, _classify_manual_path_records, _collect_manual_path_baseline,
-    probe_web_service, run_recon_tool, _run_bounded_process,
+    probe_web_service, run_recon_tool, _run_bounded_process, list_tools,
 )
 
 class WebReconTests(unittest.TestCase):
+    @patch("app.routes.web_recon.shutil.which", side_effect=lambda name: "/usr/bin/" + name)
+    def test_tool_catalog_distinguishes_ready_and_not_integrated_adapters(self, _which):
+        tools = {item["id"]: item for item in list_tools()["tools"]}
+        self.assertTrue(tools["httpx"]["execution_enabled"])
+        self.assertEqual(tools["httpx"]["status"], "ready")
+        self.assertFalse(tools["nuclei"]["execution_enabled"])
+        self.assertEqual(tools["nuclei"]["status"], "not_integrated")
+        self.assertTrue(tools["nuclei"]["installed"])
+
     def test_adds_https_scheme(self):
         self.assertEqual(_normalise_url("example.test"), "https://example.test")
 
