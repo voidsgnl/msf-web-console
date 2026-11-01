@@ -57,8 +57,7 @@ def _initialise() -> None:
                 status TEXT NOT NULL DEFAULT 'active'
                     CHECK (status IN ('active', 'completed', 'archived')),
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                record_type TEXT NOT NULL DEFAULT 'evidence' CHECK (record_type IN ('evidence', 'finding'))
+                updated_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS assessment_targets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,7 +107,8 @@ def _initialise() -> None:
                 reviewed_at TEXT,
                 notes TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                record_type TEXT NOT NULL DEFAULT 'evidence' CHECK (record_type IN ('evidence', 'finding'))
             );
             CREATE INDEX IF NOT EXISTS idx_execution_record_metadata_assessment
                 ON execution_record_metadata(assessment_id, review_state, reviewed_at);
