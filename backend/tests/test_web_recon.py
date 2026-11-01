@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from app.routes.web_recon import (
     ToolRunRequest, WebProbeRequest, _build_tool_command, _normalise_url,
-    _parse_tool_output, _technology_hints, _filter_katana_records, _resolve_same_origin_redirects,
+    _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
     probe_web_service, run_recon_tool,
 )
 
@@ -191,6 +191,33 @@ class ReconToolAdapterTests(unittest.TestCase):
         self.assertEqual(records[0]["source"], "https://example.test/")
         self.assertEqual(records[0]["redirect_location"], "/next")
 
+    def test_katana_classifies_pages_assets_api_redirects_and_unverified(self):
+        records = _classify_katana_records([
+            {"url":"https://example.test/login","method":"GET","status_code":200},
+            {"url":"https://example.test/app.js","method":"GET","status_code":200},
+            {"url":"https://example.test/api/users","method":"GET","status_code":None},
+            {"url":"https://example.test/old","method":"GET","status_code":308,"redirect_location":"/new"},
+            {"url":"https://example.test/linked-page","method":"GET","status_code":None},
+        ])
+        self.assertEqual([item["resource_type"] for item in records], ["page", "static_asset", "api_candidate", "redirect", "page"])
+        self.assertFalse(records[1]["display_default"])
+        self.assertEqual(records[2]["fetch_state"], "discovered_unverified")
+        self.assertEqual(records[4]["fetch_state"], "discovered_unverified")
+
+    def test_katana_flags_encoded_backslash_and_deduplicates_canonical_url(self):
+        records = _classify_katana_records([
+            {"url":"https://example.test/path%5C","method":"GET","status_code":None},
+            {"url":"https://EXAMPLE.test:443/login","method":"GET","status_code":200},
+            {"url":"https://example.test/login","method":"GET","status_code":200},
+            {"url":"https://example.test/campaigns?sort=recent","method":"GET","status_code":200},
+            {"url":"https://example.test/campaigns?sort=popular","method":"GET","status_code":200},
+        ])
+        self.assertEqual(records[0]["resource_type"], "malformed")
+        self.assertFalse(records[0]["display_default"])
+        self.assertEqual(len(records), 4)
+        self.assertEqual(records[1]["observations"], 2)
+        self.assertEqual(records[2]["endpoint_group"], records[3]["endpoint_group"])
+        self.assertNotEqual(records[2]["canonical_url"], records[3]["canonical_url"])
     def test_katana_parser_discards_incomplete_json_response(self):
         complete = (
             '{"request":{"method":"GET","endpoint":"https://example.test/login"},'
