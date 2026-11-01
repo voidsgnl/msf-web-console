@@ -128,10 +128,6 @@ def _initialise() -> None:
                 ON execution_record_metadata(assessment_id, review_state, reviewed_at);
             """
         )
-        connection.execute(
-            "UPDATE execution_jobs SET state = 'interrupted', finished_at = ?, error = ? WHERE state IN ('queued', 'running')",
-            (_timestamp(), "Backend restarted before the job completed."),
-        )
         columns = {row['name'] for row in connection.execute('PRAGMA table_info(execution_record_metadata)').fetchall()}
         if 'record_type' not in columns:
             connection.execute("ALTER TABLE execution_record_metadata ADD COLUMN record_type TEXT NOT NULL DEFAULT 'evidence' CHECK (record_type IN ('evidence', 'finding'))")
