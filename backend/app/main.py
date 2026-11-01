@@ -12,6 +12,12 @@ from app.security import (
 
 app = FastAPI(title="Security Assessment Platform API")
 
+
+@app.on_event("startup")
+def recover_interrupted_assessment_jobs():
+    assessments.recover_stale_execution_jobs()
+
+
 # Cookies are only sent to explicitly allowlisted browser origins.
 app.add_middleware(
     CORSMiddleware,
