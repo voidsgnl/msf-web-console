@@ -222,6 +222,13 @@ class ManualPathCheckTests(unittest.TestCase):
             "form_count": 1, "input_count": 2, "password_input_count": 1,
             "email_input_count": 1, "link_count": 1, "script_count": 1,
             "button_count": 1,
+            "forms": [{
+                "method": "GET", "action": "(current page)",
+                "inputs": [
+                    {"type": "email", "name": None, "autocomplete": None, "required": False},
+                    {"type": "password", "name": None, "autocomplete": None, "required": False},
+                ],
+            }],
         })
         self.assertNotIn("private@example.test", str(features))
         self.assertNotIn("secret", str(features))
