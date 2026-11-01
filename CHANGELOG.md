@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Added a cancellation signal to the bounded scanner process runner. When signalled, it terminates the complete process group and returns output captured before cancellation; regression coverage verifies both termination state and partial output. This is the process-level foundation only: the asynchronous job API, persisted job states, polling, and operator-facing Cancel action are not yet implemented.
+
 - Made reconnaissance integration status explicit. The tool catalogue now distinguishes an installed binary from an implemented execution adapter; only httpx, WhatWeb, passive Subfinder, controlled Katana, and Gobuster directory mode are marked runnable. Other catalogued tools display as not integrated even if their executable is present, and cannot be launched from the UI. Added regression coverage for this distinction.
 
 - Replaced unbounded temporary-file scanner output with concurrent pipe draining and a combined stdout/stderr capture ceiling. Excess output is discarded and terminates the scanner process group; wall-clock timeouts also terminate the process group so child processes do not continue after a timed-out run. Added regression tests for output caps and timeout handling.
