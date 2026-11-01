@@ -602,6 +602,8 @@ def _classify_gobuster_records(records: list[dict], wildcard_profile: dict, targ
                 for item in comparable
             )
             record["body_similarity"] = round(similarity, 4)
+            record["response_title"] = signature.get("title") or None
+            record["response_content_type"] = signature.get("content_type") or None
             baseline_marker_counts: dict[str, int] = {}
             for item in comparable:
                 for marker in item.get("soft_404_markers", []):
