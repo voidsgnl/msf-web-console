@@ -268,9 +268,10 @@ def _project_wordlist_root() -> Path:
 
 def _wordlist_roots() -> list[Path]:
     configured = os.environ.get("MSF_WEB_WORDLIST_DIRS")
-    # Explicit directories are searched first, but they extend rather than
-    # replace the repository-local and standard system wordlist locations.
-    values = (configured.split(os.pathsep) if configured else []) + [
+    # An explicit configuration is authoritative. This keeps deployments and
+    # tests isolated from unrelated wordlists installed elsewhere on the host.
+    # When unset, use the project-local and standard system locations.
+    values = configured.split(os.pathsep) if configured is not None else [
         str(_project_wordlist_root()),
         "/usr/share/seclists/Discovery/Web-Content",
         "/usr/share/wordlists",
