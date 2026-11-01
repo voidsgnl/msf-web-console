@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Manual path checks now report privacy-preserving HTML structure counts (forms, inputs, password/email fields, links, scripts, and buttons) to help distinguish application pages without collecting form values or following links.
+
+## Unreleased
+
 - Manual path results now display body similarity, comparable baseline sample count, and each shared not-found marker independently; inconclusive marker-based results receive a distinct verification badge.
 
 ## Unreleased
