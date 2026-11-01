@@ -328,11 +328,11 @@ def _gobuster_body_signature(body: bytes, encoding: str | None = None) -> dict:
         text,
     )
     text = re.sub(
-    text = re.sub(
         r"""(?is)(<input\b[^>]*(?:name|id)=["'](?:csrf|csrf_token|nonce|authenticity_token|requestverificationtoken)["'][^>]*value=["'])[^"']+(["'])""",
         r"\1<dynamic-token>\2",
         text,
     )
+    text = re.sub(
         r"(?i)(csrf(?:token)?|nonce|authenticity_token|requestverificationtoken)([\s:=\"']+)[a-z0-9._~-]{8,}",
         r"\1\2<dynamic-token>",
         text,
@@ -348,8 +348,6 @@ def _gobuster_body_signature(body: bytes, encoding: str | None = None) -> dict:
         "shingles": shingles,
         "normalised_length": len(normalised),
     }
-
-
 def _gobuster_body_similarity(left: dict, right: dict) -> float:
     left_shingles = left.get("shingles") or set()
     right_shingles = right.get("shingles") or set()
