@@ -8,7 +8,10 @@ export type AssessmentSummary = {
 export type AssessmentDetail = AssessmentSummary & { targets: AssessmentTarget[] };
 export type AssessmentAsset = { id: number; assessment_id: number; asset_type: "url" | "host"; value: string; hostname: string; scope_state: "in_scope" | "out_of_scope"; source_tool: string; first_seen: string; last_seen: string };
 export type AssessmentAssetInventory = { assets: AssessmentAsset[]; counts: { total: number; in_scope: number; out_of_scope: number } };
-export type AssessmentExecutionDetail = AssessmentExecution & { records: Record<string, unknown>[]; stderr: string };
+export type AssessmentExecutionRecord = Record<string, unknown> & {
+  record_id: string; review_state: "active" | "dismissed"; reviewed_at: string | null; notes: string;
+};
+export type AssessmentExecutionDetail = AssessmentExecution & { records: AssessmentExecutionRecord[]; stderr: string };
 export type AssessmentExecution = {
   id: number; assessment_id: number; target_id: number; tool_id: string;
   target_url: string; started_at: string; finished_at: string;
@@ -168,6 +171,17 @@ export const api = {
       request<{ executions: AssessmentExecution[] }>(`/assessments/${id}/executions`),
     execution: (id: number, executionId: number) =>
       request<AssessmentExecutionDetail>(`/assessments/${id}/executions/${executionId}`),
+    updateExecutionRecord: (id: number, executionId: number, recordId: string, changes: {
+      review_state?: "active" | "dismissed"; reviewed?: boolean; notes?: string;
+    }) => request<{ record_id: string; review_state: "active" | "dismissed"; reviewed_at: string | null; notes: string }>(
+      `/assessments/${id}/executions/${executionId}/records/${encodeURIComponent(recordId)}`,
+      { method: "PATCH", body: JSON.stringify(changes) },
+    ),
+    deleteExecutionRecord: (id: number, executionId: number, recordId: string) =>
+      request<{ deleted: boolean; record_id: string }>(
+        `/assessments/${id}/executions/${executionId}/records/${encodeURIComponent(recordId)}`,
+        { method: "DELETE" },
+      ),
   },
   auth: {
     session: () => request<{ configured: boolean; authenticated: boolean; username?: string | null }>("/auth/session"),
