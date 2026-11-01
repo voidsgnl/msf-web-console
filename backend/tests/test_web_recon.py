@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from app.routes.web_recon import (
     ToolRunRequest, WebProbeRequest, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
-    _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _resolve_wordlist, _list_wordlists, _wordlist_roots,
+    _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _resolve_wordlist, _list_wordlists, _wordlist_roots,
     probe_web_service, run_recon_tool,
 )
 
@@ -382,6 +382,8 @@ class GobusterAdapterTests(unittest.TestCase):
         self.assertEqual(profile["status_codes"], [200])
         self.assertEqual(profile["reference_length"], 37900)
         self.assertEqual(profile["length_tolerance"], 379)
+        self.assertEqual(len(profile["body_signatures"]), 5)
+        self.assertIn("fingerprint", profile["body_signatures"][0])
         self.assertFalse(session.trust_env)
         self.assertFalse(session.get.call_args.kwargs["allow_redirects"])
         self.assertRegex(session.get.call_args.args[0], r"/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -403,7 +405,10 @@ class GobusterAdapterTests(unittest.TestCase):
         self.assertEqual(profile["min_length"], 37892)
         self.assertEqual(profile["max_length"], 37900)
 
-    def test_gobuster_classifies_near_baseline_as_suspected_without_dropping_records(self):
+    @patch("app.routes.web_recon._fetch_gobuster_candidate_body")
+    def test_gobuster_classifies_near_baseline_using_body_fingerprints_without_dropping_records(self, fetch_body):
+        baseline = _gobuster_body_signature(b"<html><body>generic missing page not found</body></html>")
+        fetch_body.return_value = (200, baseline)
         records = [
             {"url": "https://example.test/owa", "status_code": 200, "content_length": 37860},
             {"url": "https://example.test/admin", "status_code": 200, "content_length": 41000},
@@ -412,20 +417,39 @@ class GobusterAdapterTests(unittest.TestCase):
         summary = _classify_gobuster_records(records, {
             "status_codes": [200], "min_length": 37858, "max_length": 37880,
             "reference_length": 37870, "length_tolerance": 128,
-        })
+            "body_signatures": [{"status_code": 200, **baseline}],
+        }, "https://example.test/")
         self.assertEqual(len(records), 3)
         self.assertEqual(records[0]["response_classification"], "suspected_wildcard")
         self.assertEqual(records[1]["response_classification"], "distinct_response")
         self.assertEqual(records[2]["response_classification"], "distinct_response")
         self.assertEqual(summary["suspected_wildcard"], 1)
         self.assertEqual(summary["distinct_response"], 2)
+        self.assertEqual(records[0]["body_similarity"], 1.0)
+        fetch_body.assert_called_once_with("https://example.test/owa")
+
+    @patch("app.routes.web_recon._fetch_gobuster_candidate_body")
+    def test_gobuster_same_size_different_body_is_distinct(self, fetch_body):
+        baseline = _gobuster_body_signature(b"<html><body>generic missing page not found</body></html>")
+        actual = _gobuster_body_signature(b"<html><body>administrative portal sign in dashboard</body></html>")
+        fetch_body.return_value = (200, actual)
+        records = [{"url": "https://example.test/admin", "status_code": 200, "content_length": 37860}]
+        summary = _classify_gobuster_records(records, {
+            "status_codes": [200], "min_length": 37860, "max_length": 37860,
+            "reference_length": 37860, "length_tolerance": 128,
+            "body_signatures": [{"status_code": 200, **baseline}],
+        }, "https://example.test/")
+        self.assertEqual(records[0]["response_classification"], "distinct_response")
+        self.assertLess(records[0]["body_similarity"], 0.92)
+        self.assertEqual(summary["distinct_response"], 1)
 
     def test_gobuster_marks_missing_response_metadata_unverified(self):
         records = [{"url": "https://example.test/unknown", "status_code": 200, "content_length": None}]
         summary = _classify_gobuster_records(records, {
             "status_codes": [200], "min_length": 100, "max_length": 100,
             "reference_length": 100, "length_tolerance": 128,
-        })
+            "body_signatures": [],
+        }, "https://example.test/")
         self.assertEqual(records[0]["response_classification"], "unverified")
         self.assertEqual(summary["unverified"], 1)
 
