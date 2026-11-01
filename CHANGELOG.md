@@ -1,3 +1,7 @@
+## Unreleased
+
+- Tightened manual-path soft-404 classification: body similarity of at least 85% remains sufficient, while marker-based classification now requires at least two stable shared not-found markers and at least 50% body similarity. Each record exposes body similarity and shared marker matches independently; weaker marker evidence is labelled for verification.
+
 - Fixed Gobuster compatibility with packaged versions that reject the optional `-l` output flag. Directory enumeration no longer passes that flag; response-size parsing remains optional when the installed version emits it.
 
 # Changelog
