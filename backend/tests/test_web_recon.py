@@ -123,6 +123,70 @@ class ManualPathCheckTests(unittest.TestCase):
         self.assertEqual(result["body_similarity"], 1.0)
         self.assertIn("not a confirmed endpoint", result["classification_reason"])
 
+    @patch("app.routes.web_recon._gobuster_body_similarity", return_value=0.25)
+    def test_single_shared_marker_with_low_similarity_needs_verification(self, _similarity):
+        baseline = {
+            "status_code": 200, "content_type": "text/html",
+            "fingerprint": "baseline", "shingles": {"generic page", "not found"},
+            "soft_404_markers": ["page not found"],
+        }
+        candidate = {
+            "url": "https://example.test/register", "status_code": 200,
+            "_body_signature": {
+                "fingerprint": "candidate", "content_type": "text/html",
+                "shingles": {"create account", "email address"},
+                "soft_404_markers": ["page not found"],
+            },
+        }
+        result = _classify_manual_path_records([candidate], [baseline])[0]
+        self.assertEqual(result["response_classification"], "needs_verification")
+        self.assertEqual(result["body_similarity"], 0.25)
+        self.assertEqual(result["shared_not_found_marker_count"], 0)
+        self.assertEqual(result["shared_not_found_markers"], [])
+
+    @patch("app.routes.web_recon._gobuster_body_similarity", return_value=0.60)
+    def test_two_stable_markers_and_review_similarity_can_classify_soft_404(self, _similarity):
+        baseline = {
+            "status_code": 200, "content_type": "text/html",
+            "fingerprint": "baseline", "shingles": {"generic page", "not found"},
+            "soft_404_markers": ["page not found", "resource unavailable"],
+        }
+        candidate = {
+            "url": "https://example.test/missing", "status_code": 200,
+            "_body_signature": {
+                "fingerprint": "candidate", "content_type": "text/html",
+                "shingles": {"generic page", "resource unavailable"},
+                "soft_404_markers": ["page not found", "resource unavailable"],
+            },
+        }
+        result = _classify_manual_path_records([candidate], [baseline, baseline.copy()])[0]
+        self.assertEqual(result["response_classification"], "likely_soft_404")
+        self.assertEqual(result["body_similarity"], 0.60)
+        self.assertEqual(result["shared_not_found_marker_count"], 2)
+        self.assertEqual(
+            result["shared_not_found_markers"],
+            ["page not found", "resource unavailable"],
+        )
+
+    @patch("app.routes.web_recon._gobuster_body_similarity", return_value=0.60)
+    def test_one_shared_marker_is_not_enough_for_marker_based_soft_404(self, _similarity):
+        baseline = {
+            "status_code": 200, "content_type": "text/html",
+            "fingerprint": "baseline", "shingles": {"generic page", "not found"},
+            "soft_404_markers": ["page not found"],
+        }
+        candidate = {
+            "url": "https://example.test/register", "status_code": 200,
+            "_body_signature": {
+                "fingerprint": "candidate", "content_type": "text/html",
+                "shingles": {"generic page", "email address"},
+                "soft_404_markers": ["page not found"],
+            },
+        }
+        result = _classify_manual_path_records([candidate], [baseline, baseline.copy()])[0]
+        self.assertEqual(result["response_classification"], "needs_verification")
+        self.assertEqual(result["shared_not_found_marker_count"], 1)
+
     def test_manual_path_distinct_response_is_not_confirmed_as_endpoint(self):
         baseline = {
             "status_code": 200, "content_type": "text/html",
