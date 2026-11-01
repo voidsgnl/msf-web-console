@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from app.routes.web_recon import (
     ToolRunRequest, WebProbeRequest, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
-    _parse_gobuster_output, _normalise_gobuster_extensions, _resolve_wordlist, _list_wordlists, _wordlist_roots,
+    _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _resolve_wordlist, _list_wordlists, _wordlist_roots,
     probe_web_service, run_recon_tool,
 )
 
@@ -355,10 +355,30 @@ class GobusterAdapterTests(unittest.TestCase):
         self.assertNotIn("-l", command)  # Not supported by all packaged Gobuster versions.
         self.assertEqual(command[command.index("-s") + 1], "200,204,301,302,307,401,403")
         self.assertEqual(command[command.index("--status-codes-blacklist") + 1], "")
+        self.assertNotIn("--exclude-length", command)
         self.assertEqual(command[command.index("-x") + 1], "php,html")
         self.assertNotIn("-r", command)
         self.assertNotIn("dns", command)
         self.assertNotIn("vhost", command)
+
+    def test_gobuster_command_excludes_measured_wildcard_length(self):
+        command = _build_tool_command(
+            "gobuster", "/usr/bin/gobuster", "https://example.test",
+            "/usr/share/wordlists/common.txt", "", 37900,
+        )
+        self.assertEqual(command[command.index("--exclude-length") + 1], "37900")
+
+    @patch("app.routes.web_recon.requests.Session")
+    def test_gobuster_wildcard_probe_uses_content_length_without_following_redirects(self, session_factory):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.headers = {"Content-Length": "37900"}
+        session = session_factory.return_value
+        session.get.return_value = response
+        self.assertEqual(_probe_gobuster_wildcard_length("https://example.test/"), 37900)
+        self.assertFalse(session.trust_env)
+        self.assertFalse(session.get.call_args.kwargs["allow_redirects"])
+        self.assertIn(".msf-web-console-", session.get.call_args.args[0])
 
     def test_gobuster_parser_supports_legacy_and_current_output_and_deduplicates(self):
         output = (
@@ -440,8 +460,9 @@ class GobusterAdapterTests(unittest.TestCase):
     @patch("app.routes.assessments.record_tool_execution", return_value={"id": 77})
     @patch("app.routes.assessments.assert_target_in_scope", return_value={"assessment_id": 1, "target_id": 2})
     @patch("app.routes.web_recon.shutil.which", return_value="/usr/bin/gobuster")
+    @patch("app.routes.web_recon._probe_gobuster_wildcard_length", return_value=37900)
     @patch("subprocess.run")
-    def test_gobuster_run_persists_parsed_same_origin_results(self, run_process, _which, _scope, record):
+    def test_gobuster_run_persists_parsed_same_origin_results(self, run_process, _probe, _which, _scope, record):
         def fake_run(command, **kwargs):
             kwargs["stdout"].write("/admin (Status: 200) [Size: 123]\n")
             return type("Completed", (), {"returncode": 0})()
@@ -462,6 +483,7 @@ class GobusterAdapterTests(unittest.TestCase):
         command = run_process.call_args.args[0]
         self.assertEqual(command[1], "dir")
         self.assertNotIn("-r", command)
+        self.assertEqual(command[command.index("--exclude-length") + 1], "37900")
 
     def test_gobuster_is_an_allowed_request_tool(self):
         request = ToolRunRequest(

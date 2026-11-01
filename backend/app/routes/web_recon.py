@@ -1,5 +1,6 @@
 import os
 import re
+import secrets
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -244,7 +245,14 @@ def list_wordlists():
     return {"wordlists": _list_wordlists()}
 
 
-def _build_tool_command(tool_id: str, executable: str, target_url: str, wordlist_path: str | None = None, extensions: str = "") -> list[str]:
+def _build_tool_command(
+    tool_id: str,
+    executable: str,
+    target_url: str,
+    wordlist_path: str | None = None,
+    extensions: str = "",
+    gobuster_exclude_length: int | None = None,
+) -> list[str]:
     if tool_id == "httpx":
         return [
             executable, "-json", "-silent", "-no-color", "-no-stdin", "-nfs",
@@ -272,6 +280,8 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str, wordlist
             # Gobuster defaults to a 404 blacklist; clear it when using an allowlist.
             "--status-codes-blacklist", "",
         ]
+        if gobuster_exclude_length is not None:
+            command.extend(["--exclude-length", str(gobuster_exclude_length)])
         if extensions:
             command.extend(["-x", extensions])
         return command
@@ -300,6 +310,51 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str, wordlist
             "-dr", "-cos", r"(%5[cC]|\\)", "-fr", r"(%5[cC]|\\)", "-cs", scope_pattern,
         ]
     raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
+
+
+def _probe_gobuster_wildcard_length(target_url: str) -> int:
+    """Measure the response size for a random missing path before enumeration."""
+    probe_url = urljoin(target_url.rstrip("/") + "/", f".msf-web-console-{secrets.token_hex(16)}")
+    session = requests.Session()
+    session.trust_env = False
+    try:
+        try:
+            with session.get(
+                probe_url,
+                headers={"User-Agent": "MSF-Web-Console-Recon/0.1", "Accept": "*/*"},
+                timeout=(3.0, 8.0),
+                allow_redirects=False,
+                stream=True,
+                verify=True,
+            ) as response:
+                declared_length = response.headers.get("Content-Length")
+                if declared_length is not None:
+                    try:
+                        length = int(declared_length)
+                    except ValueError as exc:
+                        raise HTTPException(502, "Gobuster wildcard probe returned an invalid Content-Length.") from exc
+                    if length < 0:
+                        raise HTTPException(502, "Gobuster wildcard probe returned a negative Content-Length.")
+                    return length
+
+                chunks: list[bytes] = []
+                total = 0
+                for chunk in response.iter_content(chunk_size=8192):
+                    if not chunk:
+                        continue
+                    total += len(chunk)
+                    if total > 1048576:
+                        raise HTTPException(502, "Gobuster wildcard probe response exceeded the 1 MiB inspection limit.")
+                    chunks.append(chunk)
+                return len(b"".join(chunks))
+        except requests.exceptions.SSLError as exc:
+            raise HTTPException(502, f"Gobuster wildcard probe TLS negotiation failed: {exc}") from exc
+        except requests.exceptions.Timeout as exc:
+            raise HTTPException(504, "Gobuster wildcard probe exceeded the 8-second timeout.") from exc
+        except requests.exceptions.RequestException as exc:
+            raise HTTPException(502, f"Gobuster wildcard probe failed: {exc}") from exc
+    finally:
+        session.close()
 
 
 def _parse_gobuster_output(output: str, target_url: str) -> list[dict]:
@@ -612,7 +667,19 @@ def run_recon_tool(req: ToolRunRequest):
             raise HTTPException(400, "Select an available backend wordlist before running Gobuster.")
         wordlist_path = str(_resolve_wordlist(req.wordlist_id))
         gobuster_extensions = _normalise_gobuster_extensions(req.extensions)
-    command = _build_tool_command(req.tool_id, executable, crawl_target, wordlist_path, gobuster_extensions)
+    gobuster_exclude_length = (
+        _probe_gobuster_wildcard_length(crawl_target)
+        if req.tool_id == "gobuster"
+        else None
+    )
+    command = _build_tool_command(
+        req.tool_id,
+        executable,
+        crawl_target,
+        wordlist_path,
+        gobuster_extensions,
+        gobuster_exclude_length,
+    )
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     try:
         with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as stdout_file, tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as stderr_file:
