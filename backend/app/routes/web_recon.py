@@ -192,30 +192,43 @@ def _classify_manual_path_records(records: list[dict], baseline_signatures: list
         shared = sorted(candidate_markers & stable_baseline_markers)
         record["body_similarity"] = round(best, 4) if comparable else None
         record["baseline_samples_compared"] = len(comparable)
-        # A high body-similarity score is sufficient on its own. A shared
-        # not-found phrase is treated as corroborating evidence only when the
-        # overall body similarity also clears a lower review threshold -- it
-        # is never enough by itself to flag a response as a soft 404.
-        if comparable and (best >= similarity_threshold or (shared and best >= review_similarity_threshold)):
+        # Keep marker evidence independent from body similarity so analysts
+        # can see exactly which signals contributed to the classification.
+        record["shared_not_found_markers"] = shared
+        record["shared_not_found_marker_count"] = len(shared)
+        high_similarity = bool(comparable and best >= similarity_threshold)
+        corroborated_markers = bool(
+            comparable
+            and len(shared) >= 2
+            and best >= review_similarity_threshold
+        )
+        # Similarity >= 85% remains sufficient. Marker-based classification
+        # requires at least two distinct markers, stable across baseline
+        # samples, plus at least 50% body similarity.
+        if comparable and (high_similarity or corroborated_markers):
             record["response_classification"] = "likely_soft_404"
-            detail = f" (body similarity {best:.0%})" if similarities else ""
-            marker_detail = f"; shared not-found markers: {', '.join(shared)}" if shared else ""
+            detail = f"body similarity {best:.0%}"
+            marker_detail = (
+                f"; {len(shared)} shared not-found markers: {', '.join(shared)}"
+                if shared else "; no shared not-found markers"
+            )
             record["classification_reason"] = (
-                f"Response closely matches the random-path baseline{detail}{marker_detail}. "
+                f"Random-path comparison: {detail}{marker_detail}. "
                 "Treat as a likely soft 404, not a confirmed endpoint."
             )
         elif comparable and shared:
             record["response_classification"] = "needs_verification"
             record["classification_reason"] = (
-                f"Response shares a not-found phrase with the random-path baseline, but overall body "
-                f"similarity is low ({best:.0%}). A shared phrase alone is not reliable evidence of a "
-                "soft 404 -- verify this page's content manually before ruling it in or out."
+                f"Random-path comparison: body similarity {best:.0%}; "
+                f"{len(shared)} shared not-found marker(s): {', '.join(shared)}. "
+                "Marker evidence did not meet the two-marker and 50% similarity "
+                "requirements; verify the page manually."
             )
         elif comparable:
             record["response_classification"] = "distinct_response"
             record["classification_reason"] = (
-                f"Response differs from {len(comparable)} comparable random-path baseline sample(s) "
-                f"(best body similarity {best:.0%}); this is not proof of a functional endpoint."
+                f"Random-path comparison: body similarity {best:.0%}; "
+                "no shared not-found markers. This is not proof of a functional endpoint."
             )
     return records
 
