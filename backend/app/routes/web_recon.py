@@ -19,6 +19,7 @@ router = APIRouter(prefix="/api/web-recon", tags=["web-recon"])
 
 _JOB_EVENTS: dict[str, threading.Event] = {}
 _JOB_EVENTS_LOCK = threading.Lock()
+_JOB_SEMAPHORE = threading.BoundedSemaphore(2)
 
 
 def request_job_cancellation(job_id: str) -> bool:
@@ -1997,7 +1998,12 @@ def _run_recon_job_background(job_id: str, req: ToolRunRequest) -> None:
     from app.routes.assessments import update_execution_job
 
     event = _register_job_event(job_id)
+    acquired = False
     try:
+        while not event.is_set():
+            acquired = _JOB_SEMAPHORE.acquire(timeout=0.2)
+            if acquired:
+                break
         if event.is_set():
             update_execution_job(job_id, "cancelled", error="Cancelled before scanner start.")
             return
@@ -2015,8 +2021,9 @@ def _run_recon_job_background(job_id: str, req: ToolRunRequest) -> None:
     except Exception as exc:
         update_execution_job(job_id, "failed", error=f"Unexpected execution error: {str(exc)[:800]}")
     finally:
+        if acquired:
+            _JOB_SEMAPHORE.release()
         _remove_job_event(job_id)
-
 
 @router.post("/run/async", status_code=202)
 def queue_recon_tool(req: ToolRunRequest, background_tasks: BackgroundTasks):
