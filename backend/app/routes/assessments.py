@@ -468,27 +468,26 @@ def get_assessment_execution(assessment_id: int, execution_id: int):
             """,
             (execution_id, assessment_id),
         ).fetchone()
-    if row is None:
-        raise HTTPException(404, "Execution not found in this assessment.")
-    result = dict(row)
-    result["output_truncated"] = bool(result["output_truncated"])
-    records = json.loads(result.pop("result_json"))
-    enriched = []
-    for index, record in enumerate(records):
-        item = dict(record) if isinstance(record, dict) else {"raw": str(record)}
-        record_id = item.get("_record_id") or f"legacy-{execution_id}-{index}"
-        metadata = connection.execute(
-            "SELECT review_state, reviewed_at, notes FROM execution_record_metadata WHERE record_id = ? AND execution_id = ?",
-            (record_id, execution_id),
-        ).fetchone()
-        item["record_id"] = record_id
-        item["review_state"] = metadata["review_state"] if metadata else "active"
-        item["reviewed_at"] = metadata["reviewed_at"] if metadata else None
-        item["notes"] = metadata["notes"] if metadata else ""
-        enriched.append(item)
-    result["records"] = enriched
+        if row is None:
+            raise HTTPException(404, "Execution not found in this assessment.")
+        result = dict(row)
+        result["output_truncated"] = bool(result["output_truncated"])
+        records = json.loads(result.pop("result_json"))
+        enriched = []
+        for index, record in enumerate(records):
+            item = dict(record) if isinstance(record, dict) else {"raw": str(record)}
+            record_id = item.get("_record_id") or f"legacy-{execution_id}-{index}"
+            metadata = connection.execute(
+                "SELECT review_state, reviewed_at, notes FROM execution_record_metadata WHERE record_id = ? AND execution_id = ?",
+                (record_id, execution_id),
+            ).fetchone()
+            item["record_id"] = record_id
+            item["review_state"] = metadata["review_state"] if metadata else "active"
+            item["reviewed_at"] = metadata["reviewed_at"] if metadata else None
+            item["notes"] = metadata["notes"] if metadata else ""
+            enriched.append(item)
+        result["records"] = enriched
     return result
-
 
 def _rebuild_assessment_assets(connection: sqlite3.Connection, assessment_id: int) -> None:
     """Rebuild inventory from retained execution evidence after a record deletion."""
@@ -532,6 +531,12 @@ def update_execution_record(
         )
         if record is None:
             raise HTTPException(404, "Record not found in this execution.")
+        if not record.get("_record_id"):
+            record["_record_id"] = record_id
+            connection.execute(
+                "UPDATE tool_executions SET result_json = ? WHERE id = ? AND assessment_id = ?",
+                (json.dumps(records, ensure_ascii=False), execution_id, assessment_id),
+            )
         now = _timestamp()
         existing = connection.execute(
             "SELECT review_state, reviewed_at, notes FROM execution_record_metadata WHERE record_id = ?",
