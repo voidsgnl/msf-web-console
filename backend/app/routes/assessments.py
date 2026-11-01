@@ -608,3 +608,151 @@ def delete_execution_record(assessment_id: int, execution_id: int, record_id: st
         )
         _rebuild_assessment_assets(connection, assessment_id)
     return {"deleted": True, "record_id": record_id}
+
+
+def _all_assessment_records(connection: sqlite3.Connection, assessment_id: int) -> list[dict]:
+    executions = connection.execute(
+        "SELECT id, tool_id, target_url, started_at, finished_at, exit_code, result_json FROM tool_executions WHERE assessment_id = ? ORDER BY id DESC",
+        (assessment_id,),
+    ).fetchall()
+    output = []
+    for execution in executions:
+        records = json.loads(execution["result_json"])
+        for index, raw in enumerate(records):
+            item = dict(raw) if isinstance(raw, dict) else {"raw": str(raw)}
+            record_id = item.get("_record_id") or f"legacy-{execution['id']}-{index}"
+            if not item.get("_record_id"):
+                item["_record_id"] = record_id
+            meta = connection.execute(
+                "SELECT review_state, reviewed_at, notes, record_type FROM execution_record_metadata WHERE record_id = ?",
+                (record_id,),
+            ).fetchone()
+            item.update({
+                "record_id": record_id, "execution_id": execution["id"],
+                "tool_id": execution["tool_id"], "target_url": execution["target_url"],
+                "started_at": execution["started_at"], "finished_at": execution["finished_at"],
+                "exit_code": execution["exit_code"],
+                "review_state": meta["review_state"] if meta else "active",
+                "reviewed_at": meta["reviewed_at"] if meta else None,
+                "notes": meta["notes"] if meta else "",
+                "record_type": meta["record_type"] if meta else "evidence",
+            })
+            output.append(item)
+    return output
+
+
+@router.get("/{assessment_id}/records")
+def list_assessment_records(assessment_id: int, q: str = "", tool_id: str = "", record_type: str = "", review_state: str = "", reviewed: str = "", sort_by: str = "newest"):
+    _initialise()
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        records = _all_assessment_records(connection, assessment_id)
+    query = q.strip().casefold()
+    if query:
+        records = [item for item in records if query in json.dumps(item, ensure_ascii=False, default=str).casefold()]
+    if tool_id:
+        records = [item for item in records if item["tool_id"] == tool_id]
+    if record_type in {"evidence", "finding"}:
+        records = [item for item in records if item["record_type"] == record_type]
+    if review_state in {"active", "dismissed"}:
+        records = [item for item in records if item["review_state"] == review_state]
+    if reviewed == "yes":
+        records = [item for item in records if item["reviewed_at"]]
+    elif reviewed == "no":
+        records = [item for item in records if not item["reviewed_at"]]
+    if sort_by == "oldest":
+        records.sort(key=lambda item: item["started_at"])
+    elif sort_by == "tool":
+        records.sort(key=lambda item: (item["tool_id"], item["started_at"]), reverse=True)
+    elif sort_by == "target":
+        records.sort(key=lambda item: (item["target_url"], item["started_at"]), reverse=True)
+    else:
+        records.sort(key=lambda item: item["started_at"], reverse=True)
+    return {"records": records, "total": len(records)}
+
+
+@router.patch("/{assessment_id}/records/bulk")
+def bulk_update_assessment_records(assessment_id: int, request: dict):
+    ids = request.get("record_ids")
+    if not isinstance(ids, list) or not ids or len(ids) > 200 or not all(isinstance(value, str) for value in ids):
+        raise HTTPException(400, "Select between 1 and 200 evidence records.")
+    fields = {key for key in ("review_state", "reviewed", "record_type") if key in request}
+    if not fields:
+        raise HTTPException(400, "Provide a review state, reviewed flag, or record type.")
+    if request.get("review_state") not in (None, "active", "dismissed"):
+        raise HTTPException(400, "Invalid review state.")
+    if request.get("record_type") not in (None, "evidence", "finding"):
+        raise HTTPException(400, "Invalid record type.")
+    now = _timestamp()
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        records = _all_assessment_records(connection, assessment_id)
+        selected = [item for item in records if item["record_id"] in set(ids)]
+        if len(selected) != len(set(ids)):
+            raise HTTPException(404, "One or more selected records were not found.")
+        for item in selected:
+            state = request.get("review_state", item["review_state"])
+            reviewed_at = (now if request["reviewed"] else None) if "reviewed" in request else item["reviewed_at"]
+            category = request.get("record_type", item["record_type"])
+            connection.execute(
+                "INSERT INTO execution_record_metadata (record_id, execution_id, assessment_id, review_state, reviewed_at, notes, created_at, updated_at, record_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(record_id) DO UPDATE SET review_state=excluded.review_state, reviewed_at=excluded.reviewed_at, record_type=excluded.record_type, updated_at=excluded.updated_at",
+                (item["record_id"], item["execution_id"], assessment_id, state, reviewed_at, item["notes"], now, now, category),
+            )
+    return {"updated": len(selected)}
+
+
+@router.delete("/{assessment_id}/records/bulk")
+def bulk_delete_assessment_records(assessment_id: int, request: dict):
+    ids = request.get("record_ids")
+    if not isinstance(ids, list) or not ids or len(ids) > 200 or not all(isinstance(value, str) for value in ids):
+        raise HTTPException(400, "Select between 1 and 200 evidence records.")
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        records = _all_assessment_records(connection, assessment_id)
+        wanted = set(ids)
+        selected = [item for item in records if item["record_id"] in wanted]
+        if len(selected) != len(wanted):
+            raise HTTPException(404, "One or more selected records were not found.")
+        grouped = {}
+        for item in selected:
+            grouped.setdefault(item["execution_id"], set()).add(item["record_id"])
+        for execution_id, remove_ids in grouped.items():
+            row = connection.execute("SELECT result_json FROM tool_executions WHERE id = ? AND assessment_id = ?", (execution_id, assessment_id)).fetchone()
+            stored = json.loads(row["result_json"]) if row else []
+            kept = [item for index, item in enumerate(stored) if (item.get("_record_id") or f"legacy-{execution_id}-{index}") not in remove_ids]
+            connection.execute("UPDATE tool_executions SET result_json = ? WHERE id = ?", (json.dumps(kept, ensure_ascii=False), execution_id))
+        connection.executemany("DELETE FROM execution_record_metadata WHERE record_id = ?", [(value,) for value in wanted])
+        _rebuild_assessment_assets(connection, assessment_id)
+    return {"deleted": len(selected)}
+
+
+@router.get("/{assessment_id}/history")
+def assessment_history_report(assessment_id: int):
+    _initialise()
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        rows = connection.execute("SELECT tool_id, COUNT(*) AS runs, MIN(started_at) AS first_run, MAX(finished_at) AS last_run, SUM(CASE WHEN exit_code = 0 THEN 1 ELSE 0 END) AS successful_runs FROM tool_executions WHERE assessment_id = ? GROUP BY tool_id ORDER BY tool_id", (assessment_id,)).fetchall()
+        records = _all_assessment_records(connection, assessment_id)
+        runs = connection.execute("SELECT COUNT(*) FROM tool_executions WHERE assessment_id = ?", (assessment_id,)).fetchone()[0]
+    return {"assessment_id": assessment_id, "total_runs": runs, "total_records": len(records), "findings": sum(item["record_type"] == "finding" for item in records), "evidence": sum(item["record_type"] == "evidence" for item in records), "reviewed": sum(bool(item["reviewed_at"]) for item in records), "dismissed": sum(item["review_state"] == "dismissed" for item in records), "by_tool": [dict(row) for row in rows]}
+
+
+@router.get("/{assessment_id}/compare")
+def compare_assessment_runs(assessment_id: int, baseline_id: int, comparison_id: int):
+    if baseline_id == comparison_id:
+        raise HTTPException(400, "Choose two different executions to compare.")
+    _initialise()
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        rows = connection.execute("SELECT id, tool_id, target_url, result_json FROM tool_executions WHERE assessment_id = ? AND id IN (?, ?)", (assessment_id, baseline_id, comparison_id)).fetchall()
+    if len(rows) != 2:
+        raise HTTPException(404, "Both executions must belong to this assessment.")
+    by_id = {row["id"]: row for row in rows}
+    def keyed(row):
+        output = {}
+        for item in json.loads(row["result_json"]):
+            safe = {key: value for key, value in item.items() if key != "_record_id"}
+            output[json.dumps(safe, sort_keys=True, ensure_ascii=False, default=str)] = safe
+        return output
+    before, after = keyed(by_id[baseline_id]), keyed(by_id[comparison_id])
+    return {"baseline": {"id": baseline_id, "tool_id": by_id[baseline_id]["tool_id"], "target_url": by_id[baseline_id]["target_url"]}, "comparison": {"id": comparison_id, "tool_id": by_id[comparison_id]["tool_id"], "target_url": by_id[comparison_id]["target_url"]}, "added": [after[key] for key in after.keys() - before.keys()], "removed": [before[key] for key in before.keys() - after.keys()], "unchanged": [after[key] for key in after.keys() & before.keys()]}
