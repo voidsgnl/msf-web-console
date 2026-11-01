@@ -170,7 +170,20 @@ export function EvidenceManager({ assessmentId, executions, onRefresh }: Props) 
         <select className="input" value={sortBy} onChange={event => setSortBy(event.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="tool">Tool</option><option value="target">Target</option></select>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <label className="flex items-center gap-2 text-xs text-gray-400"><input type="checkbox" checked={allVisibleSelected} onChange={event => setSelected(event.target.checked ? Array.from(new Set([...selected, ...filtered.map(item => item.record_id)])) : selected.filter(id => !filtered.some(item => item.record_id === id))} />Select visible ({filtered.length})</label>
+        <label className="flex items-center gap-2 text-xs text-gray-400">
+          <input
+            type="checkbox"
+            checked={allVisibleSelected}
+            onChange={event => {
+              if (event.target.checked) {
+                setSelected(current => Array.from(new Set([...current, ...filtered.map(item => item.record_id)])));
+              } else {
+                setSelected(current => current.filter(id => !filtered.some(item => item.record_id === id)));
+              }
+            }}
+          />
+          Select visible ({filtered.length})
+        </label>
         <span className="text-[11px] text-gray-500">{filtered.length} of {records.length} records · {selected.length} selected</span>
       </div>
       {selected.length > 0 && <div className="flex flex-wrap gap-2 rounded-md bg-bg-primary p-3">
