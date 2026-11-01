@@ -632,7 +632,7 @@ class ReconToolAdapterTests(unittest.TestCase):
 
     def test_rejects_unknown_adapter(self):
         with self.assertRaises(HTTPException):
-            _build_tool_command("nmap", "/usr/bin/nmap", "https://example.test")
+            _build_tool_command("not-a-tool", "/usr/bin/not-a-tool", "https://example.test")
 
 if __name__ == "__main__":
     unittest.main()
