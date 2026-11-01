@@ -312,7 +312,7 @@ def _build_tool_command(
     raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
 
 
-def _probe_gobuster_wildcard_length(target_url: str) -> int | str:
+def _probe_gobuster_wildcard_length(target_url: str) -> dict:
     """Measure wildcard response sizes for random missing paths before enumeration."""
     session = requests.Session()
     session.trust_env = False
