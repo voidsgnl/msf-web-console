@@ -165,7 +165,7 @@ class ReconToolAdapterTests(unittest.TestCase):
         self.assertIn("-mdp", command)
         self.assertEqual(command[command.index("-mdp") + 1], "100")
         self.assertEqual(command[command.index("-rl") + 1], "2")
-        self.assertEqual(command[command.index("-d") + 1], "2")
+        self.assertEqual(command[command.index("-d") + 1], "3")
         self.assertIn("90s", command)
 
     def test_katana_default_port_scope_regex_is_re2_compatible(self):
