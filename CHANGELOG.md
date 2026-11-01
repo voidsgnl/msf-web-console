@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Added persistent asynchronous reconnaissance jobs with queued/running/terminal states, status polling, operator cancellation, partial-output retention, and startup recovery for jobs interrupted by a backend restart. The Web Security workspace now queues long-running scanners and displays job history and stop controls; the existing synchronous API remains available for compatibility.
+
+
+
 - Added a versioned common evidence envelope to every persisted reconnaissance record: trusted tool provenance, approved target context, observation timestamp/type, bounded summary, and neutral severity/confidence/verification defaults. Existing tool-specific fields are preserved; this does not promote scanner output to a verified finding.
 
 
