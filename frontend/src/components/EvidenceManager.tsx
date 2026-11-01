@@ -145,6 +145,11 @@ export function EvidenceManager({ assessmentId, executions, onRefresh }: Props) 
     setDetail(record);
     setNoteDraft(record.notes);
   };
+  const comparisonGroups: { label: string; items: Record<string, unknown>[] }[] = comparison ? [
+    { label: "Added", items: comparison.added },
+    { label: "Removed", items: comparison.removed },
+    { label: "Unchanged", items: comparison.unchanged },
+  ] : [];
 
   return <section className="card">
     <div className="card-header">
@@ -215,7 +220,7 @@ export function EvidenceManager({ assessmentId, executions, onRefresh }: Props) 
         <button type="button" className="btn btn-primary" disabled={busy || !baselineId || !comparisonId || baselineId === comparisonId} onClick={() => void runCompare()}>Compare runs</button>
       </div>
       {comparison && <div className="grid gap-2 sm:grid-cols-3">
-        {[[ "Added", comparison.added ],[ "Removed", comparison.removed ],[ "Unchanged", comparison.unchanged ]].map(([label, items]) => <div key={String(label)} className="rounded-md bg-bg-primary p-3"><div className="text-xs font-semibold text-gray-200">{label} ({(items as unknown[]).length})</div><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all text-[10px] text-gray-500">{JSON.stringify(items, null, 2)}</pre></div>)}
+        {comparisonGroups.map(group => <div key={group.label} className="rounded-md bg-bg-primary p-3"><div className="text-xs font-semibold text-gray-200">{group.label} ({group.items.length})</div><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all text-[10px] text-gray-500">{JSON.stringify(group.items, null, 2)}</pre></div>)}
       </div>}
       {history && <div className="rounded-md bg-bg-primary p-3"><h3 className="text-xs font-semibold text-gray-200">Historical activity by tool</h3><div className="mt-2 space-y-2">{history.by_tool.map(item => <div key={item.tool_id} className="flex flex-wrap justify-between gap-2 text-[11px] text-gray-400"><span>{item.tool_id}</span><span>{item.runs} runs · {item.successful_runs} successful · last {new Date(item.last_run).toLocaleString()}</span></div>)}</div></div>}
     </div>
