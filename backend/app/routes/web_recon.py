@@ -194,23 +194,37 @@ def _classify_manual_path_records(records: list[dict], baseline_signatures: list
     return records
 
 
-def _collect_manual_path_baseline(origin: str) -> list[dict]:
-    """Collect three bounded random-path responses on the exact approved origin."""
-    baselines = []
-    for _ in range(3):
+def _collect_manual_path_baseline(origin: str) -> dict:
+    """Collect random-path responses and retain failures for transparent diagnostics."""
+    signatures = []
+    failures = []
+    attempted = 3
+    for _ in range(attempted):
         probe_url = urljoin(origin, str(uuid.uuid4()))
         record = _check_manual_path(probe_url)
         signature = record.pop("_body_signature", None)
         if signature and record.get("status_code") is not None:
-            baselines.append({
+            signatures.append({
                 "status_code": record["status_code"],
                 "content_type": signature.get("content_type"),
                 "fingerprint": signature.get("fingerprint"),
                 "shingles": signature.get("shingles", set()),
                 "soft_404_markers": signature.get("soft_404_markers", []),
             })
-    return baselines
-
+        else:
+            failures.append({
+                "fetch_state": record.get("fetch_state", "unverified"),
+                "reason": record.get("classification_reason", "No usable HTTP response was returned."),
+            })
+    successful = len(signatures)
+    return {
+        "status": "available" if successful == attempted else "partial" if successful else "unavailable",
+        "attempted": attempted,
+        "successful": successful,
+        "failed": attempted - successful,
+        "failures": failures,
+        "signatures": signatures,
+    }
 
 @router.post("/directories/check")
 def check_manual_directories(req: ManualPathCheckRequest):
@@ -229,12 +243,22 @@ def check_manual_directories(req: ManualPathCheckRequest):
     if any(urlsplit(url).netloc.lower() != target.netloc.lower() or urlsplit(url).scheme.lower() != target.scheme.lower() for url in urls):
         raise HTTPException(400, "Manual paths must remain on the exact approved origin.")
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    baseline_signatures = _collect_manual_path_baseline(origin)
+    baseline = _collect_manual_path_baseline(origin)
+    baseline_signatures = baseline["signatures"]
     with ThreadPoolExecutor(max_workers=2) as executor:
         records = list(executor.map(_check_manual_path, urls))
     records = _classify_manual_path_records(records, baseline_signatures)
     for record in records:
-        record["baseline_sample_count"] = len(baseline_signatures)
+        record["baseline_sample_count"] = baseline["successful"]
+        if not baseline_signatures:
+            record["response_classification"] = "baseline_unavailable"
+            record["body_similarity"] = None
+            record["baseline_samples_compared"] = 0
+            record["classification_reason"] = (
+                "Random-path baseline unavailable: "
+                + "; ".join(sorted({item["reason"] for item in baseline["failures"]}))
+                + " Response comparison was skipped; this result is unclassified."
+            )
     finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     execution = record_tool_execution(
         scope, "manual-path-check", origin, started_at, finished_at,
@@ -248,7 +272,12 @@ def check_manual_directories(req: ManualPathCheckRequest):
         "tool_id": "manual-path-check",
         "target": origin,
         "records": records,
-        "baseline": {"random_path_samples": len(baseline_signatures), "comparison": "same status and content type; normalized body shingles and common not-found markers"},
+        "baseline": {
+            "status": baseline["status"], "attempted": baseline["attempted"],
+            "successful": baseline["successful"], "failed": baseline["failed"],
+            "failures": baseline["failures"],
+            "comparison": "same status and content type; normalized body shingles and common not-found markers",
+        },
         "assessment": f"Checked {len(records)} manually supplied paths against {len(baseline_signatures)} random-path baseline sample(s). At most two requests ran concurrently; redirects were not followed. Classifications are response comparisons, not endpoint or vulnerability confirmation.",
     }
 
