@@ -1,4 +1,5 @@
 import hashlib
+from html.parser import HTMLParser
 import html
 import os
 import re
@@ -60,6 +61,48 @@ def _normalise_manual_path(raw_path: str) -> str:
     return value.lstrip("/")
 
 
+class _ResponseFeatureParser(HTMLParser):
+    """Count useful HTML controls without retaining submitted values or URLs."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.features = {
+            "form_count": 0, "input_count": 0, "password_input_count": 0,
+            "email_input_count": 0, "link_count": 0, "script_count": 0,
+            "button_count": 0,
+        }
+
+    def handle_starttag(self, tag, attrs):
+        attributes = {key.lower(): value or "" for key, value in attrs}
+        if tag == "form":
+            self.features["form_count"] += 1
+        elif tag == "input":
+            self.features["input_count"] += 1
+            input_type = attributes.get("type", "text").lower()
+            if input_type == "password":
+                self.features["password_input_count"] += 1
+            elif input_type == "email":
+                self.features["email_input_count"] += 1
+        elif tag == "a" and attributes.get("href"):
+            self.features["link_count"] += 1
+        elif tag == "script":
+            self.features["script_count"] += 1
+        elif tag == "button":
+            self.features["button_count"] += 1
+
+
+def _extract_html_response_features(body: bytes, encoding: str | None = None) -> dict:
+    """Return structural HTML counts; never capture form values or destinations."""
+    parser = _ResponseFeatureParser()
+    text = body.decode(encoding if isinstance(encoding, str) else "utf-8", errors="replace")
+    try:
+        parser.feed(text)
+        parser.close()
+    except Exception:
+        pass
+    return parser.features
+
+
 def _check_manual_path(url: str) -> dict:
     session = requests.Session()
     session.trust_env = False
@@ -96,6 +139,7 @@ def _check_manual_path(url: str) -> dict:
                 "response_title": title,
                 "response_content_type": content_type,
                 "response_preview": preview,
+                "response_features": _extract_html_response_features(raw_body, response.encoding),
                 "content_length": int(response.headers["Content-Length"]) if str(response.headers.get("Content-Length", "")).isdigit() else len(body),
                 "bytes_inspected": len(body),
                 "body_truncated": len(body) >= 65536,
