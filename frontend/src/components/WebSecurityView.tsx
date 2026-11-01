@@ -46,6 +46,17 @@ export function WebSecurityView() {
   const loadTools=async()=>{setLoading(true);setError(null);try{const [toolData,wordlistData]=await Promise.all([api.webRecon.tools(),api.webRecon.wordlists()]);setTools(toolData.tools);setWordlists(wordlistData.wordlists);setSelectedWordlistId(current=>wordlistData.wordlists.some(list=>list.id===current)?current:wordlistData.wordlists[0]?.id||"");}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setLoading(false);}};
   const loadAssessments=async(selectedId?:number)=>{try{const result=await api.assessments.list();setAssessments(result.assessments);const id=selectedId??assessmentId??result.assessments[0]?.id??null;setAssessmentId(id);if(id){const detail=await api.assessments.get(id);setAssessment(detail);setExecutions((await api.assessments.executions(id)).executions);setExecutionJobs((await api.assessments.executionJobs(id)).jobs);setAssets((await api.assessments.assets(id)).assets);}else{setAssessment(null);setExecutions([]);setExecutionJobs([]);setActiveJob(null);setAssets([]);}}catch(e){setAssessmentError(e instanceof Error?e.message:String(e));}};
   useEffect(()=>{void loadTools();void loadAssessments();},[]);
+  useEffect(()=>{
+    if(!assessmentId||!executionJobs.some(job=>job.state==="queued"||job.state==="running"))return;
+    const timer=window.setInterval(async()=>{
+      try{
+        const latest=(await api.assessments.executionJobs(assessmentId)).jobs;
+        setExecutionJobs(latest);
+        setActiveJob(current=>current?latest.find(job=>job.id===current.id)??current:current);
+      }catch{/* Keep the last persisted job state visible if polling briefly fails. */}
+    },2000);
+    return()=>window.clearInterval(timer);
+  },[assessmentId,executionJobs.some(job=>job.state==="queued"||job.state==="running")]);
   const createAssessment=async()=>{if(!newAssessmentName.trim())return;setAssessmentError(null);try{const created=await api.assessments.create(newAssessmentName.trim());setNewAssessmentName("");await loadAssessments(created.id);}catch(e){setAssessmentError(e instanceof Error?e.message:String(e));}};
   const addTargetToScope=async()=>{if(!assessmentId||!authorized||!target.trim())return;setAssessmentError(null);try{await api.assessments.addTarget(assessmentId,target.trim(),true);await loadAssessments(assessmentId);}catch(e){setAssessmentError(e instanceof Error?e.message:String(e));}};
   const targetIsInScope=()=>{if(!assessment||assessment.status!=="active"||!target.trim())return false;try{const candidate=new URL(target.trim().includes("://")?target.trim():"https://"+target.trim());return assessment.targets.some(item=>new URL(item.url).origin===candidate.origin);}catch{return false;}};
