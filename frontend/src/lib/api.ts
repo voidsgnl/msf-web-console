@@ -145,7 +145,7 @@ export const api = {
           technologies?: string[]; host?: string; sources?: string[]; method?: string; source?: string;
           tag?: string; attribute?: string; redirect_location?: string | null;
           kind?: string; redirects?: { from: string; to?: string; status_code: number; followed: boolean; reason?: string }[];
-          raw?: string | null }[];
+          raw?: string | null; resource_type?: "page" | "api_candidate" | "static_asset" | "redirect" | "malformed"; classification_reason?: string; canonical_url?: string; endpoint_group?: string; fetch_state?: "fetched" | "discovered_unverified"; display_default?: boolean; observations?: number }[];
         redirect_chain?: { from: string; to?: string; status_code: number; followed: boolean; reason?: string }[];
         stderr: string; assessment: string;
       }>("/web-recon/run", {
