@@ -267,7 +267,7 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str, wordlist
             executable, "dir", "-u", target_url, "-w", wordlist_path,
             "-t", "2", "--delay", "500ms", "--timeout", "8s",
             "--no-progress", "--quiet", "--no-error", "--no-color",
-            "-e", "-l",
+            "-e",
             "-s", "200,204,301,302,307,401,403",
         ]
         if extensions:
