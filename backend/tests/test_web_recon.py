@@ -369,16 +369,33 @@ class GobusterAdapterTests(unittest.TestCase):
         self.assertEqual(command[command.index("--exclude-length") + 1], "37900")
 
     @patch("app.routes.web_recon.requests.Session")
-    def test_gobuster_wildcard_probe_uses_content_length_without_following_redirects(self, session_factory):
+    def test_gobuster_wildcard_probe_measures_decoded_body_without_following_redirects(self, session_factory):
         response = MagicMock()
         response.__enter__.return_value = response
-        response.headers = {"Content-Length": "37900"}
+        response.headers = {"Content-Length": "100"}
+        response.iter_content.return_value = [b"x" * 37900]
         session = session_factory.return_value
         session.get.return_value = response
         self.assertEqual(_probe_gobuster_wildcard_length("https://example.test/"), 37900)
         self.assertFalse(session.trust_env)
         self.assertFalse(session.get.call_args.kwargs["allow_redirects"])
         self.assertIn(".msf-web-console-", session.get.call_args.args[0])
+        self.assertEqual(session.get.call_count, 5)
+
+    @patch("app.routes.web_recon.requests.Session")
+    def test_gobuster_wildcard_probe_keeps_variable_lengths(self, session_factory):
+        responses = []
+        for length in (37892, 37894, 37892, 37894, 37900):
+            response = MagicMock()
+            response.__enter__.return_value = response
+            response.iter_content.return_value = [b"x" * length]
+            responses.append(response)
+        session = session_factory.return_value
+        session.get.side_effect = responses
+        self.assertEqual(
+            _probe_gobuster_wildcard_length("https://example.test/"),
+            "37892,37894,37900",
+        )
 
     def test_gobuster_parser_supports_legacy_and_current_output_and_deduplicates(self):
         output = (

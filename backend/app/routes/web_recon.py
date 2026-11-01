@@ -312,47 +312,43 @@ def _build_tool_command(
     raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
 
 
-def _probe_gobuster_wildcard_length(target_url: str) -> int:
-    """Measure the response size for a random missing path before enumeration."""
-    probe_url = urljoin(target_url.rstrip("/") + "/", f".msf-web-console-{secrets.token_hex(16)}")
+def _probe_gobuster_wildcard_length(target_url: str) -> int | str:
+    """Measure wildcard response sizes for random missing paths before enumeration."""
     session = requests.Session()
     session.trust_env = False
+    lengths: set[int] = set()
     try:
-        try:
-            with session.get(
-                probe_url,
-                headers={"User-Agent": "MSF-Web-Console-Recon/0.1", "Accept": "*/*"},
-                timeout=(3.0, 8.0),
-                allow_redirects=False,
-                stream=True,
-                verify=True,
-            ) as response:
-                declared_length = response.headers.get("Content-Length")
-                if declared_length is not None:
-                    try:
-                        length = int(declared_length)
-                    except ValueError as exc:
-                        raise HTTPException(502, "Gobuster wildcard probe returned an invalid Content-Length.") from exc
-                    if length < 0:
-                        raise HTTPException(502, "Gobuster wildcard probe returned a negative Content-Length.")
-                    return length
-
-                chunks: list[bytes] = []
-                total = 0
-                for chunk in response.iter_content(chunk_size=8192):
-                    if not chunk:
-                        continue
-                    total += len(chunk)
-                    if total > 1048576:
-                        raise HTTPException(502, "Gobuster wildcard probe response exceeded the 1 MiB inspection limit.")
-                    chunks.append(chunk)
-                return len(b"".join(chunks))
-        except requests.exceptions.SSLError as exc:
-            raise HTTPException(502, f"Gobuster wildcard probe TLS negotiation failed: {exc}") from exc
-        except requests.exceptions.Timeout as exc:
-            raise HTTPException(504, "Gobuster wildcard probe exceeded the 8-second timeout.") from exc
-        except requests.exceptions.RequestException as exc:
-            raise HTTPException(502, f"Gobuster wildcard probe failed: {exc}") from exc
+        for _ in range(5):
+            probe_url = urljoin(target_url.rstrip("/") + "/", f".msf-web-console-{secrets.token_hex(16)}")
+            try:
+                with session.get(
+                    probe_url,
+                    headers={"User-Agent": "gobuster/3.8.2", "Accept": "*/*"},
+                    timeout=(3.0, 8.0),
+                    allow_redirects=False,
+                    stream=True,
+                    verify=True,
+                ) as response:
+                    total = 0
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if not chunk:
+                            continue
+                        total += len(chunk)
+                        if total > 1048576:
+                            raise HTTPException(502, "Gobuster wildcard probe response exceeded the 1 MiB inspection limit.")
+                    # Measure decoded body bytes, matching Gobuster's response-size
+                    # value even when the server uses gzip or another encoding.
+                    lengths.add(total)
+            except requests.exceptions.SSLError as exc:
+                raise HTTPException(502, f"Gobuster wildcard probe TLS negotiation failed: {exc}") from exc
+            except requests.exceptions.Timeout as exc:
+                raise HTTPException(504, "Gobuster wildcard probe exceeded the 8-second timeout.") from exc
+            except requests.exceptions.RequestException as exc:
+                raise HTTPException(502, f"Gobuster wildcard probe failed: {exc}") from exc
+        if not lengths:
+            raise HTTPException(502, "Gobuster wildcard probe returned no response body.")
+        values = sorted(lengths)
+        return values[0] if len(values) == 1 else ",".join(str(value) for value in values)
     finally:
         session.close()
 
