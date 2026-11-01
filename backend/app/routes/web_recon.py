@@ -560,12 +560,17 @@ def _classify_gobuster_records(records: list[dict], wildcard_profile: dict, targ
                 if item.get("status_code") == response_status
             ]
             if not comparable or response_status != status:
-                similarity = 0.0
-            else:
-                similarity = max(
-                    _gobuster_body_similarity(signature, item)
-                    for item in comparable
+                record["response_classification"] = "unverified"
+                record["classification_reason"] = (
+                    "The re-fetched response status did not match a usable random-path body baseline; "
+                    "the path was retained without a wildcard verdict."
                 )
+                unverified += 1
+                continue
+            similarity = max(
+                _gobuster_body_similarity(signature, item)
+                for item in comparable
+            )
             record["body_similarity"] = round(similarity, 4)
             if similarity >= similarity_threshold:
                 record["response_classification"] = "suspected_wildcard"
