@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improved Katana classification for Next.js image/static resources and framework redirects. Malformed raw or encoded-backslash candidates are filtered before requests when supported while retaining script-text provenance and legitimate script-derived endpoints as evidence.
+
 - Improved Katana result quality: classify pages, API candidates, redirects, static assets, and unverified discoveries; deduplicate identical method/URL observations while retaining query variants; flag malformed encoded-backslash paths; hide static assets and malformed URLs from the default result view while retaining classified evidence. Added result counts and a show-all control.
 
 - Updated Katana redirect handling: the approved entry URL may follow up to five redirects only when scheme, hostname, and effective port remain identical. Cross-origin redirects are blocked and exposed as evidence; page-level crawler redirects remain disabled. Removed Katana `-ns` because it disables default host scoping. Corrected JSONL parsing to read source/tag/attribute from the nested request and capture response `Location` headers.

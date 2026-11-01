@@ -1,7 +1,8 @@
 import re
 import shutil
 from datetime import datetime, timezone
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from pathlib import Path
+from urllib.parse import parse_qs, urljoin, urlsplit, urlunsplit
 
 import requests
 from fastapi import APIRouter, HTTPException
@@ -179,7 +180,7 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str) -> list[
             # Keep crawler redirects disabled. The adapter resolves only same-origin
             # redirects from the explicitly approved entry URL before starting Katana.
             # Do not use -ns: it disables Katana's default host scope.
-            "-dr", "-cs", scope_pattern,
+            "-dr", "-fr", r"(%5[cC]|\\)", "-cs", scope_pattern,
         ]
     raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
 
@@ -348,6 +349,8 @@ def _classify_katana_records(records: list[dict]) -> list[dict]:
     """Classify and deduplicate discoveries without discarding useful evidence."""
     static_extensions = {".7z", ".avif", ".css", ".csv", ".eot", ".gif", ".gz", ".ico", ".jpeg", ".jpg", ".js", ".map", ".mp3", ".mp4", ".otf", ".pdf", ".png", ".svg", ".tar", ".ttf", ".webm", ".webp", ".woff", ".woff2", ".zip"}
     api_path = re.compile(r"(?:^|/)(?:api|graphql|rest|v[0-9]+)(?:/|$)", re.IGNORECASE)
+    next_static_path = re.compile(r"^/_next/static(?:/|$)", re.IGNORECASE)
+    next_image_path = re.compile(r"^/_next/image$", re.IGNORECASE)
     deduplicated: dict[tuple[str, str], dict] = {}
     output: list[dict] = []
     for record in records:
@@ -364,24 +367,46 @@ def _classify_katana_records(records: list[dict]) -> list[dict]:
         suffix = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         status = record.get("status_code")
         location = record.get("redirect_location")
+        script_text = (
+            str(record.get("tag") or "").lower() == "script"
+            and str(record.get("attribute") or "").lower() == "text"
+        )
         malformed = "\\" in path or bool(re.search(r"%5c", path, re.IGNORECASE))
+        query = parse_qs(parsed.query)
+        next_image_asset = bool(next_image_path.fullmatch(path))
+        next_image_source = query.get("url", [""])[0]
+        next_image_suffix = Path(next_image_source).suffix.lower() if next_image_source else ""
         if malformed:
             resource_type, reason = "malformed", "Path contains a raw or percent-encoded backslash."
+            if script_text:
+                reason += " Candidate came from script text and is retained only as evidence."
+        elif next_image_asset or next_static_path.match(path):
+            resource_type = "static_asset"
+            reason = (
+                "Next.js image optimization route identified as a static asset"
+                + (f" for {next_image_suffix} source." if next_image_suffix in static_extensions else ".")
+                if next_image_asset
+                else "Next.js framework static resource identified by path."
+            )
         elif (isinstance(status, int) and 300 <= status < 400) or location:
             resource_type, reason = "redirect", "HTTP redirect observed; page redirects are not followed during crawling."
+            if path.lower().startswith("/_next/"):
+                resource_type, reason = "framework_redirect", "Next.js framework redirect observed; crawler redirects are not followed."
         elif suffix in static_extensions or str(record.get("content_type") or "").split(";", 1)[0].strip().lower().startswith(("image/", "font/", "audio/", "video/", "text/css", "application/javascript", "text/javascript")):
             resource_type, reason = "static_asset", "Response content type or URL extension identifies a static resource."
         elif api_path.search(path):
             resource_type, reason = "api_candidate", "Path resembles an API route; this is a hint, not proof of an API."
         else:
             resource_type, reason = "page", "Same-origin application route discovered by the crawler."
+            if script_text:
+                reason = "Application route candidate extracted from script text."
         scheme, host = parsed.scheme.lower(), (parsed.hostname or "").lower()
         default_port = 443 if scheme == "https" else 80
         authority = ("[" + host + "]") if ":" in host else host
         if parsed.port and parsed.port != default_port:
             authority += ":" + str(parsed.port)
         canonical = urlunsplit((scheme, authority, parsed.path or "/", parsed.query, ""))
-        record.update({"canonical_url": canonical, "endpoint_group": path, "resource_type": resource_type, "classification_reason": reason, "fetch_state": "fetched" if isinstance(status, int) else "discovered_unverified", "display_default": resource_type not in {"static_asset", "malformed"}})
+        record.update({"canonical_url": canonical, "endpoint_group": path, "resource_type": resource_type, "classification_reason": reason, "fetch_state": "fetched" if isinstance(status, int) else "discovered_unverified", "display_default": resource_type not in {"static_asset", "malformed", "framework_redirect"}})
         key = (str(record.get("method") or "GET").upper(), canonical)
         if key in deduplicated:
             existing = deduplicated[key]

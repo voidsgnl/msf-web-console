@@ -159,6 +159,8 @@ class ReconToolAdapterTests(unittest.TestCase):
         self.assertIn("-iqp", command)
         self.assertIn("-or", command)
         self.assertIn("-ob", command)
+        self.assertIn("-fr", command)
+        self.assertEqual(command[command.index("-fr") + 1], r"(%5[cC]|\\)")
         self.assertNotIn("-ns", command)
         self.assertIn("-cs", command)
         scope = command[command.index("-cs") + 1]
@@ -219,6 +221,39 @@ class ReconToolAdapterTests(unittest.TestCase):
         self.assertEqual(records[1]["observations"], 2)
         self.assertEqual(records[2]["endpoint_group"], records[3]["endpoint_group"])
         self.assertNotEqual(records[2]["canonical_url"], records[3]["canonical_url"])
+
+    def test_katana_classifies_next_static_and_image_routes_as_hidden_assets(self):
+        records = _classify_katana_records([
+            {"url":"https://example.test/_next/image?url=%2Flogo.png&w=256&q=75","method":"GET"},
+            {"url":"https://example.test/_next/static/chunks/app.js","method":"GET","status_code":200},
+        ])
+        self.assertEqual([item["resource_type"] for item in records], ["static_asset", "static_asset"])
+        self.assertTrue(all(not item["display_default"] for item in records))
+        self.assertIn("image optimization", records[0]["classification_reason"])
+        self.assertIn(".png", records[0]["classification_reason"])
+
+    def test_katana_classifies_script_text_candidates_without_promoting_malformed_urls(self):
+        records = _classify_katana_records([
+            {"url":"https://example.test/reciva.jpg%5C%5C%5C","method":"GET","status_code":200,
+             "tag":"script","attribute":"text","source":"https://example.test/"},
+            {"url":"https://example.test/api/session","method":"GET","status_code":None,
+             "tag":"script","attribute":"text","source":"https://example.test/app.js"},
+        ])
+        self.assertEqual(records[0]["resource_type"], "malformed")
+        self.assertFalse(records[0]["display_default"])
+        self.assertIn("script text", records[0]["classification_reason"])
+        self.assertEqual(records[0]["source"], "https://example.test/")
+        self.assertEqual(records[1]["resource_type"], "api_candidate")
+        self.assertTrue(records[1]["display_default"])
+
+    def test_katana_classifies_next_framework_redirect_separately(self):
+        records = _classify_katana_records([
+            {"url":"https://example.test/_next/","method":"GET","status_code":308,
+             "redirect_location":"/_next"},
+        ])
+        self.assertEqual(records[0]["resource_type"], "framework_redirect")
+        self.assertFalse(records[0]["display_default"])
+        self.assertIn("Next.js", records[0]["classification_reason"])
     def test_katana_parser_discards_incomplete_json_response(self):
         complete = (
             '{"request":{"method":"GET","endpoint":"https://example.test/login"},'
