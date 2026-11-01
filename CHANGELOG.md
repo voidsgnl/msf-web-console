@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Added a versioned common evidence envelope to every persisted reconnaissance record: trusted tool provenance, approved target context, observation timestamp/type, bounded summary, and neutral severity/confidence/verification defaults. Existing tool-specific fields are preserved; this does not promote scanner output to a verified finding.
+
+
 - Added fixed, bounded adapters for Nikto, passive-mode WPScan, passive Amass enumeration, testssl.sh TLS analysis, and a top-100 TCP Nmap connect/service scan. Specialist output is normalized into assessment evidence; active scope remains tied to the explicitly approved target, Amass discoveries are not auto-approved, and Nmap does not expose arbitrary ports, UDP, scripts, or OS detection.
 
 ## Unreleased
