@@ -20,5 +20,9 @@ venv/
 dist/
 build/
 
+# Runtime data
+backend/data/*.sqlite3
+backend/data/*.sqlite3-journal
+
 # Logs
 *.log
