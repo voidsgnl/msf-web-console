@@ -112,6 +112,23 @@ def _initialise() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_assessment_assets_assessment
                 ON assessment_assets(assessment_id, scope_state, asset_type);
+            CREATE TABLE IF NOT EXISTS assessment_services (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                assessment_id INTEGER NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+                hostname TEXT NOT NULL,
+                port INTEGER NOT NULL CHECK (port BETWEEN 1 AND 65535),
+                protocol TEXT NOT NULL CHECK (protocol = 'tcp'),
+                service TEXT NOT NULL DEFAULT '',
+                product TEXT NOT NULL DEFAULT '',
+                version TEXT NOT NULL DEFAULT '',
+                scope_state TEXT NOT NULL CHECK (scope_state IN ('in_scope', 'out_of_scope')),
+                source_tool TEXT NOT NULL,
+                first_seen TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                UNIQUE (assessment_id, hostname, port, protocol)
+            );
+            CREATE INDEX IF NOT EXISTS idx_assessment_services_assessment
+                ON assessment_services(assessment_id, scope_state, hostname, port);
             CREATE TABLE IF NOT EXISTS execution_record_metadata (
                 record_id TEXT PRIMARY KEY,
                 execution_id INTEGER NOT NULL REFERENCES tool_executions(id) ON DELETE CASCADE,
@@ -518,6 +535,60 @@ def _store_discovered_assets(
         )
 
 
+def _store_discovered_services(
+    connection: sqlite3.Connection,
+    assessment_id: int,
+    tool_id: str,
+    records: list[dict],
+    seen_at: str,
+) -> None:
+    """Persist only explicit open TCP service observations from Nmap evidence."""
+    if tool_id != "nmap":
+        return
+    approved_hosts = {
+        host for _, host, _ in _approved_origins(connection, assessment_id)
+    }
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        if str(record.get("state") or "").lower() != "open":
+            continue
+        if str(record.get("protocol") or "tcp").lower() != "tcp":
+            continue
+        try:
+            port = int(record.get("port"))
+        except (TypeError, ValueError):
+            continue
+        if not 1 <= port <= 65535:
+            continue
+        host = str(record.get("host") or "").strip().lower().rstrip(".")
+        if not host or len(host) > 253 or any(ch.isspace() for ch in host):
+            continue
+        state = "in_scope" if host in approved_hosts else "out_of_scope"
+        connection.execute(
+            """
+            INSERT INTO assessment_services
+                (assessment_id, hostname, port, protocol, service, product, version,
+                 scope_state, source_tool, first_seen, last_seen)
+            VALUES (?, ?, ?, 'tcp', ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(assessment_id, hostname, port, protocol) DO UPDATE SET
+                service = excluded.service,
+                product = excluded.product,
+                version = excluded.version,
+                scope_state = excluded.scope_state,
+                source_tool = excluded.source_tool,
+                last_seen = excluded.last_seen
+            """,
+            (
+                assessment_id, host, port,
+                str(record.get("service") or "")[:120],
+                str(record.get("product") or "")[:160],
+                str(record.get("version") or "")[:120],
+                state, tool_id, seen_at, seen_at,
+            ),
+        )
+
+
 def record_tool_execution(
     scope: dict,
     tool_id: str,
@@ -539,6 +610,9 @@ def record_tool_execution(
             stored_records.append(item)
         _store_discovered_assets(
             connection, scope["assessment_id"], tool_id, target_url, stored_records, finished_at
+        )
+        _store_discovered_services(
+            connection, scope["assessment_id"], tool_id, stored_records, finished_at
         )
         cursor = connection.execute(
             """
@@ -591,6 +665,34 @@ def list_assessment_assets(assessment_id: int):
             "total": len(assets),
             "in_scope": sum(item["scope_state"] == "in_scope" for item in assets),
             "out_of_scope": sum(item["scope_state"] == "out_of_scope" for item in assets),
+        },
+    }
+
+
+@router.get("/{assessment_id}/services")
+def list_assessment_services(assessment_id: int):
+    _initialise()
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        _rebuild_assessment_assets(connection, assessment_id)
+        rows = connection.execute(
+            """
+            SELECT id, assessment_id, hostname, port, protocol, service, product,
+                   version, scope_state, source_tool, first_seen, last_seen
+            FROM assessment_services
+            WHERE assessment_id = ?
+            ORDER BY CASE scope_state WHEN 'in_scope' THEN 0 ELSE 1 END,
+                     hostname, port
+            """,
+            (assessment_id,),
+        ).fetchall()
+    services = [dict(row) for row in rows]
+    return {
+        "services": services,
+        "counts": {
+            "total": len(services),
+            "in_scope": sum(item["scope_state"] == "in_scope" for item in services),
+            "out_of_scope": sum(item["scope_state"] == "out_of_scope" for item in services),
         },
     }
 
@@ -666,6 +768,7 @@ def get_assessment_execution(assessment_id: int, execution_id: int):
 def _rebuild_assessment_assets(connection: sqlite3.Connection, assessment_id: int) -> None:
     """Rebuild inventory from retained execution evidence after a record deletion."""
     connection.execute("DELETE FROM assessment_assets WHERE assessment_id = ?", (assessment_id,))
+    connection.execute("DELETE FROM assessment_services WHERE assessment_id = ?", (assessment_id,))
     executions = connection.execute(
         "SELECT tool_id, target_url, finished_at, result_json FROM tool_executions WHERE assessment_id = ? ORDER BY id",
         (assessment_id,),
@@ -677,6 +780,10 @@ def _rebuild_assessment_assets(connection: sqlite3.Connection, assessment_id: in
             records = []
         _store_discovered_assets(
             connection, assessment_id, execution["tool_id"], execution["target_url"],
+            records if isinstance(records, list) else [], execution["finished_at"],
+        )
+        _store_discovered_services(
+            connection, assessment_id, execution["tool_id"],
             records if isinstance(records, list) else [], execution["finished_at"],
         )
 
