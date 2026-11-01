@@ -79,7 +79,7 @@ export function WebSecurityView() {
   const runProbe=async(event:FormEvent)=>{event.preventDefault();if(!authorized||!target.trim()||!assessmentId||!targetIsInScope()||probing)return;setProbing(true);setProbe(null);setProbeError(null);try{setProbe(await api.webRecon.probe(assessmentId,target.trim(),true));await loadAssessments(assessmentId);}catch(e){setProbeError(e instanceof Error?e.message:String(e));}finally{setProbing(false);}};
   const startAsyncRun=async(toolId:"httpx"|"whatweb"|"subfinder"|"katana"|"gobuster"|"ffuf"|"feroxbuster"|"nuclei"|"nikto"|"wpscan"|"amass"|"testssl.sh"|"nmap",options?:{wordlist_id?:string;extensions?:string})=>{
     if(!authorized||!target.trim()||!assessmentId||!targetIsInScope()||runningTool)return;
-    setRunningTool(toolId);setToolResult(null);setToolError(null);setCancelRequested(false);
+    setRunningTool(toolId);setToolResult(null);setToolError(null);setResultSearch("");setCancelRequested(false);
     try{
       const queued=await api.webRecon.queueTool(assessmentId,toolId,target.trim(),true,options);
       setActiveJob(queued);setExecutionJobs(current=>[queued,...current.filter(item=>item.id!==queued.id)]);
