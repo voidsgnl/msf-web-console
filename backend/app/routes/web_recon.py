@@ -134,6 +134,64 @@ def _extract_html_response_features(body: bytes, encoding: str | None = None) ->
     return parser.features
 
 
+
+def _fingerprint_html_page(title: str | None, preview: str, features: dict) -> dict:
+    """Heuristically label a page from visible text and bounded HTML structure."""
+    title_text = (title or "").lower()
+    text = (preview or "").lower()
+    combined = f"{title_text} {text}"
+    forms = features.get("forms", [])
+    inputs = [field for form in forms for field in form.get("inputs", [])]
+    input_names = " ".join((field.get("name") or "").lower() for field in inputs)
+    password_count = features.get("password_input_count", 0)
+    email_count = features.get("email_input_count", 0)
+    input_count = features.get("input_count", 0)
+    script_count = features.get("script_count", 0)
+    evidence = []
+
+    if password_count and (
+        any(term in combined for term in ("register", "sign up", "signup", "create account", "create your account"))
+        or (email_count and input_count >= 4)
+        or any(term in input_names for term in ("confirm_password", "password_confirmation"))
+    ):
+        evidence.append("Password and account-creation form indicators")
+        if email_count:
+            evidence.append("Email input present")
+        return {"page_type": "registration", "confidence": "high" if len(evidence) > 1 else "medium", "evidence": evidence[:4]}
+
+    if password_count and (
+        any(term in combined for term in ("log in", "login", "sign in", "signin", "forgot password"))
+        or input_count <= 3
+    ):
+        evidence.append("Password input present")
+        if email_count:
+            evidence.append("Email input present")
+        if any(term in combined for term in ("log in", "login", "sign in", "signin")):
+            evidence.append("Login or sign-in wording")
+        return {"page_type": "login", "confidence": "high" if len(evidence) >= 2 else "medium", "evidence": evidence[:4]}
+
+    if any(term in combined for term in ("dashboard", "overview", "recent activity", "welcome back")):
+        evidence.append("Dashboard or account-overview wording")
+        return {"page_type": "dashboard_or_account", "confidence": "medium", "evidence": evidence}
+
+    if any(term in combined for term in ("page not found", "profile not found", "doesn't exist", "does not exist", "we couldn't find", "not found")):
+        evidence.append("Not-found or missing-resource wording")
+        return {"page_type": "error_or_not_found", "confidence": "high", "evidence": evidence}
+
+    if script_count >= 5 and input_count == 0 and features.get("form_count", 0) == 0:
+        evidence.append("Script-heavy page with no server-rendered form controls")
+        if len((preview or "").strip()) < 250:
+            evidence.append("Very little visible text in the inspected HTML")
+        return {"page_type": "possible_spa_shell", "confidence": "medium", "evidence": evidence}
+
+    if features.get("form_count", 0) > 0:
+        evidence.append("HTML form present, but no reliable login or registration indicators")
+        return {"page_type": "generic_form_page", "confidence": "low", "evidence": evidence}
+
+    if title:
+        evidence.append("HTML title present without a stronger page signature")
+    return {"page_type": "unclassified", "confidence": "low", "evidence": evidence or ["Insufficient page structure or text for a useful classification"]}
+
 def _check_manual_path(url: str) -> dict:
     session = requests.Session()
     session.trust_env = False
@@ -162,6 +220,8 @@ def _check_manual_path(url: str) -> dict:
             title = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", title_match.group(1))).strip()[:200] if title_match else None
             content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() or None
             preview = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", text))).strip()[:800]
+            response_features = _extract_html_response_features(raw_body, response.encoding)
+            page_fingerprint = _fingerprint_html_page(title, preview, response_features)
             location = response.headers.get("Location")
             return {
                 "url": url,
@@ -170,7 +230,7 @@ def _check_manual_path(url: str) -> dict:
                 "response_title": title,
                 "response_content_type": content_type,
                 "response_preview": preview,
-                "response_features": _extract_html_response_features(raw_body, response.encoding),
+                "response_features": response_features,\n                "page_fingerprint": page_fingerprint,
                 "content_length": int(response.headers["Content-Length"]) if str(response.headers.get("Content-Length", "")).isdigit() else len(body),
                 "bytes_inspected": len(body),
                 "body_truncated": len(body) >= 65536,
