@@ -84,6 +84,20 @@ def _initialise() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_tool_executions_assessment
                 ON tool_executions(assessment_id, id DESC);
+            CREATE TABLE IF NOT EXISTS execution_jobs (
+                id TEXT PRIMARY KEY,
+                assessment_id INTEGER NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+                tool_id TEXT NOT NULL,
+                target_url TEXT NOT NULL,
+                state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'completed', 'failed', 'cancelled', 'interrupted')),
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                execution_id INTEGER REFERENCES tool_executions(id) ON DELETE SET NULL,
+                error TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_execution_jobs_assessment
+                ON execution_jobs(assessment_id, created_at DESC);
             CREATE TABLE IF NOT EXISTS assessment_assets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 assessment_id INTEGER NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
@@ -113,6 +127,10 @@ def _initialise() -> None:
             CREATE INDEX IF NOT EXISTS idx_execution_record_metadata_assessment
                 ON execution_record_metadata(assessment_id, review_state, reviewed_at);
             """
+        )
+        connection.execute(
+            "UPDATE execution_jobs SET state = 'interrupted', finished_at = ?, error = ? WHERE state IN ('queued', 'running')",
+            (_timestamp(), "Backend restarted before the job completed."),
         )
         columns = {row['name'] for row in connection.execute('PRAGMA table_info(execution_record_metadata)').fetchall()}
         if 'record_type' not in columns:
@@ -314,6 +332,72 @@ def remove_assessment_target(assessment_id: int, target_id: int):
             "UPDATE assessments SET updated_at = ? WHERE id = ?",
             (_timestamp(), assessment_id),
         )
+
+
+def create_execution_job(assessment_id: int, tool_id: str, target_url: str) -> dict:
+    _initialise()
+    job_id = uuid.uuid4().hex
+    now = _timestamp()
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        connection.execute(
+            "INSERT INTO execution_jobs (id, assessment_id, tool_id, target_url, state, created_at) VALUES (?, ?, ?, ?, 'queued', ?)",
+            (job_id, assessment_id, tool_id, target_url, now),
+        )
+    return {"id": job_id, "assessment_id": assessment_id, "tool_id": tool_id, "target_url": target_url, "state": "queued", "created_at": now}
+
+
+def update_execution_job(job_id: str, state: str, *, execution_id: int | None = None, error: str = "") -> dict | None:
+    _initialise()
+    if state not in {"queued", "running", "completed", "failed", "cancelled", "interrupted"}:
+        raise ValueError("Invalid execution job state.")
+    now = _timestamp()
+    with _connection() as connection:
+        row = connection.execute("SELECT * FROM execution_jobs WHERE id = ?", (job_id,)).fetchone()
+        if row is None:
+            return None
+        started_at = row["started_at"] or (now if state == "running" else None)
+        finished_at = now if state in {"completed", "failed", "cancelled", "interrupted"} else None
+        connection.execute(
+            "UPDATE execution_jobs SET state = ?, started_at = ?, finished_at = ?, execution_id = COALESCE(?, execution_id), error = ? WHERE id = ?",
+            (state, started_at, finished_at, execution_id, error[:1000], job_id),
+        )
+        updated = connection.execute("SELECT * FROM execution_jobs WHERE id = ?", (job_id,)).fetchone()
+    return dict(updated) if updated else None
+
+
+def get_execution_job(assessment_id: int, job_id: str) -> dict:
+    _initialise()
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        row = connection.execute(
+            "SELECT * FROM execution_jobs WHERE id = ? AND assessment_id = ?",
+            (job_id, assessment_id),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(404, "Execution job not found in this assessment.")
+    return dict(row)
+
+
+def list_execution_jobs(assessment_id: int) -> dict:
+    _initialise()
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        rows = connection.execute(
+            "SELECT * FROM execution_jobs WHERE assessment_id = ? ORDER BY created_at DESC LIMIT 100",
+            (assessment_id,),
+        ).fetchall()
+    return {"jobs": [dict(row) for row in rows]}
+
+
+def request_execution_job_cancel(assessment_id: int, job_id: str) -> dict:
+    job = get_execution_job(assessment_id, job_id)
+    if job["state"] in {"completed", "failed", "cancelled", "interrupted"}:
+        raise HTTPException(409, "This execution job is already finished.")
+    from app.routes.web_recon import request_job_cancellation
+    if not request_job_cancellation(job_id):
+        raise HTTPException(409, "The execution job is not currently cancellable.")
+    return {"id": job_id, "state": "cancelling"}
 
 
 def assert_target_in_scope(assessment_id: int, target_url: str) -> dict:
