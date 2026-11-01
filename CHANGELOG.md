@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Fixed Gobuster wildcard preflight fidelity: random baseline paths now use the same UUID format Gobuster itself uses, avoiding path-shape-dependent soft-404 responses that could cause Gobuster to reject the scan even when a measured exclusion was supplied.
+
 - Fixed Gobuster scans against applications that return `200` for nonexistent paths by probing five random same-origin paths and passing the observed decoded response-length range to Gobuster's `--exclude-length`. Measuring decoded bytes avoids compression mismatches, while a range handles transient wildcard-body variations between probe and scan. The probes do not follow redirects and fail explicitly if a safe wildcard baseline cannot be established.
 - Fixed Gobuster's default `404` status-code blacklist conflicting with the configured status-code allowlist by explicitly clearing the blacklist. This preserves the original accepted status codes and scan scope.
 - Expanded evidence management into an assessment-wide findings and evidence workspace with global search, tool/category/review filters, sorting, multi-select bulk review/dismiss/restore/classification/deletion, clipboard copy, JSON/CSV export, and a dedicated record-detail panel with editable analyst notes. Records are explicitly classified as evidence by default; analysts may promote selected records to findings without implying automatic vulnerability verification. Added run-to-run added/removed/unchanged comparison and historical activity summaries by tool.
