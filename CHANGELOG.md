@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Consolidated Gobuster wordlist enumeration and analyst-supplied path checks behind one input-mode selector and one Run Gobuster action. Wordlist mode uses the selected backend wordlist and extensions; manual mode sends the entered relative paths through the existing bounded, same-origin GET checker. The separate Check paths action has been removed.
+
 - Reworked the Gobuster card into compact horizontal controls with independently collapsible settings and manual path-check sections. Manual paths now use a properly sized editable textarea and accept comma-separated or newline-separated entries. The check action remains available once paths are entered and reports missing authorization, assessment, target, or scope prerequisites inline instead of appearing mysteriously disabled; results are collapsible too.
 
 - Added a manual path-entry option directly inside the Gobuster tool card. Analysts can type up to 25 known relative paths (one per line) and check them without selecting a wordlist. Results show HTTP status, title, content type, response size, redirect destination, classification notes, and an expandable text-only preview capped at 800 characters. Checks are limited to the approved origin, use at most two concurrent GET requests, do not follow redirects, and are saved as assessment evidence.
