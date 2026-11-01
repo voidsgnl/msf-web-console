@@ -13,7 +13,7 @@ from app.routes.web_recon import (
     check_manual_directories, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
     _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _extract_html_response_features, _classify_gobuster_records, _fetch_gobuster_candidate_body, _resolve_wordlist, _list_wordlists, _wordlist_roots, _classify_manual_path_records, _collect_manual_path_baseline,
-    _parse_content_discovery_json, _parse_nuclei_output, _fingerprint_html_page,
+    _parse_content_discovery_json, _parse_nuclei_output, _parse_specialist_tool_output, _fingerprint_html_page,
     probe_web_service, run_recon_tool, _run_bounded_process, list_tools,
 )
 
@@ -989,6 +989,78 @@ class GobusterAdapterTests(unittest.TestCase):
             authorized=True, wordlist_id="0:common.txt", extensions="php,html",
         )
         self.assertEqual(request.tool_id, "gobuster")
+
+
+class SpecialistAdapterTests(unittest.TestCase):
+    def test_specialist_commands_are_fixed_and_bounded(self):
+        nikto = _build_tool_command("nikto", "/usr/bin/nikto", "https://example.test")
+        self.assertIn("-maxtime", nikto)
+        self.assertIn("90s", nikto)
+        self.assertIn("-nointeractive", nikto)
+
+        wpscan = _build_tool_command("wpscan", "/usr/bin/wpscan", "https://example.test")
+        self.assertIn("--detection-mode", wpscan)
+        self.assertIn("passive", wpscan)
+        self.assertIn("--max-threads", wpscan)
+        self.assertIn("1", wpscan)
+
+        amass = _build_tool_command("amass", "/usr/bin/amass", "https://example.test")
+        self.assertEqual(amass[1:4], ["enum", "-passive", "-d"])
+
+        tls = _build_tool_command("testssl.sh", "/usr/bin/testssl.sh", "https://example.test:8443")
+        self.assertEqual(tls[-1], "example.test:8443")
+        with self.assertRaises(HTTPException):
+            _build_tool_command("testssl.sh", "/usr/bin/testssl.sh", "http://example.test")
+
+        nmap = _build_tool_command("nmap", "/usr/bin/nmap", "https://example.test")
+        self.assertIn("--top-ports", nmap)
+        self.assertIn("100", nmap)
+        self.assertIn("-sT", nmap)
+        self.assertNotIn("-sC", nmap)
+        self.assertNotIn("-sU", nmap)
+
+    def test_nmap_parser_keeps_open_tcp_service_evidence_only(self):
+        xml = """<?xml version="1.0"?>
+        <nmaprun><host><address addr="192.0.2.10" addrtype="ipv4"/><ports>
+          <port protocol="tcp" portid="443"><state state="open"/><service name="https" product="nginx" version="1.2"/></port>
+          <port protocol="tcp" portid="22"><state state="closed"/><service name="ssh"/></port>
+        </ports></host></nmaprun>"""
+        records = _parse_specialist_tool_output("nmap", xml, "https://example.test")
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["port"], 443)
+        self.assertEqual(records[0]["service"], "https")
+        self.assertEqual(records[0]["product"], "nginx")
+        self.assertEqual(records[0]["evidence_type"], "open_service")
+
+    def test_amass_parser_restricts_results_to_approved_hostname_suffix(self):
+        output = (
+            '{"name":"api.example.test","sources":["crtsh"]}\\n'
+            '{"name":"example.test.evil.test","sources":["other"]}\\n'
+            '{"name":"outside.test","sources":["other"]}'
+        )
+        records = _parse_specialist_tool_output("amass", output, "https://example.test")
+        self.assertEqual([item["host"] for item in records], ["api.example.test"])
+        self.assertEqual(records[0]["evidence_type"], "passive_subdomain")
+
+    def test_wpscan_parser_returns_bounded_summary_without_raw_credentials(self):
+        output = '{"version":{"number":"6.8"},"plugins":{"plugin-a":{},"plugin-b":{}},"themes":{"theme-a":{}},"interesting_findings":[{"url":"https://example.test/readme.html"}]}'
+        records = _parse_specialist_tool_output("wpscan", output, "https://example.test")
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["wordpress_version"], "6.8")
+        self.assertEqual(records[0]["plugin_count"], 2)
+        self.assertEqual(records[0]["theme_count"], 1)
+
+    def test_testssl_parser_normalizes_json_findings(self):
+        output = '[{"id":"TLS1_0","severity":"LOW","finding":"offered"}]'
+        records = _parse_specialist_tool_output("testssl.sh", output, "https://example.test")
+        self.assertEqual(records[0]["severity"], "LOW")
+        self.assertEqual(records[0]["source"], "testssl.sh")
+
+    def test_nikto_parser_normalizes_json_observations(self):
+        output = '{"vulnerabilities":[{"id":"test-1","msg":"Header missing","url":"https://example.test/"}]}'
+        records = _parse_specialist_tool_output("nikto", output, "https://example.test")
+        self.assertEqual(records[0]["finding"], "Header missing")
+        self.assertEqual(records[0]["source"], "nikto")
 
 
 class ContentDiscoveryAdapterTests(unittest.TestCase):
