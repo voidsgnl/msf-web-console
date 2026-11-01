@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Updated the application startup script to prepend Go, local-user, and RubyGems executable directories to the backend PATH and print a per-tool availability check before FastAPI starts. This ensures user-installed scanners are discoverable by the backend.
+
+## Unreleased
+
 - Added fixed FFUF and Feroxbuster directory/file adapters using backend-selected wordlists, exact approved-origin scope, one worker, a 2 requests/second rate limit, bounded execution/output, no redirects, and structured same-origin JSON evidence. Recursive, DNS, virtual-host, and arbitrary-argument modes remain disabled.
 - Added a fixed Nuclei HTTP vulnerability-scanning adapter with backend-owned severity/template selection, disabled redirects and OAST/Interactsh, bounded rate/concurrency/timeouts, and evidence-only JSONL finding records.
 - Manual path responses now include heuristic page fingerprints for login, registration, dashboard/account, not-found/error, possible SPA shell, generic form, and unclassified pages, with confidence and supporting evidence.
