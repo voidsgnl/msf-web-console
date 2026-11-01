@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from app.routes.web_recon import (
     ToolRunRequest, WebProbeRequest, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
-    _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _classify_gobuster_records, _resolve_wordlist, _list_wordlists, _wordlist_roots,
+    _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _classify_gobuster_records, _fetch_gobuster_candidate_body, _resolve_wordlist, _list_wordlists, _wordlist_roots,
     probe_web_service, run_recon_tool,
 )
 
@@ -404,6 +404,23 @@ class GobusterAdapterTests(unittest.TestCase):
         self.assertEqual(profile["exclude_length"], "37892-37900")
         self.assertEqual(profile["min_length"], 37892)
         self.assertEqual(profile["max_length"], 37900)
+
+    @patch("app.routes.web_recon.requests.Session")
+    def test_gobuster_candidate_fetch_is_bounded_and_does_not_follow_redirects(self, session_factory):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.status_code = 200
+        response.encoding = "utf-8"
+        response.iter_content.return_value = [b"<html><body>generic missing page</body></html>"]
+        session = session_factory.return_value
+        session.get.return_value = response
+        result = _fetch_gobuster_candidate_body("https://example.test/admin")
+        self.assertEqual(result[0], 200)
+        self.assertIn("fingerprint", result[1])
+        self.assertFalse(session.trust_env)
+        self.assertFalse(session.get.call_args.kwargs["allow_redirects"])
+        self.assertEqual(session.get.call_args.kwargs["timeout"], (3.0, 5.0))
+        session.close.assert_called_once()
 
     @patch("app.routes.web_recon._fetch_gobuster_candidate_body")
     def test_gobuster_classifies_near_baseline_using_body_fingerprints_without_dropping_records(self, fetch_body):
