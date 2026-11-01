@@ -7,7 +7,7 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import parse_qs, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qs, unquote, urljoin, urlsplit, urlunsplit
 
 import requests
 from fastapi import APIRouter, HTTPException
@@ -36,6 +36,75 @@ class WebProbeRequest(BaseModel):
     assessment_id: int = Field(ge=1)
     url: str = Field(min_length=1, max_length=2048)
     authorized: bool = False
+
+
+class ManualPathCheckRequest(BaseModel):
+    assessment_id: int = Field(ge=1)
+    url: str = Field(min_length=1, max_length=2048)
+    paths: list[str] = Field(min_length=1, max_length=25)
+    authorized: bool = False
+
+
+def _normalise_manual_path(raw_path: str) -> str:
+    value = raw_path.strip()
+    if not value or len(value) > 500 or any(ord(char) < 32 for char in value):
+        raise HTTPException(400, "Each manual path must contain 1–500 printable characters.")
+    if "\\" in value or "?" in value or "#" in value:
+        raise HTTPException(400, "Enter paths only; query strings, fragments, and backslashes are not allowed.")
+    parsed = urlsplit(value)
+    if parsed.scheme or parsed.netloc or value.startswith("//"):
+        raise HTTPException(400, "Manual entries must be relative paths on the approved origin.")
+    decoded_segments = unquote(value).split("/")
+    if any(segment in {".", ".."} for segment in decoded_segments):
+        raise HTTPException(400, "Relative traversal segments are not allowed.")
+    return value.lstrip("/")
+
+
+def _check_manual_path(url: str) -> dict:
+    session = requests.Session()
+    session.trust_env = False
+    try:
+        with session.get(
+            url,
+            headers={"User-Agent": "MSF-Web-Console-Recon/0.1", "Accept": "text/html,application/xhtml+xml,*/*;q=0.8"},
+            timeout=(3.0, 5.0),
+            allow_redirects=False,
+            stream=True,
+            verify=True,
+        ) as response:
+            body = bytearray()
+            for chunk in response.iter_content(chunk_size=8192):
+                if not chunk:
+                    continue
+                body.extend(chunk)
+                if len(body) >= 65536:
+                    del body[65536:]
+                    break
+            text = bytes(body).decode(response.encoding or "utf-8", errors="replace")
+            title_match = re.search(r"<title[^>]*>(.*?)</title\\s*>", text, re.IGNORECASE | re.DOTALL)
+            title = re.sub(r"\\s+", " ", re.sub(r"<[^>]+>", " ", title_match.group(1))).strip()[:200] if title_match else None
+            content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() or None
+            location = response.headers.get("Location")
+            return {
+                "url": url,
+                "status_code": response.status_code,
+                "reason": response.reason,
+                "response_title": title,
+                "response_content_type": content_type,
+                "content_length": int(response.headers["Content-Length"]) if str(response.headers.get("Content-Length", "")).isdigit() else len(body),
+                "bytes_inspected": len(body),
+                "body_truncated": len(body) >= 65536,
+                "redirect_location": location[:1000] if location else None,
+                "classification_reason": "HTTP response observed. A status code or page title alone does not prove that the requested resource is a functional endpoint.",
+            }
+    except requests.exceptions.Timeout:
+        return {"url": url, "fetch_state": "unverified", "classification_reason": "Request timed out after 5 seconds."}
+    except requests.exceptions.SSLError:
+        return {"url": url, "fetch_state": "unverified", "classification_reason": "TLS negotiation failed."}
+    except requests.exceptions.RequestException as exc:
+        return {"url": url, "fetch_state": "unverified", "classification_reason": f"Request failed: {str(exc)[:240]}"}
+    finally:
+        session.close()
 
 
 def _normalise_url(raw_url: str) -> str:
@@ -81,6 +150,42 @@ def _technology_hints(headers: dict[str, str], body: str) -> list[str]:
     if powered and powered not in found:
         found.append(powered[:100])
     return found
+
+
+@router.post("/directories/check")
+def check_manual_directories(req: ManualPathCheckRequest):
+    """Check a bounded list of analyst-supplied relative paths on one approved origin."""
+    if not req.authorized:
+        raise HTTPException(400, "Confirm that you own this target or have explicit permission to assess it.")
+    target_url = _normalise_url(req.url)
+    from app.routes.assessments import assert_target_in_scope, record_tool_execution
+    scope = assert_target_in_scope(req.assessment_id, target_url)
+    target = urlsplit(target_url)
+    origin = urlunsplit((target.scheme, target.netloc, "/", "", ""))
+    paths = list(dict.fromkeys(_normalise_manual_path(item) for item in req.paths))
+    if not paths:
+        raise HTTPException(400, "Enter at least one relative path.")
+    urls = [urljoin(origin, path) for path in paths]
+    if any(urlsplit(url).netloc.lower() != target.netloc.lower() or urlsplit(url).scheme.lower() != target.scheme.lower() for url in urls):
+        raise HTTPException(400, "Manual paths must remain on the exact approved origin.")
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        records = list(executor.map(_check_manual_path, urls))
+    finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    execution = record_tool_execution(
+        scope, "manual-path-check", origin, started_at, finished_at,
+        0 if all(record.get("status_code") is not None for record in records) else 1,
+        any(record.get("body_truncated") for record in records),
+        records, "",
+    )
+    return {
+        "execution_id": execution["id"],
+        "assessment_id": req.assessment_id,
+        "tool_id": "manual-path-check",
+        "target": origin,
+        "records": records,
+        "assessment": f"Checked {len(records)} manually supplied paths with at most two concurrent requests. Redirects were not followed; results are response observations, not endpoint or vulnerability confirmation.",
+    }
 
 
 @router.get("/tools")
