@@ -123,6 +123,60 @@ def _timestamp() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _normalise_evidence_envelope(
+    tool_id: str, target_url: str, observed_at: str, record: dict
+) -> dict:
+    """Add a stable, non-verdict evidence envelope while preserving tool fields."""
+    item = dict(record)
+    explicit_type = str(item.get("evidence_type") or "").strip().lower()
+    if explicit_type:
+        observation_type = explicit_type
+    elif tool_id == "nmap" or item.get("port") is not None:
+        observation_type = "open_service"
+    elif tool_id in {"amass", "subfinder"} or item.get("host"):
+        observation_type = "discovered_host"
+    elif tool_id == "nuclei":
+        observation_type = "scanner_match"
+    elif tool_id == "testssl.sh":
+        observation_type = "tls_observation"
+    elif tool_id == "wpscan":
+        observation_type = "cms_observation"
+    elif tool_id == "nikto":
+        observation_type = "web_server_observation"
+    elif tool_id == "katana":
+        observation_type = "endpoint_observation"
+    elif tool_id in {"gobuster", "ffuf", "feroxbuster", "manual-path-check"}:
+        observation_type = "content_discovery"
+    elif tool_id in {"httpx", "whatweb"}:
+        observation_type = "service_fingerprint"
+    else:
+        observation_type = "tool_observation"
+
+    severity = str(item.get("severity") or "unknown").strip().lower()
+    if severity not in {"critical", "high", "medium", "low", "info", "informational", "unknown"}:
+        severity = "unknown"
+
+    summary_value = (
+        item.get("summary") or item.get("finding") or item.get("title")
+        or item.get("service") or item.get("host") or item.get("url")
+        or item.get("target") or target_url
+    )
+    summary = " ".join(str(summary_value).split())[:1000]
+
+    item.setdefault("evidence_schema_version", 1)
+    item.setdefault("source_tool", tool_id)
+    item.setdefault("target_url", target_url)
+    item.setdefault("observed_at", observed_at)
+    item.setdefault("observation_type", observation_type)
+    item.setdefault("summary", summary)
+    item.setdefault("severity", severity)
+    # These are deliberately neutral defaults. Scanner output is not a
+    # verified vulnerability, and the platform must not infer confidence.
+    item.setdefault("confidence", "unassessed")
+    item.setdefault("verification_state", "unverified")
+    return item
+
+
 class AssessmentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=2000)
@@ -389,6 +443,7 @@ def record_tool_execution(
         stored_records = []
         for record in records:
             item = dict(record) if isinstance(record, dict) else {"raw": str(record)}
+            item = _normalise_evidence_envelope(tool_id, target_url, finished_at, item)
             item.setdefault("_record_id", uuid.uuid4().hex)
             stored_records.append(item)
         _store_discovered_assets(
