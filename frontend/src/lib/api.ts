@@ -10,6 +10,9 @@ export type AssessmentAsset = { id: number; assessment_id: number; asset_type: "
 export type AssessmentAssetInventory = { assets: AssessmentAsset[]; counts: { total: number; in_scope: number; out_of_scope: number } };
 export type AssessmentExecutionRecord = Record<string, unknown> & {
   record_id: string; review_state: "active" | "dismissed"; reviewed_at: string | null; notes: string; record_type: "evidence" | "finding";
+  evidence_schema_version?: number; source_tool?: string; target_url?: string; observed_at?: string;
+  observation_type?: string; summary?: string; severity?: "critical" | "high" | "medium" | "low" | "info" | "informational" | "unknown";
+  confidence?: "unassessed"; verification_state?: "unverified";
 };
 export type AssessmentExecutionDetail = AssessmentExecution & { records: AssessmentExecutionRecord[]; stderr: string };
 export type AssessmentExecution = {
