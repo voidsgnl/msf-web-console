@@ -1045,7 +1045,8 @@ class SpecialistAdapterTests(unittest.TestCase):
 
     def test_nmap_parser_keeps_open_tcp_service_evidence_only(self):
         xml = """<?xml version="1.0"?>
-        <nmaprun><host><address addr="192.0.2.10" addrtype="ipv4"/><ports>
+        <nmaprun><host><status state="up"/><address addr="192.0.2.10" addrtype="ipv4"/>
+          <hostnames><hostname name="example.test" type="user"/></hostnames><ports>
           <port protocol="tcp" portid="443"><state state="open"/><service name="https" product="nginx" version="1.2"/></port>
           <port protocol="tcp" portid="22"><state state="closed"/><service name="ssh"/></port>
         </ports></host></nmaprun>"""
@@ -1055,6 +1056,7 @@ class SpecialistAdapterTests(unittest.TestCase):
         self.assertEqual(records[0]["service"], "https")
         self.assertEqual(records[0]["product"], "nginx")
         self.assertEqual(records[0]["evidence_type"], "open_service")
+        self.assertEqual(records[0]["hostnames"], ["example.test"])
 
     def test_amass_parser_restricts_results_to_approved_hostname_suffix(self):
         output = (
