@@ -88,7 +88,10 @@ class AssessmentStoreTests(unittest.TestCase):
         history = assessments.list_assessment_executions(created["id"])["executions"]
         self.assertEqual(history[0]["id"], saved["id"])
         detail = assessments.get_assessment_execution(created["id"], saved["id"])
-        self.assertEqual(detail["records"], [{"status_code": 200}])
+        self.assertEqual(detail["records"][0]["status_code"], 200)
+        self.assertTrue(detail["records"][0]["record_id"])
+        self.assertEqual(detail["records"][0]["review_state"], "active")
+        self.assertEqual(detail["records"][0]["notes"], "")
         self.assertEqual(detail["target_id"], target["id"])
     def test_duplicate_target_is_rejected(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="Duplicate test"))
