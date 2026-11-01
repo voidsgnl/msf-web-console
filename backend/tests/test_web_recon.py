@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -232,6 +233,22 @@ class ReconToolExecutionGuardTests(unittest.TestCase):
                 {"timeout": 0.1, "max_output": 4096},
                 {"PATH": os.environ.get("PATH", "")},
             )
+
+    def test_scanner_cancellation_stops_process_and_preserves_partial_output(self):
+        cancel_event = threading.Event()
+        timer = threading.Timer(0.2, cancel_event.set)
+        timer.start()
+        try:
+            result = _run_bounded_process(
+                [sys.executable, "-u", "-c", "import sys,time; print('started', flush=True); time.sleep(5)"],
+                {"timeout": 5, "max_output": 4096},
+                {"PATH": os.environ.get("PATH", "")},
+                cancel_event=cancel_event,
+            )
+        finally:
+            timer.cancel()
+        self.assertTrue(result["cancelled"])
+        self.assertIn("started", result["stdout"])
     @patch("app.routes.assessments.assert_target_in_scope", return_value={"assessment_id": 1, "target_id": 2})
     @patch("app.routes.web_recon.shutil.which", return_value=None)
     def test_run_reports_missing_binary(self, _which, _scope):
