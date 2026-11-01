@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -10,7 +12,7 @@ from app.routes.web_recon import (
     check_manual_directories, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
     _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _classify_gobuster_records, _fetch_gobuster_candidate_body, _resolve_wordlist, _list_wordlists, _wordlist_roots, _classify_manual_path_records, _collect_manual_path_baseline,
-    probe_web_service, run_recon_tool,
+    probe_web_service, run_recon_tool, _run_bounded_process,
 )
 
 class WebReconTests(unittest.TestCase):
@@ -195,13 +197,32 @@ class ReconToolExecutionGuardTests(unittest.TestCase):
     @patch("app.routes.assessments.record_tool_execution")
     @patch("app.routes.assessments.assert_target_in_scope", return_value={"assessment_id": 1, "target_id": 2})
     @patch("app.routes.web_recon.shutil.which", return_value="/usr/bin/httpx")
-    @patch("subprocess.run", side_effect=__import__("subprocess").TimeoutExpired(cmd="httpx", timeout=30))
+    @patch("app.routes.web_recon._run_bounded_process", side_effect=subprocess.TimeoutExpired(cmd="httpx", timeout=30))
     def test_scanner_timeout_is_persisted(self, _run, _which, _scope, record):
         request = ToolRunRequest(assessment_id=1, tool_id="httpx", url="https://example.test", authorized=True)
         with self.assertRaises(HTTPException) as raised:
             run_recon_tool(request)
         self.assertEqual(raised.exception.status_code, 504)
         self.assertEqual(record.call_args.args[5], 124)
+
+    def test_scanner_output_is_capped_and_process_is_stopped(self):
+        result = _run_bounded_process(
+            [sys.executable, "-c", "import sys; sys.stdout.write('x' * 200000)"],
+            {"timeout": 5, "max_output": 4096},
+            {"PATH": os.environ.get("PATH", "")},
+        )
+        self.assertTrue(result["output_truncated"])
+        self.assertLessEqual(len(result["stdout"].encode("utf-8")), 4096)
+        self.assertLessEqual(result["output_size"], 4096)
+        self.assertIn("process group was terminated", result["stderr"])
+
+    def test_scanner_wall_clock_timeout_raises_after_stopping_process_group(self):
+        with self.assertRaises(subprocess.TimeoutExpired):
+            _run_bounded_process(
+                [sys.executable, "-c", "import time; time.sleep(5)"],
+                {"timeout": 0.1, "max_output": 4096},
+                {"PATH": os.environ.get("PATH", "")},
+            )
     @patch("app.routes.assessments.assert_target_in_scope", return_value={"assessment_id": 1, "target_id": 2})
     @patch("app.routes.web_recon.shutil.which", return_value=None)
     def test_run_reports_missing_binary(self, _which, _scope):

@@ -1154,11 +1154,139 @@ def _classify_katana_records(records: list[dict]) -> list[dict]:
     return output
 
 @router.post("/run")
+def _terminate_process_group(process) -> None:
+    """Stop the scanner and any child processes it started."""
+    import signal
+    import subprocess
+
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        try:
+            process.terminate()
+        except OSError:
+            pass
+
+    try:
+        process.wait(timeout=2)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        try:
+            process.kill()
+        except OSError:
+            pass
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        # The OS has already been asked to kill the process group. Do not block
+        # the API worker indefinitely if a broken child refuses to exit.
+        pass
+
+
+def _run_bounded_process(command: list[str], config: dict, env: dict) -> dict:
+    """Run an adapter with a wall-clock deadline and a combined stdout/stderr cap.
+
+    Pipes are drained continuously so a noisy child cannot deadlock on a full
+    pipe. Only max_output bytes are retained in memory; excess output triggers
+    process-group termination and is discarded.
+    """
+    import subprocess
+    import threading
+    import time
+
+    max_output = int(config["max_output"])
+    stdout_buffer = bytearray()
+    stderr_buffer = bytearray()
+    captured = {"total": 0}
+    lock = threading.Lock()
+    output_limit_reached = threading.Event()
+
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
+        env=env,
+        shell=False,
+        start_new_session=True,
+        bufsize=0,
+    )
+
+    def drain(pipe, destination: bytearray) -> None:
+        try:
+            while True:
+                chunk = pipe.read(8192)
+                if not chunk:
+                    break
+                with lock:
+                    available = max_output - captured["total"]
+                    if available > 0:
+                        kept = chunk[:available]
+                        destination.extend(kept)
+                        captured["total"] += len(kept)
+                    if len(chunk) > max(available, 0):
+                        output_limit_reached.set()
+        finally:
+            pipe.close()
+
+    readers = [
+        threading.Thread(target=drain, args=(process.stdout, stdout_buffer), daemon=True),
+        threading.Thread(target=drain, args=(process.stderr, stderr_buffer), daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
+
+    deadline = time.monotonic() + float(config["timeout"])
+    timed_out = False
+    while process.poll() is None:
+        if output_limit_reached.is_set():
+            _terminate_process_group(process)
+            break
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            timed_out = True
+            _terminate_process_group(process)
+            break
+        time.sleep(min(0.05, remaining))
+
+    for reader in readers:
+        reader.join(timeout=2)
+
+    if timed_out:
+        raise subprocess.TimeoutExpired(command, config["timeout"])
+
+    with lock:
+        stdout = bytes(stdout_buffer).decode("utf-8", errors="replace")
+        stderr = bytes(stderr_buffer).decode("utf-8", errors="replace")
+        output_size = captured["total"]
+
+    if output_limit_reached.is_set():
+        note = "Output limit reached; scanner process group was terminated."
+        stderr = (stderr + "\\n" + note).strip()
+
+    return {
+        "returncode": process.returncode if process.returncode is not None else 1,
+        "stdout": stdout,
+        "stderr": stderr[:4000],
+        "output_size": output_size,
+        "output_truncated": output_limit_reached.is_set(),
+    }
+
+
+@router.post("/run")
 def run_recon_tool(req: ToolRunRequest):
     """Run one fixed, bounded HTTP reconnaissance adapter against one authorized URL."""
     import os
     import subprocess
-    import tempfile
 
     if not req.authorized:
         raise HTTPException(400, "Confirm that you own this target or have explicit permission to assess it.")
@@ -1205,28 +1333,19 @@ def run_recon_tool(req: ToolRunRequest):
     )
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     try:
-        with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as stdout_file, tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as stderr_file:
-            completed = subprocess.run(
-                command,
-                stdout=stdout_file,
-                stderr=stderr_file,
-                timeout=config["timeout"],
-                check=False,
-                shell=False,
-                stdin=subprocess.DEVNULL,
-                env={
-                    "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
-                    "HOME": os.path.expanduser("~"),
-                    "LANG": os.environ.get("LANG", "C.UTF-8"),
-                    "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
-                },
-            )
-            stdout_file.seek(0, 2)
-            output_size = stdout_file.tell()
-            stdout_file.seek(0)
-            stdout = stdout_file.read(config["max_output"])
-            stderr_file.seek(0)
-            stderr = stderr_file.read(4000)
+        completed = _run_bounded_process(
+            command,
+            config,
+            {
+                "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+                "HOME": os.path.expanduser("~"),
+                "LANG": os.environ.get("LANG", "C.UTF-8"),
+                "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+            },
+        )
+        output_size = completed["output_size"]
+        stdout = completed["stdout"]
+        stderr = completed["stderr"]
     except subprocess.TimeoutExpired as exc:
         finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         record_tool_execution(
@@ -1254,7 +1373,7 @@ def run_recon_tool(req: ToolRunRequest):
             records.append({"kind": "redirect_chain", "redirects": redirect_chain})
     execution = record_tool_execution(
         scope, req.tool_id, target_url, started_at, finished_at,
-        completed.returncode, output_size > config["max_output"], records, stderr,
+        completed["returncode"], completed["output_truncated"], records, stderr,
     )
 
     return {
@@ -1263,9 +1382,9 @@ def run_recon_tool(req: ToolRunRequest):
         "tool_id": req.tool_id,
         "tool": config["name"],
         "target": target_url,
-        "exit_code": completed.returncode,
+        "exit_code": completed["returncode"],
         "timed_out": False,
-        "output_truncated": output_size > config["max_output"],
+        "output_truncated": completed["output_truncated"],
         "records": records,
         "wildcard_summary": gobuster_summary,
         "redirect_chain": redirect_chain if req.tool_id == "katana" else [],

@@ -73,7 +73,9 @@ Status: in progress.
       and output parsing.
 - [ ] Verify httpx and WhatWeb CLI compatibility against installed versions.
 - [ ] Add process cancellation and persistent execution history.
-- [x] Add a platform-owned SQLite assessment store independent of Metasploit's database, with assessment lifecycle and target-scope CRUD APIs.\n- [x] Require explicit authorization when registering targets; enforce exact scheme/host/port scope matching in the platform scope guard.\n- [x] Bind the built-in web probe, httpx, and WhatWeb executions to an active assessment and exact approved origin.\n- [x] Persist completed runs, timeouts, and launch failures with timestamps, exit status, parsed evidence, and bounded stderr.\n- [x] Expose assessment execution history and stored evidence in the Web Security workspace.\n- [ ] Add cancellation, hard process-output limits, and parser-version metadata.
+- [x] Add a platform-owned SQLite assessment store independent of Metasploit's database, with assessment lifecycle and target-scope CRUD APIs.\n- [x] Require explicit authorization when registering targets; enforce exact scheme/host/port scope matching in the platform scope guard.\n- [x] Bind the built-in web probe, httpx, and WhatWeb executions to an active assessment and exact approved origin.\n- [x] Persist completed runs, timeouts, and launch failures with timestamps, exit status, parsed evidence, and bounded stderr.\n- [x] Expose assessment execution history and stored evidence in the Web Security workspace.\n- [x] Enforce a combined stdout/stderr capture ceiling and terminate the scanner process group when the ceiling is exceeded.
+- [x] Enforce wall-clock timeouts with process-group termination so child processes do not outlive timed-out scans.
+- [ ] Add operator-requested cancellation for in-progress runs and parser-version metadata.
 
 ## Phase 2 — Asset discovery and mapping
 

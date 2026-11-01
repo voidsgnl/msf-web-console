@@ -4,6 +4,9 @@
 
 ## Unreleased
 
+- Replaced unbounded temporary-file scanner output with concurrent pipe draining and a combined stdout/stderr capture ceiling. Excess output is discarded and terminates the scanner process group; wall-clock timeouts also terminate the process group so child processes do not continue after a timed-out run. Added regression tests for output caps and timeout handling.
+
+
 - Manual path baseline collection now reports attempted, successful, and failed random-path samples with failure reasons. If all baseline probes fail, response classification is explicitly marked unavailable rather than leaving HTTP observations ambiguously unclassified; the Gobuster card displays baseline health and per-record classification labels.
 
 - Added random-path response baselining to manual path checks. Three bounded same-origin random paths are compared with analyst-supplied responses using normalized body fingerprints, token-shingle similarity, matching status/content type, and shared not-found markers. Strong matches are labelled likely soft 404; distinct responses remain unconfirmed observations. Baseline counts and per-record comparison evidence are retained, with redirects disabled and concurrency capped at two.
