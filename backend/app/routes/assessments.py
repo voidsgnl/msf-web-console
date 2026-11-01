@@ -362,6 +362,17 @@ def update_execution_job(job_id: str, state: str, *, execution_id: int | None = 
     return dict(updated) if updated else None
 
 
+def recover_stale_execution_jobs() -> int:
+    """Mark queued or running jobs interrupted after a backend restart."""
+    _initialise()
+    with _connection() as connection:
+        cursor = connection.execute(
+            "UPDATE execution_jobs SET state = 'interrupted', finished_at = ?, error = ? WHERE state IN ('queued', 'running')",
+            (_timestamp(), "Backend restarted before the job completed."),
+        )
+        return cursor.rowcount
+
+
 def get_execution_job(assessment_id: int, job_id: str) -> dict:
     _initialise()
     with _connection() as connection:
