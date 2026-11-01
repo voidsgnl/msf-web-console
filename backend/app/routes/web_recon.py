@@ -48,7 +48,7 @@ class ManualPathCheckRequest(BaseModel):
 def _normalise_manual_path(raw_path: str) -> str:
     value = raw_path.strip()
     if not value or len(value) > 500 or any(ord(char) < 32 for char in value):
-        raise HTTPException(400, "Each manual path must contain 1–500 printable characters.")
+        raise HTTPException(400, "Each manual path must contain 1-500 printable characters.")
     if "\\" in value or "?" in value or "#" in value:
         raise HTTPException(400, "Enter paths only; query strings, fragments, and backslashes are not allowed.")
     parsed = urlsplit(value)
@@ -161,6 +161,8 @@ def _technology_hints(headers: dict[str, str], body: str) -> list[str]:
 def _classify_manual_path_records(records: list[dict], baseline_signatures: list[dict]) -> list[dict]:
     """Compare manual responses with random-path baselines without asserting endpoint validity."""
     usable = [item for item in baseline_signatures if item.get("status_code") is not None]
+    similarity_threshold = 0.85
+    review_similarity_threshold = 0.50
     for record in records:
         signature = record.pop("_body_signature", None)
         if signature:
@@ -173,17 +175,41 @@ def _classify_manual_path_records(records: list[dict], baseline_signatures: list
         similarities = [_gobuster_body_similarity(signature, item) for item in comparable]
         best = max(similarities, default=0.0)
         candidate_markers = set(signature.get("soft_404_markers", []))
-        baseline_markers = set().union(*(set(item.get("soft_404_markers", [])) for item in comparable)) if comparable else set()
-        shared = sorted(candidate_markers & baseline_markers)
+        # Only trust a not-found phrase as corroborating evidence if it appears
+        # in more than one baseline sample. A phrase seen in just a single
+        # random-path fetch can be coincidental (e.g. generic copy that also
+        # happens to appear on a real page), and should not by itself be
+        # enough to override a low overall body-similarity score.
+        marker_counts: dict[str, int] = {}
+        for item in comparable:
+            for marker in item.get("soft_404_markers", []):
+                marker_counts[marker] = marker_counts.get(marker, 0) + 1
+        stable_baseline_markers = (
+            {marker for marker, count in marker_counts.items() if count >= 2}
+            if len(comparable) >= 2
+            else set(marker_counts)
+        )
+        shared = sorted(candidate_markers & stable_baseline_markers)
         record["body_similarity"] = round(best, 4) if comparable else None
         record["baseline_samples_compared"] = len(comparable)
-        if comparable and (best >= 0.85 or shared):
+        # A high body-similarity score is sufficient on its own. A shared
+        # not-found phrase is treated as corroborating evidence only when the
+        # overall body similarity also clears a lower review threshold -- it
+        # is never enough by itself to flag a response as a soft 404.
+        if comparable and (best >= similarity_threshold or (shared and best >= review_similarity_threshold)):
             record["response_classification"] = "likely_soft_404"
             detail = f" (body similarity {best:.0%})" if similarities else ""
             marker_detail = f"; shared not-found markers: {', '.join(shared)}" if shared else ""
             record["classification_reason"] = (
                 f"Response closely matches the random-path baseline{detail}{marker_detail}. "
                 "Treat as a likely soft 404, not a confirmed endpoint."
+            )
+        elif comparable and shared:
+            record["response_classification"] = "needs_verification"
+            record["classification_reason"] = (
+                f"Response shares a not-found phrase with the random-path baseline, but overall body "
+                f"similarity is low ({best:.0%}). A shared phrase alone is not reliable evidence of a "
+                "soft 404 -- verify this page's content manually before ruling it in or out."
             )
         elif comparable:
             record["response_classification"] = "distinct_response"
@@ -847,7 +873,7 @@ def _classify_gobuster_records(records: list[dict], wildcard_profile: dict, targ
                 record["response_classification"] = "needs_verification"
                 record["classification_reason"] = (
                     f"Response is similar to, but not conclusive against, the random-path baseline "
-                    f"({similarity:.1%} similarity; review band {review_similarity_threshold:.0%}–{similarity_threshold:.0%}). "
+                    f"({similarity:.1%} similarity; review band {review_similarity_threshold:.0%}-{similarity_threshold:.0%}). "
                     "Verify the page content before treating it as a discovered endpoint."
                 )
                 needs_verification += 1
