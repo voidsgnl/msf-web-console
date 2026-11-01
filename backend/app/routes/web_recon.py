@@ -317,6 +317,7 @@ def _probe_gobuster_wildcard_length(target_url: str) -> int | str:
     session = requests.Session()
     session.trust_env = False
     lengths: set[int] = set()
+    statuses: set[int] = set()
     try:
         for _ in range(5):
             probe_url = urljoin(target_url.rstrip("/") + "/", str(uuid.uuid4()))
@@ -329,6 +330,7 @@ def _probe_gobuster_wildcard_length(target_url: str) -> int | str:
                     stream=True,
                     verify=True,
                 ) as response:
+                    statuses.add(response.status_code)
                     total = 0
                     for chunk in response.iter_content(chunk_size=8192):
                         if not chunk:
@@ -348,11 +350,24 @@ def _probe_gobuster_wildcard_length(target_url: str) -> int | str:
         if not lengths:
             raise HTTPException(502, "Gobuster wildcard probe returned no response body.")
         values = sorted(lengths)
+        reference_length = values[len(values) // 2]
+        exclude_length: int | str
         if len(values) == 1:
-            return values[0]
-        # Gobuster supports inclusive length ranges. This avoids missing a
-        # transient wildcard size between two probe observations.
-        return f"{values[0]}-{values[-1]}"
+            exclude_length = values[0]
+        else:
+            # Gobuster supports inclusive length ranges. This avoids missing a
+            # transient wildcard size between two probe observations.
+            exclude_length = f"{values[0]}-{values[-1]}"
+        return {
+            "exclude_length": exclude_length,
+            "status_codes": sorted(statuses),
+            "min_length": values[0],
+            "max_length": values[-1],
+            "reference_length": reference_length,
+            # Classification is deliberately conservative: size proximity is
+            # a signal for review, not proof that a path does not exist.
+            "length_tolerance": max(128, round(reference_length * 0.01)),
+        }
     finally:
         session.close()
 
@@ -397,6 +412,59 @@ def _parse_gobuster_output(output: str, target_url: str) -> list[dict]:
             record["observations"] = 1
             deduplicated[record["url"]] = record
     return list(deduplicated.values())
+
+
+def _classify_gobuster_records(records: list[dict], wildcard_profile: dict) -> dict:
+    """Flag likely wildcard responses without silently discarding discoveries."""
+    baseline_statuses = set(wildcard_profile.get("status_codes", []))
+    reference_length = int(wildcard_profile.get("reference_length", 0))
+    tolerance = int(wildcard_profile.get("length_tolerance", 128))
+    suspected = 0
+    distinct = 0
+    unverified = 0
+    for record in records:
+        status = record.get("status_code")
+        length = record.get("content_length")
+        if (
+            isinstance(status, int)
+            and status in baseline_statuses
+            and isinstance(length, int)
+            and abs(length - reference_length) <= tolerance
+        ):
+            delta = length - reference_length
+            record["response_classification"] = "suspected_wildcard"
+            record["classification_reason"] = (
+                f"Matches the random-path baseline: HTTP {status}, "
+                f"{length:,} bytes ({delta:+,} bytes from the {reference_length:,}-byte reference). "
+                "Review before treating this as a real path."
+            )
+            suspected += 1
+        elif isinstance(status, int) and isinstance(length, int):
+            record["response_classification"] = "distinct_response"
+            record["classification_reason"] = (
+                "Status or response size differs from the random-path baseline; "
+                "this is a distinct response, not proof that the path is valid."
+            )
+            distinct += 1
+        else:
+            record["response_classification"] = "unverified"
+            record["classification_reason"] = (
+                "Gobuster did not provide enough response metadata to compare this path with the wildcard baseline."
+            )
+            unverified += 1
+    return {
+        "baseline_status_codes": sorted(baseline_statuses),
+        "baseline_length_range": [
+            wildcard_profile.get("min_length"),
+            wildcard_profile.get("max_length"),
+        ],
+        "reference_length": reference_length,
+        "length_tolerance": tolerance,
+        "suspected_wildcard": suspected,
+        "distinct_response": distinct,
+        "unverified": unverified,
+        "total": len(records),
+    }
 
 
 def _parse_tool_output(tool_id: str, output: str, target_url: str | None = None) -> list[dict]:
@@ -667,9 +735,14 @@ def run_recon_tool(req: ToolRunRequest):
             raise HTTPException(400, "Select an available backend wordlist before running Gobuster.")
         wordlist_path = str(_resolve_wordlist(req.wordlist_id))
         gobuster_extensions = _normalise_gobuster_extensions(req.extensions)
-    gobuster_exclude_length = (
+    gobuster_wildcard_profile = (
         _probe_gobuster_wildcard_length(crawl_target)
         if req.tool_id == "gobuster"
+        else None
+    )
+    gobuster_exclude_length = (
+        gobuster_wildcard_profile["exclude_length"]
+        if gobuster_wildcard_profile
         else None
     )
     command = _build_tool_command(
@@ -721,6 +794,9 @@ def run_recon_tool(req: ToolRunRequest):
 
     finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     records = _parse_tool_output(req.tool_id, stdout, target_url)
+    gobuster_summary = None
+    if req.tool_id == "gobuster" and gobuster_wildcard_profile:
+        gobuster_summary = _classify_gobuster_records(records, gobuster_wildcard_profile)
     if req.tool_id == "katana":
         records = _filter_katana_records(records, target_url)
         records = _classify_katana_records(records)
@@ -741,10 +817,11 @@ def run_recon_tool(req: ToolRunRequest):
         "timed_out": False,
         "output_truncated": output_size > config["max_output"],
         "records": records,
+        "wildcard_summary": gobuster_summary,
         "redirect_chain": redirect_chain if req.tool_id == "katana" else [],
         "stderr": stderr,
         "assessment": (
-            "Gobuster ran directory/file enumeration only against the exact approved origin, using a backend-selected wordlist, two workers, a 500 ms per-worker delay, an 8-second request timeout, and no redirect following. Only matching paths are retained as evidence; discoveries never expand approved scope."
+            "Gobuster ran directory/file enumeration only against the exact approved origin. Random-path baseline responses were used both for Gobuster's size exclusion and for conservative post-scan classification. Similar responses are flagged as suspected wildcard results, not silently removed or declared invalid; distinct responses still require analyst review. Discoveries never expand approved scope."
             if req.tool_id == "gobuster"
             else (
             "Subfinder uses passive data sources only. Discovered hostnames are inventory leads, "
