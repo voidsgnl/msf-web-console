@@ -146,7 +146,7 @@ export const api = {
         timed_out: boolean; output_truncated: boolean;
         records: { url?: string; target?: string; status_code?: number; http_status?: number;
           title?: string | null; webserver?: string; content_type?: string; content_length?: number | null;
-          discovery_type?: "directory" | "path"; observations?: number;
+          discovery_type?: "directory" | "path"; path?: string;
           technologies?: string[]; host?: string; sources?: string[]; method?: string; source?: string;
           tag?: string; attribute?: string; redirect_location?: string | null;
           kind?: string; redirects?: { from: string; to?: string; status_code: number; followed: boolean; reason?: string }[];
