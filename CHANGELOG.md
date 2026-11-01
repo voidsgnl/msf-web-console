@@ -4,7 +4,7 @@
 
 ## Unreleased
 
-- Added conservative Gobuster wildcard-response classification. Random-path baseline status and response sizes are compared with each discovered path; close matches are labelled "suspected wildcard" and retained for analyst review, while distinct responses are explicitly not treated as proof of a valid resource. The Directories results now show baseline details and classification counts.
+- Added two-stage Gobuster wildcard classification. Random-path probes now retain normalized response-body fingerprints; near-size discoveries are re-fetched only on the approved origin, without following redirects, and compared using normalized token-shingle similarity. Similar bodies are labelled "suspected wildcard", differing bodies are labelled "distinct response", and failed or over-limit checks remain "unverified". Results are retained and the Directories UI displays body-match percentages and fingerprint-check counts.
 
 - Fixed Gobuster wildcard preflight fidelity: random baseline paths now use the same UUID format Gobuster itself uses, avoiding path-shape-dependent soft-404 responses that could cause Gobuster to reject the scan even when a measured exclusion was supplied.
 
