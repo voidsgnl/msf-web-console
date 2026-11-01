@@ -304,7 +304,7 @@ def _store_discovered_assets(
         candidates.add(("url", target[0], target[1]))
 
     for record in records:
-        if not isinstance(record, dict):
+        if not isinstance(record, dict) or record.get("resource_type") == "malformed" or record.get("kind") == "redirect_chain":
             continue
         for key in ("url", "target", "final_url"):
             value = record.get(key)
