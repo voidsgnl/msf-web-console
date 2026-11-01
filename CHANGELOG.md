@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added persistent reconnaissance evidence management: records now have stable identifiers and can be marked reviewed, annotated with analyst notes, dismissed/restored, or permanently deleted without deleting their parent execution history. Dismissed records are hidden by default and can be shown again. Asset inventory is rebuilt from remaining evidence after permanent deletion so removed-only discoveries do not linger.
+
 - Improved Katana classification for Next.js image/static resources and framework redirects. Malformed raw or encoded-backslash candidates are filtered at the tool-output/classification boundary and hidden from the default inventory while retaining script-text provenance and legitimate script-derived endpoints as evidence; Katana's `-fr` flag is an output filter, not a guaranteed pre-request gate for all malformed candidates.
 
 - Improved Katana result quality: classify pages, API candidates, redirects, static assets, and unverified discoveries; deduplicate identical method/URL observations while retaining query variants; flag malformed encoded-backslash paths; hide static assets and malformed URLs from the default result view while retaining classified evidence. Added result counts and a show-all control.
