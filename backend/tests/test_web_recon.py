@@ -401,6 +401,32 @@ class GobusterAdapterTests(unittest.TestCase):
                 with self.assertRaises(HTTPException):
                     _resolve_wordlist("/etc/passwd")
 
+    @patch("app.routes.assessments.record_tool_execution", return_value={"id": 77})
+    @patch("app.routes.assessments.assert_target_in_scope", return_value={"assessment_id": 1, "target_id": 2})
+    @patch("app.routes.web_recon.shutil.which", return_value="/usr/bin/gobuster")
+    @patch("subprocess.run")
+    def test_gobuster_run_persists_parsed_same_origin_results(self, run_process, _which, _scope, record):
+        def fake_run(command, **kwargs):
+            kwargs["stdout"].write("/admin (Status: 200) [Size: 123]\\n")
+            return type("Completed", (), {"returncode": 0})()
+        run_process.side_effect = fake_run
+        with tempfile.TemporaryDirectory() as directory:
+            wordlist = os.path.join(directory, "common.txt")
+            with open(wordlist, "w", encoding="utf-8") as handle:
+                handle.write("admin\\n")
+            with patch.dict(os.environ, {"MSF_WEB_WORDLIST_DIRS": directory}):
+                result = run_recon_tool(ToolRunRequest(
+                    assessment_id=1, tool_id="gobuster", url="https://example.test",
+                    authorized=True, wordlist_id="0:common.txt", extensions="php,html",
+                ))
+        self.assertEqual(result["execution_id"], 77)
+        self.assertEqual(result["records"][0]["url"], "https://example.test/admin")
+        self.assertEqual(result["records"][0]["status_code"], 200)
+        self.assertEqual(record.call_args.args[1], "gobuster")
+        command = run_process.call_args.args[0]
+        self.assertEqual(command[1], "dir")
+        self.assertNotIn("-r", command)
+
     def test_gobuster_is_an_allowed_request_tool(self):
         request = ToolRunRequest(
             assessment_id=1, tool_id="gobuster", url="https://example.test",
