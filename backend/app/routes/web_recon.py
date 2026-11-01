@@ -81,8 +81,8 @@ def _check_manual_path(url: str) -> dict:
                     del body[65536:]
                     break
             text = bytes(body).decode(response.encoding or "utf-8", errors="replace")
-            title_match = re.search(r"<title[^>]*>(.*?)</title\\s*>", text, re.IGNORECASE | re.DOTALL)
-            title = re.sub(r"\\s+", " ", re.sub(r"<[^>]+>", " ", title_match.group(1))).strip()[:200] if title_match else None
+            title_match = re.search(r"<title[^>]*>(.*?)</title\s*>", text, re.IGNORECASE | re.DOTALL)
+            title = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", title_match.group(1))).strip()[:200] if title_match else None
             content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() or None
             location = response.headers.get("Location")
             return {
