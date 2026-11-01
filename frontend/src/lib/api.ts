@@ -21,6 +21,13 @@ export type AssessmentExecution = {
   exit_code: number; output_truncated: number | boolean;
 };
 
+export type AssessmentExecutionJob = {
+  id: string; assessment_id: number; tool_id: string; target_url: string;
+  state: "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
+  created_at: string; started_at: string | null; finished_at: string | null;
+  execution_id: number | null; error: string;
+};
+
 export type Workspace = {
   id: number;
   name: string;
