@@ -269,6 +269,8 @@ def _build_tool_command(tool_id: str, executable: str, target_url: str, wordlist
             "--no-progress", "--quiet", "--no-error", "--no-color",
             "-e",
             "-s", "200,204,301,302,307,401,403",
+            # Gobuster defaults to a 404 blacklist; clear it when using an allowlist.
+            "--status-codes-blacklist", "",
         ]
         if extensions:
             command.extend(["-x", extensions])
