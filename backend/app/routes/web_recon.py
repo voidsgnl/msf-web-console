@@ -1816,8 +1816,7 @@ def _run_bounded_process(command: list[str], config: dict, env: dict, cancel_eve
     }
 
 
-@router.post("/run")
-def run_recon_tool(req: ToolRunRequest, cancel_event=None):
+def _execute_recon_tool(req: ToolRunRequest, cancel_event=None):
     """Run one fixed, bounded reconnaissance adapter against one authorized URL."""
     import os
     import subprocess
@@ -1994,6 +1993,13 @@ def run_recon_tool(req: ToolRunRequest, cancel_event=None):
         "assessment": assessment_text,
     }
 
+
+@router.post("/run")
+def run_recon_tool(req: ToolRunRequest):
+    """Compatibility endpoint for synchronous scanner execution."""
+    return _execute_recon_tool(req)
+
+
 def _run_recon_job_background(job_id: str, req: ToolRunRequest) -> None:
     from app.routes.assessments import update_execution_job
 
@@ -2008,7 +2014,7 @@ def _run_recon_job_background(job_id: str, req: ToolRunRequest) -> None:
             update_execution_job(job_id, "cancelled", error="Cancelled before scanner start.")
             return
         update_execution_job(job_id, "running")
-        result = run_recon_tool(req, cancel_event=event)
+        result = _execute_recon_tool(req, cancel_event=event)
         if result.get("cancelled"):
             update_execution_job(
                 job_id, "cancelled", execution_id=result.get("execution_id"),
