@@ -93,6 +93,41 @@ class AssessmentStoreTests(unittest.TestCase):
         self.assertEqual(detail["records"][0]["review_state"], "active")
         self.assertEqual(detail["records"][0]["notes"], "")
         self.assertEqual(detail["target_id"], target["id"])
+    def test_execution_records_receive_common_non_verdict_evidence_envelope(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Evidence schema"))
+        assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], "https://example.test")
+        saved = assessments.record_tool_execution(
+            scope, "nmap", "https://example.test",
+            "2026-11-02T00:00:00+00:00", "2026-11-02T00:00:10+00:00", 0, False,
+            [
+                {"host": "example.test", "port": 443, "service": "https", "severity": "CRITICAL"},
+                {"host": "api.example.test", "evidence_type": "passive_subdomain",
+                 "source_tool": "untrusted-parser-value", "verification_state": "verified"},
+                {"finding": "TLS configuration observation", "severity": "not-a-severity"},
+            ],
+            "",
+        )
+        records = assessments.get_assessment_execution(created["id"], saved["id"])["records"]
+        service, discovered_host, observation = records
+
+        for record in records:
+            self.assertEqual(record["evidence_schema_version"], 1)
+            self.assertEqual(record["source_tool"], "nmap")
+            self.assertEqual(record["target_url"], "https://example.test")
+            self.assertEqual(record["observed_at"], "2026-11-02T00:00:10+00:00")
+            self.assertEqual(record["confidence"], "unassessed")
+            self.assertEqual(record["verification_state"], "unverified")
+            self.assertTrue(record["summary"])
+
+        self.assertEqual(service["observation_type"], "open_service")
+        self.assertEqual(service["severity"], "critical")
+        self.assertEqual(discovered_host["observation_type"], "passive_subdomain")
+        self.assertEqual(discovered_host["source_tool"], "nmap")
+        self.assertEqual(observation["severity"], "unknown")
+
     def test_duplicate_target_is_rejected(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="Duplicate test"))
         request = assessments.TargetCreate(url="https://example.test", authorized=True)
