@@ -541,12 +541,17 @@ RUNNABLE_TOOLS = {
     "ffuf": {"name": "FFUF (directory enumeration)", "timeout": 180, "max_output": 1048576},
     "feroxbuster": {"name": "Feroxbuster (directory enumeration)", "timeout": 180, "max_output": 1048576},
     "nuclei": {"name": "Nuclei (HTTP vulnerability templates)", "timeout": 300, "max_output": 1048576},
+    "nikto": {"name": "Nikto (web server checks)", "timeout": 150, "max_output": 1048576},
+    "wpscan": {"name": "WPScan (passive WordPress assessment)", "timeout": 180, "max_output": 1048576},
+    "amass": {"name": "Amass (passive asset discovery)", "timeout": 150, "max_output": 1048576},
+    "testssl.sh": {"name": "testssl.sh (TLS analysis)", "timeout": 240, "max_output": 1048576},
+    "nmap": {"name": "Nmap (bounded TCP service discovery)", "timeout": 120, "max_output": 1048576},
 }
 
 
 class ToolRunRequest(BaseModel):
     assessment_id: int = Field(ge=1)
-    tool_id: str = Field(pattern=r"^(httpx|whatweb|subfinder|katana|gobuster|ffuf|feroxbuster|nuclei)$")
+    tool_id: str = Field(pattern=r"^(httpx|whatweb|subfinder|katana|gobuster|ffuf|feroxbuster|nuclei|nikto|wpscan|amass|testssl\\.sh|nmap)$")
     url: str = Field(min_length=1, max_length=2048)
     authorized: bool = False
     wordlist_id: str | None = Field(default=None, max_length=512)
@@ -717,6 +722,46 @@ def _build_tool_command(
             "-rl", "2", "-c", "1", "-bs", "1", "-timeout", "8", "-retries", "0",
             "-ot",
         ]
+    if tool_id == "nikto":
+        return [
+            executable, "-host", target_url, "-Format", "json", "-output", "/dev/stdout",
+            "-maxtime", "90s", "-nointeractive", "-nocheck",
+        ]
+    if tool_id == "wpscan":
+        return [
+            executable, "--url", target_url, "--format", "json", "--output", "/dev/stdout",
+            "--detection-mode", "passive", "--plugins-detection", "passive",
+            "--max-threads", "1", "--throttle", "500",
+            "--request-timeout", "8", "--connect-timeout", "5",
+        ]
+    if tool_id == "amass":
+        hostname = (urlsplit(target_url).hostname or "").lower()
+        if not hostname:
+            raise HTTPException(400, "A valid approved hostname is required for passive Amass discovery.")
+        return [executable, "enum", "-passive", "-d", hostname, "-json", "/dev/stdout", "-timeout", "2"]
+    if tool_id == "testssl.sh":
+        parsed = urlsplit(target_url)
+        if parsed.scheme.lower() != "https" or not parsed.hostname:
+            raise HTTPException(400, "testssl.sh requires an HTTPS target in the approved assessment scope.")
+        host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+        port = parsed.port or 443
+        return [
+            executable, "--fast", "--quiet", "--warnings", "off",
+            "--connect-timeout", "5", "--openssl-timeout", "8",
+            "--jsonfile", "/dev/stdout", f"{host}:{port}",
+        ]
+    if tool_id == "nmap":
+        hostname = (urlsplit(target_url).hostname or "").lower()
+        if not hostname:
+            raise HTTPException(400, "A valid approved hostname or IP is required for Nmap.")
+        command = [
+            executable, "-n", "-Pn", "-sT", "-sV", "--version-light",
+            "--top-ports", "100", "--max-retries", "1", "--host-timeout", "90s",
+            "--reason", "-oX", "-", hostname,
+        ]
+        if ":" in hostname:
+            command.insert(1, "-6")
+        return command
     if tool_id == "katana":
         parsed = urlsplit(target_url)
         hostname = (parsed.hostname or "").lower()
@@ -1240,6 +1285,127 @@ def _classify_gobuster_records(records: list[dict], wildcard_profile: dict, targ
         "total": len(records),
     }
 
+def _parse_specialist_tool_output(tool_id: str, output: str, target_url: str) -> list[dict]:
+    """Normalize specialist scanner output into bounded, reviewable evidence."""
+    import json
+    import xml.etree.ElementTree as ET
+
+    if tool_id == "nmap":
+        try:
+            root = ET.fromstring(output)
+        except ET.ParseError:
+            return []
+        records = []
+        for host_node in root.findall(".//host"):
+            address_node = host_node.find("./address")
+            host_value = address_node.get("addr") if address_node is not None else (urlsplit(target_url).hostname or "")
+            for port_node in host_node.findall("./ports/port"):
+                state_node = port_node.find("state")
+                if state_node is None or state_node.get("state") != "open":
+                    continue
+                service_node = port_node.find("service")
+                records.append({
+                    "host": host_value,
+                    "port": int(port_node.get("portid", "0")),
+                    "protocol": port_node.get("protocol", "tcp"),
+                    "state": "open",
+                    "service": service_node.get("name") if service_node is not None else None,
+                    "product": service_node.get("product") if service_node is not None else None,
+                    "version": service_node.get("version") if service_node is not None else None,
+                    "source": "nmap",
+                    "evidence_type": "open_service",
+                    "assessment": "Open TCP service observed by a bounded top-100-port connect scan; verify exposure and ownership before further testing.",
+                })
+        return records
+
+    if tool_id == "amass":
+        records = []
+        approved_host = (urlsplit(target_url).hostname or "").lower().rstrip(".")
+        for line in output.splitlines():
+            try:
+                item = json.loads(line)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name") or item.get("domain")
+            if not isinstance(name, str):
+                continue
+            name = name.lower().rstrip(".")
+            if name != approved_host and not name.endswith("." + approved_host):
+                continue
+            sources = item.get("sources") if isinstance(item.get("sources"), list) else []
+            records.append({
+                "host": name, "sources": [str(source)[:100] for source in sources[:20]],
+                "source": "amass", "evidence_type": "passive_subdomain",
+                "assessment": "Passive Amass discovery only; this hostname is an inventory lead, not an approved target.",
+            })
+        return records
+
+    try:
+        document = json.loads(output)
+    except (TypeError, ValueError):
+        return [{"raw": line[:4000], "source": tool_id} for line in output.splitlines() if line.strip()][:100]
+
+    if tool_id == "wpscan":
+        if not isinstance(document, dict):
+            return []
+        version = document.get("version") if isinstance(document.get("version"), dict) else {}
+        plugins = document.get("plugins") if isinstance(document.get("plugins"), dict) else {}
+        themes = document.get("themes") if isinstance(document.get("themes"), dict) else {}
+        findings = document.get("interesting_findings") if isinstance(document.get("interesting_findings"), list) else []
+        return [{
+            "target": target_url, "source": "wpscan",
+            "wordpress_version": version.get("number"),
+            "plugin_count": len(plugins), "theme_count": len(themes),
+            "finding_count": len(findings),
+            "raw": json.dumps({
+                "version": version.get("number"),
+                "plugins": list(plugins.keys())[:50],
+                "themes": list(themes.keys())[:25],
+                "interesting_findings": findings[:25],
+            }, ensure_ascii=False)[:12000],
+            "assessment": "WPScan used passive detection modes. Results are evidence and require analyst validation; vulnerability data may be incomplete without a WPScan API token.",
+        }]
+
+    if tool_id == "nikto":
+        if not isinstance(document, dict):
+            return []
+        items = document.get("vulnerabilities") or document.get("findings") or document.get("items") or []
+        if not isinstance(items, list):
+            items = []
+        if not items:
+            return [{
+                "target": target_url, "source": "nikto",
+                "raw": json.dumps(document, ensure_ascii=False)[:12000],
+                "assessment": "Nikto output retained for review; a scanner message is not a confirmed vulnerability.",
+            }]
+        return [{
+            "target": str(item.get("url") or target_url)[:2048],
+            "source": "nikto",
+            "finding": str(item.get("msg") or item.get("message") or item.get("description") or item.get("id") or "Nikto observation")[:1000],
+            "severity": str(item.get("severity") or "unknown")[:30],
+            "raw": json.dumps(item, ensure_ascii=False)[:4000],
+            "assessment": "Nikto observation retained as evidence; verify manually before classifying it as a vulnerability.",
+        } for item in items[:200] if isinstance(item, dict)]
+
+    if tool_id == "testssl.sh":
+        items = document if isinstance(document, list) else [document]
+        records = []
+        for item in items[:500]:
+            if not isinstance(item, dict):
+                continue
+            records.append({
+                "target": target_url, "source": "testssl.sh",
+                "finding": str(item.get("finding") or item.get("id") or item.get("severity") or "TLS observation")[:1000],
+                "severity": str(item.get("severity") or "unknown")[:30],
+                "raw": json.dumps(item, ensure_ascii=False)[:4000],
+                "assessment": "TLS configuration observation; interpret in context and verify certificate/protocol findings.",
+            })
+        return records
+    return []
+
+
 def _parse_tool_output(tool_id: str, output: str, target_url: str | None = None) -> list[dict]:
     import json
     if tool_id == "gobuster":
@@ -1248,6 +1414,8 @@ def _parse_tool_output(tool_id: str, output: str, target_url: str | None = None)
         return _parse_content_discovery_json(tool_id, output, target_url or "")
     if tool_id == "nuclei":
         return _parse_nuclei_output(output, target_url or "")
+    if tool_id in {"nikto", "wpscan", "amass", "testssl.sh", "nmap"}:
+        return _parse_specialist_tool_output(tool_id, output, target_url or "")
 
     def normalise(item: object) -> dict:
         if tool_id == "httpx" and isinstance(item, dict):
@@ -1735,6 +1903,32 @@ def run_recon_tool(req: ToolRunRequest):
             "Requests were bounded to one template worker and 2 requests/second with no retries. "
             "Template matches are evidence for analyst review, not confirmed vulnerability verdicts; "
             "they do not expand approved scope."
+        )
+    elif req.tool_id == "amass":
+        assessment_text = (
+            "Amass ran passive enumeration only. Discovered hostnames remain out-of-scope inventory leads "
+            "and are never automatically approved or actively probed."
+        )
+    elif req.tool_id == "nmap":
+        assessment_text = (
+            "Nmap ran a fixed TCP connect scan of the 100 most common ports with light service detection, "
+            "one retry, and a 90-second host timeout. No scripts, UDP scan, OS detection, or arbitrary port "
+            "ranges were enabled. Open ports are observations, not vulnerability findings."
+        )
+    elif req.tool_id == "testssl.sh":
+        assessment_text = (
+            "testssl.sh ran its fast TLS configuration checks against the exact approved HTTPS hostname and port. "
+            "TLS observations are evidence for review, not automatic vulnerability verdicts."
+        )
+    elif req.tool_id == "wpscan":
+        assessment_text = (
+            "WPScan ran in passive detection mode with one worker and a request throttle. "
+            "Vulnerability intelligence may be incomplete without an API token; observations require review."
+        )
+    elif req.tool_id == "nikto":
+        assessment_text = (
+            "Nikto ran with a fixed maximum duration and non-interactive output. Its observations are evidence "
+            "for analyst review, not confirmed vulnerabilities."
         )
     elif req.tool_id == "subfinder":
         assessment_text = (
