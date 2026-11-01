@@ -465,7 +465,6 @@ def check_manual_directories(req: ManualPathCheckRequest):
                 + "Response comparison was skipped; this result is unclassified."
             )
     finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    completed = {}
     execution = record_tool_execution(
         scope, "manual-path-check", origin, started_at, finished_at,
         0 if all(record.get("status_code") is not None for record in records) else 1,
@@ -475,7 +474,7 @@ def check_manual_directories(req: ManualPathCheckRequest):
     return {
         "execution_id": execution["id"],
         "assessment_id": req.assessment_id,
-        "cancelled": bool(completed.get("cancelled")),
+        "cancelled": False,
         "tool_id": "manual-path-check",
         "target": origin,
         "records": records,
