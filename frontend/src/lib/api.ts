@@ -8,6 +8,14 @@ export type AssessmentSummary = {
 export type AssessmentDetail = AssessmentSummary & { targets: AssessmentTarget[] };
 export type AssessmentAsset = { id: number; assessment_id: number; asset_type: "url" | "host"; value: string; hostname: string; scope_state: "in_scope" | "out_of_scope"; source_tool: string; first_seen: string; last_seen: string };
 export type AssessmentAssetInventory = { assets: AssessmentAsset[]; counts: { total: number; in_scope: number; out_of_scope: number } };
+export type AssessmentService = {
+  id: number; assessment_id: number; hostname: string; port: number; protocol: "tcp";
+  service: string; product: string; version: string; scope_state: "in_scope" | "out_of_scope";
+  source_tool: string; first_seen: string; last_seen: string;
+};
+export type AssessmentServiceInventory = {
+  services: AssessmentService[]; counts: { total: number; in_scope: number; out_of_scope: number };
+};
 export type AssessmentExecutionRecord = Record<string, unknown> & {
   record_id: string; review_state: "active" | "dismissed"; reviewed_at: string | null; notes: string; record_type: "evidence" | "finding";
   evidence_schema_version?: number; source_tool?: string; target_url?: string; observed_at?: string;
@@ -207,6 +215,7 @@ export const api = {
         method: "POST", body: JSON.stringify({ url, authorized }),
       }),
     assets: (id: number) => request<AssessmentAssetInventory>(`/assessments/${id}/assets`),
+    services: (id: number) => request<AssessmentServiceInventory>(`/assessments/${id}/services`),
     executions: (id: number) =>
       request<{ executions: AssessmentExecution[] }>(`/assessments/${id}/executions`),
     executionJobs: (id: number) =>
