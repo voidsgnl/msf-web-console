@@ -150,9 +150,15 @@ class ToolRunRequest(BaseModel):
 
 
 
+def _project_wordlist_root() -> Path:
+    """Return the repository-local directory for untracked wordlist datasets."""
+    return Path(__file__).resolve().parents[3] / "wordlists"
+
+
 def _wordlist_roots() -> list[Path]:
     configured = os.environ.get("MSF_WEB_WORDLIST_DIRS")
     values = configured.split(os.pathsep) if configured else [
+        str(_project_wordlist_root()),
         "/usr/share/seclists/Discovery/Web-Content",
         "/usr/share/wordlists",
         "/usr/share/dirb/wordlists",
