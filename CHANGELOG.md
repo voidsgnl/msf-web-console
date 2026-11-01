@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Added a Manual directory checks option for analyst-supplied known paths. It accepts up to 25 relative paths per run, performs bounded same-origin GET requests with a two-request concurrency limit, does not follow redirects, records status/title/content type/response size, and saves each run as assessment evidence. External URLs, query strings, fragments, backslashes, and traversal segments are rejected; results are response observations rather than automatic endpoint validation.
+
 - Grouped Gobuster likely soft-404 results by a stable response key derived from HTTP status, normalized page title, media type, and shared not-found markers. Matching paths now appear in collapsible groups with per-path status, response size, similarity, and classification evidence preserved; distinct response signatures remain separate. Added backend coverage for group separation across title and media-type differences.
 
 - Expanded Gobuster response classification to recognize application-level soft 404s. Normalized random-path baselines now record common not-found phrases; a phrase repeated across multiple baselines and a candidate is labelled "likely soft 404". Responses in the 80–92% similarity band are labelled "needs verification" rather than being presented as distinct discoveries. Existing wildcard, distinct-response, and unverified outcomes remain available, and the Directories UI shows the additional counts.
