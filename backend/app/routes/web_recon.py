@@ -1,7 +1,7 @@
 import re
 import shutil
 from datetime import datetime, timezone
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import requests
 from fastapi import APIRouter, HTTPException
@@ -317,36 +317,77 @@ def _resolve_same_origin_redirects(target_url: str, max_redirects: int = 5) -> t
 
 
 def _filter_katana_records(records: list[dict], target_url: str) -> list[dict]:
-    """Retain only safe HTTP(S) endpoint URLs on the exact approved origin."""
+    """Retain safe HTTP(S) discoveries on the exact approved origin."""
     approved = urlsplit(target_url)
-    approved_origin = (
-        approved.scheme.lower(), (approved.hostname or "").lower(),
-        approved.port or (443 if approved.scheme.lower() == "https" else 80),
-    )
+    approved_origin = (approved.scheme.lower(), (approved.hostname or "").lower(), approved.port or (443 if approved.scheme.lower() == "https" else 80))
     scoped_records = []
     for record in records:
+        if record.get("kind") == "redirect_chain":
+            scoped_records.append(record)
+            continue
         endpoint = record.get("url")
         if not isinstance(endpoint, str) or len(endpoint) > 2048 or any(ch.isspace() for ch in endpoint):
             continue
         try:
             parsed_endpoint = urlsplit(endpoint)
             endpoint_port = parsed_endpoint.port or (443 if parsed_endpoint.scheme.lower() == "https" else 80)
-            endpoint_origin = (
-                parsed_endpoint.scheme.lower(), (parsed_endpoint.hostname or "").lower(), endpoint_port,
-            )
+            endpoint_origin = (parsed_endpoint.scheme.lower(), (parsed_endpoint.hostname or "").lower(), endpoint_port)
         except ValueError:
             continue
-        if (
-            parsed_endpoint.scheme.lower() in {"http", "https"}
-            and parsed_endpoint.hostname
-            and not parsed_endpoint.username
-            and not parsed_endpoint.password
-            and not parsed_endpoint.fragment
-            and endpoint_origin == approved_origin
-        ):
+        if (parsed_endpoint.scheme.lower() in {"http", "https"} and parsed_endpoint.hostname and not parsed_endpoint.username and not parsed_endpoint.password and not parsed_endpoint.fragment and endpoint_origin == approved_origin):
             scoped_records.append(record)
     return scoped_records
 
+
+def _classify_katana_records(records: list[dict]) -> list[dict]:
+    """Classify and deduplicate discoveries without discarding useful evidence."""
+    static_extensions = {".7z", ".avif", ".css", ".csv", ".eot", ".gif", ".gz", ".ico", ".jpeg", ".jpg", ".js", ".map", ".mp3", ".mp4", ".otf", ".pdf", ".png", ".svg", ".tar", ".ttf", ".webm", ".webp", ".woff", ".woff2", ".zip"}
+    api_path = re.compile(r"(?:^|/)(?:api|graphql|rest|v[0-9]+)(?:/|$)", re.IGNORECASE)
+    deduplicated: dict[tuple[str, str], dict] = {}
+    output: list[dict] = []
+    for record in records:
+        if record.get("kind") == "redirect_chain":
+            output.append(record)
+            continue
+        endpoint = record.get("url")
+        if not isinstance(endpoint, str):
+            output.append(record)
+            continue
+        parsed = urlsplit(endpoint)
+        path = parsed.path or "/"
+        filename = path.rsplit("/", 1)[-1]
+        suffix = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        status = record.get("status_code")
+        location = record.get("redirect_location")
+        malformed = "\\" in path or bool(re.search(r"%5c", path, re.IGNORECASE))
+        if malformed:
+            resource_type, reason = "malformed", "Path contains a raw or percent-encoded backslash."
+        elif (isinstance(status, int) and 300 <= status < 400) or location:
+            resource_type, reason = "redirect", "HTTP redirect observed; page redirects are not followed during crawling."
+        elif suffix in static_extensions:
+            resource_type, reason = "static_asset", "URL path has a static-resource extension (" + suffix + ")."
+        elif api_path.search(path):
+            resource_type, reason = "api_candidate", "Path resembles an API route; this is a hint, not proof of an API."
+        else:
+            resource_type, reason = "page", "Same-origin application route discovered by the crawler."
+        scheme, host = parsed.scheme.lower(), (parsed.hostname or "").lower()
+        default_port = 443 if scheme == "https" else 80
+        authority = ("[" + host + "]") if ":" in host else host
+        if parsed.port and parsed.port != default_port:
+            authority += ":" + str(parsed.port)
+        canonical = urlunsplit((scheme, authority, parsed.path or "/", parsed.query, ""))
+        record.update({"canonical_url": canonical, "endpoint_group": path, "resource_type": resource_type, "classification_reason": reason, "fetch_state": "fetched" if isinstance(status, int) else "discovered_unverified", "display_default": resource_type not in {"static_asset", "malformed"}})
+        key = (str(record.get("method") or "GET").upper(), canonical)
+        if key in deduplicated:
+            existing = deduplicated[key]
+            existing["observations"] = existing.get("observations", 1) + 1
+            if existing.get("status_code") is None and status is not None:
+                existing["status_code"], existing["fetch_state"] = status, "fetched"
+            continue
+        record["observations"] = 1
+        deduplicated[key] = record
+        output.append(record)
+    return output
 
 @router.post("/run")
 def run_recon_tool(req: ToolRunRequest):
@@ -415,6 +456,7 @@ def run_recon_tool(req: ToolRunRequest):
     records = _parse_tool_output(req.tool_id, stdout)
     if req.tool_id == "katana":
         records = _filter_katana_records(records, target_url)
+        records = _classify_katana_records(records)
         if redirect_chain:
             records.append({"kind": "redirect_chain", "redirects": redirect_chain})
     execution = record_tool_execution(
