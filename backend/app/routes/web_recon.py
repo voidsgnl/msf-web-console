@@ -1,7 +1,9 @@
+import hashlib
 import os
 import re
 import uuid
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlsplit, urlunsplit
@@ -312,12 +314,80 @@ def _build_tool_command(
     raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
 
 
+def _gobuster_body_signature(body: bytes, encoding: str | None = None) -> dict:
+    """Create a stable signature and token-shingle set for a response body."""
+    text = body.decode(encoding or "utf-8", errors="replace")
+    text = re.sub(
+        r"(?i)\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b",
+        "<dynamic-uuid>",
+        text,
+    )
+    text = re.sub(
+        r"\\b20\\d{2}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z?\\b",
+        "<dynamic-time>",
+        text,
+    )
+    text = re.sub(
+        r"(?i)(csrf(?:token)?|nonce|authenticity_token|requestverificationtoken)([\\s:=\"']+)[a-z0-9._~-]{8,}",
+        r"\\1\\2<dynamic-token>",
+        text,
+    )
+    normalised = re.sub(r"\\s+", " ", text).strip().lower()
+    tokens = re.findall(r"[a-z0-9][a-z0-9_./:-]{2,}", normalised)
+    if len(tokens) >= 3:
+        shingles = {" ".join(tokens[index:index + 3]) for index in range(len(tokens) - 2)}
+    else:
+        shingles = set(tokens)
+    return {
+        "fingerprint": hashlib.sha256(normalised.encode("utf-8")).hexdigest(),
+        "shingles": shingles,
+        "normalised_length": len(normalised),
+    }
+
+
+def _gobuster_body_similarity(left: dict, right: dict) -> float:
+    left_shingles = left.get("shingles") or set()
+    right_shingles = right.get("shingles") or set()
+    if not left_shingles or not right_shingles:
+        return 1.0 if left.get("fingerprint") == right.get("fingerprint") else 0.0
+    union = left_shingles | right_shingles
+    return len(left_shingles & right_shingles) / len(union) if union else 0.0
+
+
+def _fetch_gobuster_candidate_body(url: str) -> tuple[int, dict] | None:
+    """Re-fetch one same-origin candidate without following redirects."""
+    session = requests.Session()
+    session.trust_env = False
+    try:
+        with session.get(
+            url,
+            headers={"User-Agent": "gobuster/3.8.2", "Accept": "*/*"},
+            timeout=(3.0, 5.0),
+            allow_redirects=False,
+            stream=True,
+            verify=True,
+        ) as response:
+            body = bytearray()
+            for chunk in response.iter_content(chunk_size=8192):
+                if not chunk:
+                    continue
+                body.extend(chunk)
+                if len(body) > 1048576:
+                    return None
+            return response.status_code, _gobuster_body_signature(bytes(body), response.encoding)
+    except requests.exceptions.RequestException:
+        return None
+    finally:
+        session.close()
+
+
 def _probe_gobuster_wildcard_length(target_url: str) -> dict:
     """Measure wildcard response sizes for random missing paths before enumeration."""
     session = requests.Session()
     session.trust_env = False
     lengths: set[int] = set()
     statuses: set[int] = set()
+    body_signatures: list[dict] = []
     try:
         for _ in range(5):
             probe_url = urljoin(target_url.rstrip("/") + "/", str(uuid.uuid4()))
@@ -332,15 +402,21 @@ def _probe_gobuster_wildcard_length(target_url: str) -> dict:
                 ) as response:
                     statuses.add(response.status_code)
                     total = 0
+                    body = bytearray()
                     for chunk in response.iter_content(chunk_size=8192):
                         if not chunk:
                             continue
                         total += len(chunk)
+                        body.extend(chunk)
                         if total > 1048576:
                             raise HTTPException(502, "Gobuster wildcard probe response exceeded the 1 MiB inspection limit.")
                     # Measure decoded body bytes, matching Gobuster's response-size
                     # value even when the server uses gzip or another encoding.
                     lengths.add(total)
+                    body_signatures.append({
+                        "status_code": response.status_code,
+                        **_gobuster_body_signature(bytes(body), response.encoding),
+                    })
             except requests.exceptions.SSLError as exc:
                 raise HTTPException(502, f"Gobuster wildcard probe TLS negotiation failed: {exc}") from exc
             except requests.exceptions.Timeout as exc:
@@ -367,6 +443,7 @@ def _probe_gobuster_wildcard_length(target_url: str) -> dict:
             # Classification is deliberately conservative: size proximity is
             # a signal for review, not proof that a path does not exist.
             "length_tolerance": max(128, round(reference_length * 0.01)),
+            "body_signatures": body_signatures,
         }
     finally:
         session.close()
@@ -414,14 +491,16 @@ def _parse_gobuster_output(output: str, target_url: str) -> list[dict]:
     return list(deduplicated.values())
 
 
-def _classify_gobuster_records(records: list[dict], wildcard_profile: dict) -> dict:
-    """Flag likely wildcard responses without silently discarding discoveries."""
+def _classify_gobuster_records(records: list[dict], wildcard_profile: dict, target_url: str) -> dict:
+    """Compare near-baseline responses with normalized body fingerprints."""
     baseline_statuses = set(wildcard_profile.get("status_codes", []))
+    baseline_signatures = wildcard_profile.get("body_signatures", [])
     reference_length = int(wildcard_profile.get("reference_length", 0))
     tolerance = int(wildcard_profile.get("length_tolerance", 128))
-    suspected = 0
-    distinct = 0
-    unverified = 0
+    similarity_threshold = 0.92
+    max_fingerprint_checks = 100
+    approved_origin = _origin_key(target_url)
+    candidates = []
     for record in records:
         status = record.get("status_code")
         length = record.get("content_length")
@@ -431,14 +510,79 @@ def _classify_gobuster_records(records: list[dict], wildcard_profile: dict) -> d
             and isinstance(length, int)
             and abs(length - reference_length) <= tolerance
         ):
-            delta = length - reference_length
-            record["response_classification"] = "suspected_wildcard"
-            record["classification_reason"] = (
-                f"Matches the random-path baseline: HTTP {status}, "
-                f"{length:,} bytes ({delta:+,} bytes from the {reference_length:,}-byte reference). "
-                "Review before treating this as a real path."
-            )
-            suspected += 1
+            try:
+                if _origin_key(record.get("url", "")) == approved_origin:
+                    candidates.append(record)
+                else:
+                    record["response_classification"] = "unverified"
+                    record["classification_reason"] = "Candidate URL did not match the approved origin; no follow-up request was made."
+            except (TypeError, ValueError):
+                record["response_classification"] = "unverified"
+                record["classification_reason"] = "Candidate URL could not be validated against the approved origin."
+    checkable = candidates[:max_fingerprint_checks]
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        fetched = list(executor.map(
+            _fetch_gobuster_candidate_body,
+            [record["url"] for record in checkable],
+        ))
+    fetched_by_url = {
+        record["url"]: result for record, result in zip(checkable, fetched)
+    }
+
+    suspected = 0
+    distinct = 0
+    unverified = 0
+    fingerprint_checks = 0
+    for record in records:
+        status = record.get("status_code")
+        length = record.get("content_length")
+        if record.get("response_classification") == "unverified":
+            unverified += 1
+        elif (
+            isinstance(status, int)
+            and status in baseline_statuses
+            and isinstance(length, int)
+            and abs(length - reference_length) <= tolerance
+        ):
+            result = fetched_by_url.get(record.get("url"))
+            if result is None:
+                record["response_classification"] = "unverified"
+                record["classification_reason"] = (
+                    "Response body could not be safely re-fetched for fingerprint comparison "
+                    "(request failed, exceeded 1 MiB, or fingerprint-check limit reached)."
+                )
+                unverified += 1
+                continue
+            response_status, signature = result
+            fingerprint_checks += 1
+            comparable = [
+                item for item in baseline_signatures
+                if item.get("status_code") == response_status
+            ]
+            if not comparable or response_status != status:
+                similarity = 0.0
+            else:
+                similarity = max(
+                    _gobuster_body_similarity(signature, item)
+                    for item in comparable
+                )
+            record["body_similarity"] = round(similarity, 4)
+            if similarity >= similarity_threshold:
+                record["response_classification"] = "suspected_wildcard"
+                record["classification_reason"] = (
+                    f"Normalized response body matches a random-path baseline "
+                    f"({similarity:.1%} similarity; HTTP {status}; {length:,} bytes). "
+                    "Review before treating this as a real path."
+                )
+                suspected += 1
+            else:
+                record["response_classification"] = "distinct_response"
+                record["classification_reason"] = (
+                    f"Response body differs from the random-path baseline "
+                    f"({similarity:.1%} similarity; threshold {similarity_threshold:.0%}). "
+                    "This is a distinct response, not proof that the path is valid."
+                )
+                distinct += 1
         elif isinstance(status, int) and isinstance(length, int):
             record["response_classification"] = "distinct_response"
             record["classification_reason"] = (
@@ -460,12 +604,14 @@ def _classify_gobuster_records(records: list[dict], wildcard_profile: dict) -> d
         ],
         "reference_length": reference_length,
         "length_tolerance": tolerance,
+        "body_similarity_threshold": similarity_threshold,
+        "body_fingerprint_checks": fingerprint_checks,
+        "body_fingerprint_check_limit": max_fingerprint_checks,
         "suspected_wildcard": suspected,
         "distinct_response": distinct,
         "unverified": unverified,
         "total": len(records),
     }
-
 
 def _parse_tool_output(tool_id: str, output: str, target_url: str | None = None) -> list[dict]:
     import json
@@ -796,7 +942,7 @@ def run_recon_tool(req: ToolRunRequest):
     records = _parse_tool_output(req.tool_id, stdout, target_url)
     gobuster_summary = None
     if req.tool_id == "gobuster" and gobuster_wildcard_profile:
-        gobuster_summary = _classify_gobuster_records(records, gobuster_wildcard_profile)
+        gobuster_summary = _classify_gobuster_records(records, gobuster_wildcard_profile, crawl_target)
     if req.tool_id == "katana":
         records = _filter_katana_records(records, target_url)
         records = _classify_katana_records(records)
@@ -821,7 +967,7 @@ def run_recon_tool(req: ToolRunRequest):
         "redirect_chain": redirect_chain if req.tool_id == "katana" else [],
         "stderr": stderr,
         "assessment": (
-            "Gobuster ran directory/file enumeration only against the exact approved origin. Random-path baseline responses were used both for Gobuster's size exclusion and for conservative post-scan classification. Similar responses are flagged as suspected wildcard results, not silently removed or declared invalid; distinct responses still require analyst review. Discoveries never expand approved scope."
+            "Gobuster ran directory/file enumeration only against the exact approved origin. Random-path baseline responses were used for Gobuster's size exclusion and normalized body fingerprints. Near-size candidates are safely re-fetched on the approved origin without following redirects and compared against baseline body signatures. Similar responses are flagged as suspected wildcard results; distinct responses still require analyst review. Discoveries never expand approved scope."
             if req.tool_id == "gobuster"
             else (
             "Subfinder uses passive data sources only. Discovered hostnames are inventory leads, "
