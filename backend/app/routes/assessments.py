@@ -815,7 +815,12 @@ def compare_assessment_runs(assessment_id: int, baseline_id: int, comparison_id:
     def keyed(row):
         output = {}
         for item in json.loads(row["result_json"]):
-            safe = {key: value for key, value in item.items() if key != "_record_id"}
+            # Run-specific envelope timestamps and storage IDs must not
+            # make otherwise identical scanner observations appear changed.
+            safe = {
+                key: value for key, value in item.items()
+                if key not in {"_record_id", "observed_at"}
+            }
             output[json.dumps(safe, sort_keys=True, ensure_ascii=False, default=str)] = safe
         return output
     before, after = keyed(by_id[baseline_id]), keyed(by_id[comparison_id])
