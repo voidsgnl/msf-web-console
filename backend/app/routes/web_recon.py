@@ -16,7 +16,7 @@ TOOL_CATALOG = [
     {"id":"whatweb","name":"WhatWeb","category":"Technology fingerprinting","purpose":"Identify web technologies and application frameworks."},
     {"id":"katana","name":"Katana","category":"Crawling","purpose":"Discover links, routes, and application endpoints."},
     {"id":"ffuf","name":"ffuf","category":"Content discovery","purpose":"Discover paths and virtual hosts using configured wordlists."},
-    {"id":"gobuster","name":"Gobuster","category":"Content discovery","purpose":"Discover directories, files, DNS names, and virtual hosts."},
+    {"id":"gobuster","name":"Gobuster","category":"Content discovery","purpose":"Enumerate web directories and files using a selected wordlist."},
     {"id":"feroxbuster","name":"feroxbuster","category":"Content discovery","purpose":"Discover web content through recursive directory enumeration."},
     {"id":"nuclei","name":"Nuclei","category":"Vulnerability scanning","purpose":"Run selected template-based security checks."},
     {"id":"nikto","name":"Nikto","category":"Web server checks","purpose":"Check web servers for known issues and unsafe configuration."},
