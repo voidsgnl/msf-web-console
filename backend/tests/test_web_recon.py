@@ -376,6 +376,8 @@ class GobusterAdapterTests(unittest.TestCase):
     def test_gobuster_parser_rejects_cross_origin_and_unstructured_lines(self):
         output = (
             "https://other.example/admin (Status: 200) [Size: 1]\\n"
+            "https://user@example.test/private (Status: 200) [Size: 1]\\n"
+            "https://example.test/path#fragment (Status: 200) [Size: 1]\\n"
             "/safe (Status: 200) [Size: 2]\\n"
             "Progress: 100 / 100\\n"
         )
