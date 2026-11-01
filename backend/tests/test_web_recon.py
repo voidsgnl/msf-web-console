@@ -9,7 +9,7 @@ from app.routes.web_recon import (
     ToolRunRequest, WebProbeRequest, ManualPathCheckRequest, _normalise_manual_path, _check_manual_path,
     check_manual_directories, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
-    _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _classify_gobuster_records, _fetch_gobuster_candidate_body, _resolve_wordlist, _list_wordlists, _wordlist_roots, _classify_manual_path_records,
+    _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _classify_gobuster_records, _fetch_gobuster_candidate_body, _resolve_wordlist, _list_wordlists, _wordlist_roots, _classify_manual_path_records, _collect_manual_path_baseline,
     probe_web_service, run_recon_tool,
 )
 
@@ -63,6 +63,35 @@ class WebReconTests(unittest.TestCase):
 
 
 class ManualPathCheckTests(unittest.TestCase):
+    @patch("app.routes.web_recon._check_manual_path")
+    def test_baseline_reports_successful_and_failed_random_probes(self, check_path):
+        check_path.side_effect = [
+            {"status_code": 200, "_body_signature": {"content_type": "text/html", "fingerprint": "a", "shingles": {"one"}, "soft_404_markers": []}},
+            {"fetch_state": "unverified", "classification_reason": "Request timed out after 5 seconds."},
+            {"fetch_state": "unverified", "classification_reason": "TLS negotiation failed."},
+        ]
+        result = _collect_manual_path_baseline("https://example.test/")
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["attempted"], 3)
+        self.assertEqual(result["successful"], 1)
+        self.assertEqual(result["failed"], 2)
+        self.assertEqual(len(result["failures"]), 2)
+        self.assertEqual(result["failures"][0]["reason"], "Request timed out after 5 seconds.")
+
+    @patch("app.routes.web_recon._check_manual_path")
+    def test_baseline_reports_unavailable_when_all_probes_fail(self, check_path):
+        check_path.return_value = {
+            "fetch_state": "unverified",
+            "classification_reason": "Request timed out after 5 seconds.",
+        }
+        result = _collect_manual_path_baseline("https://example.test/")
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["attempted"], 3)
+        self.assertEqual(result["successful"], 0)
+        self.assertEqual(result["failed"], 3)
+        self.assertEqual(len(result["failures"]), 3)
+
+
     def test_manual_path_matching_random_baseline_is_labelled_likely_soft_404(self):
         baseline = {
             "status_code": 200, "content_type": "text/html",
