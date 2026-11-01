@@ -1,6 +1,6 @@
 ## Unreleased
 
-- Added persistent asynchronous reconnaissance jobs with queued/running/terminal states, status polling, operator cancellation, partial-output retention, and startup recovery for jobs interrupted by a backend restart. The Web Security workspace now queues long-running scanners and displays job history and stop controls; the existing synchronous API remains available for compatibility.
+- Added persistent asynchronous reconnaissance jobs with queued/running/terminal states, status polling, operator cancellation, partial-output retention, and startup recovery for jobs interrupted by a backend restart. The Web Security workspace now queues long-running scanners and displays job history and stop controls; the existing synchronous API remains available for compatibility. Concurrent scanner execution is capped at two background processes; queued jobs wait for capacity and can be stopped before launch.
 
 
 
