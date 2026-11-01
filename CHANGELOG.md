@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Expanded evidence management into an assessment-wide findings and evidence workspace with global search, tool/category/review filters, sorting, multi-select bulk review/dismiss/restore/classification/deletion, clipboard copy, JSON/CSV export, and a dedicated record-detail panel with editable analyst notes. Records are explicitly classified as evidence by default; analysts may promote selected records to findings without implying automatic vulnerability verification. Added run-to-run added/removed/unchanged comparison and historical activity summaries by tool.
+
 - Added repository-local wordlist discovery from the Git-ignored root `wordlists/` directory, so downloaded SecLists data stays in the project working tree without being committed.
 - Added Gobuster directory/file enumeration as a fixed adapter. It requires explicit authorization and an exact approved origin, uses backend-configured wordlists rather than browser-supplied filesystem paths, validates optional extensions, caps concurrency at two workers with a 500 ms delay and 8-second request timeout, does not follow redirects, parses matching paths/status/response sizes, and persists results in the assessment evidence store. DNS and virtual-host modes are intentionally not enabled.
 
