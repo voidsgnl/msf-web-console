@@ -209,6 +209,12 @@ export const api = {
     assets: (id: number) => request<AssessmentAssetInventory>(`/assessments/${id}/assets`),
     executions: (id: number) =>
       request<{ executions: AssessmentExecution[] }>(`/assessments/${id}/executions`),
+    executionJobs: (id: number) =>
+      request<{ jobs: AssessmentExecutionJob[] }>(`/assessments/${id}/execution-jobs`),
+    executionJob: (id: number, jobId: string) =>
+      request<AssessmentExecutionJob>(`/assessments/${id}/execution-jobs/${encodeURIComponent(jobId)}`),
+    stopExecutionJob: (id: number, jobId: string) =>
+      request<{ id: string; state: string }>(`/assessments/${id}/execution-jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" }),
     execution: (id: number, executionId: number) =>
       request<AssessmentExecutionDetail>(`/assessments/${id}/executions/${executionId}`),
     updateExecutionRecord: (id: number, executionId: number, recordId: string, changes: {
