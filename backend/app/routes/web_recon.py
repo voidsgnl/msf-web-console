@@ -1,6 +1,6 @@
 import os
 import re
-import secrets
+import uuid
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -319,7 +319,7 @@ def _probe_gobuster_wildcard_length(target_url: str) -> int | str:
     lengths: set[int] = set()
     try:
         for _ in range(5):
-            probe_url = urljoin(target_url.rstrip("/") + "/", f".msf-web-console-{secrets.token_hex(16)}")
+            probe_url = urljoin(target_url.rstrip("/") + "/", str(uuid.uuid4()))
             try:
                 with session.get(
                     probe_url,
