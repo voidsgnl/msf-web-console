@@ -679,10 +679,12 @@ def bulk_update_assessment_records(assessment_id: int, request: dict):
     fields = {key for key in ("review_state", "reviewed", "record_type") if key in request}
     if not fields:
         raise HTTPException(400, "Provide a review state, reviewed flag, or record type.")
-    if request.get("review_state") not in (None, "active", "dismissed"):
+    if "review_state" in request and request["review_state"] not in ("active", "dismissed"):
         raise HTTPException(400, "Invalid review state.")
-    if request.get("record_type") not in (None, "evidence", "finding"):
+    if "record_type" in request and request["record_type"] not in ("evidence", "finding"):
         raise HTTPException(400, "Invalid record type.")
+    if "reviewed" in request and not isinstance(request["reviewed"], bool):
+        raise HTTPException(400, "Reviewed state must be a boolean.")
     now = _timestamp()
     with _connection() as connection:
         _assessment_or_404(connection, assessment_id)
