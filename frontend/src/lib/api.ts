@@ -152,6 +152,7 @@ export const api = {
             email_input_count: number; link_count: number; script_count: number; button_count: number;
             forms: { method: string; action: string; inputs: { type: string; name: string | null;
               autocomplete: string | null; required: boolean }[] }[] };
+        page_fingerprint?: { page_type: string; confidence: "low" | "medium" | "high"; evidence: string[] };
           response_classification?: "likely_soft_404" | "needs_verification" | "distinct_response" | "baseline_unavailable"; body_similarity?: number | null;
           response_fingerprint?: string; soft_404_markers?: string[]; shared_not_found_markers?: string[];
           shared_not_found_marker_count?: number; baseline_samples_compared?: number;
