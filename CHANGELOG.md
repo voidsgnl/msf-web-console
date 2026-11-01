@@ -4,6 +4,9 @@
 
 ## Unreleased
 
+- Made `MSF_WEB_WORDLIST_DIRS` authoritative when explicitly set, preventing host-installed wordlists from leaking into configured catalogs and keeping catalog results deterministic. Default project/system wordlist roots remain active when the variable is unset.
+
+
 - Kept analyst-supplied manual path checks in execution evidence without automatically promoting each tested URL into the asset inventory. The approved target remains inventoried, and the inventory is rebuilt from retained evidence when viewed so paths promoted by older versions are removed. Added regression coverage confirming manual observations remain accessible in execution history.
 
 
