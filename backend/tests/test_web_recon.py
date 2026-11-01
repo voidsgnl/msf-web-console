@@ -801,7 +801,7 @@ class GobusterAdapterTests(unittest.TestCase):
     def test_gobuster_run_persists_parsed_same_origin_results(self, run_process, _probe, _which, _scope, record):
         run_process.return_value = {
             "returncode": 0,
-            "stdout": "/admin (Status: 200) [Size: 123]\\n",
+            "stdout": "/admin (Status: 200) [Size: 123]\n",
             "stderr": "",
             "output_size": 35,
             "output_truncated": False,
