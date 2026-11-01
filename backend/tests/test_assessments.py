@@ -128,6 +128,40 @@ class AssessmentStoreTests(unittest.TestCase):
         self.assertEqual(discovered_host["source_tool"], "nmap")
         self.assertEqual(observation["severity"], "unknown")
 
+    def test_nmap_open_tcp_services_are_indexed_without_expanding_scope(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Service inventory"))
+        assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], "https://example.test")
+        saved = assessments.record_tool_execution(
+            scope, "nmap", "https://example.test",
+            "2026-11-02T00:00:00+00:00", "2026-11-02T00:00:10+00:00", 0, False,
+            [
+                {"host": "example.test", "port": 443, "protocol": "tcp", "state": "open",
+                 "service": "https", "product": "nginx", "version": "1.2"},
+                {"host": "other.example.test", "port": 22, "protocol": "tcp", "state": "open",
+                 "service": "ssh"},
+                {"host": "example.test", "port": 23, "protocol": "tcp", "state": "closed",
+                 "service": "telnet"},
+                {"host": "example.test", "port": 53, "protocol": "udp", "state": "open",
+                 "service": "domain"},
+                {"host": "example.test", "port": 70000, "protocol": "tcp", "state": "open",
+                 "service": "invalid"},
+            ],
+            "",
+        )
+        inventory = assessments.list_assessment_services(created["id"])
+        self.assertEqual(inventory["counts"], {"total": 2, "in_scope": 1, "out_of_scope": 1})
+        by_endpoint = {(item["hostname"], item["port"]): item for item in inventory["services"]}
+        self.assertEqual(by_endpoint[("example.test", 443)]["product"], "nginx")
+        self.assertEqual(by_endpoint[("example.test", 443)]["scope_state"], "in_scope")
+        self.assertEqual(by_endpoint[("other.example.test", 22)]["scope_state"], "out_of_scope")
+        self.assertEqual(
+            assessments.list_assessment_assets(created["id"])["counts"]["out_of_scope"], 1
+        )
+        self.assertEqual(assessments.get_assessment_execution(created["id"], saved["id"])["tool_id"], "nmap")
+
     def test_persistent_job_state_and_restart_recovery(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="Job lifecycle"))
         job = assessments.create_execution_job(created["id"], "nuclei", "https://example.test")
