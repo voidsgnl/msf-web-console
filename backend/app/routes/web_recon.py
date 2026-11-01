@@ -293,7 +293,8 @@ def _parse_gobuster_output(output: str, target_url: str) -> list[dict]:
     records: list[dict] = []
     legacy = re.compile(r"^(?P<path>\S+)\s+\(Status:\s*(?P<status>\d{3})\)(?:\s+\[Size:\s*(?P<size>\d+)\])?")
     modern = re.compile(r"^\[Status:\s*(?P<status>\d{3}),\s*Size:\s*(?P<size>\d+)[^]]*\]\s+(?P<path>\S+)")
-    base = target_url.rstrip("/") + "/"
+    parsed_target = urlsplit(target_url)
+    base = urlunsplit((parsed_target.scheme, parsed_target.netloc, (parsed_target.path or "/").rstrip("/") + "/", "", ""))
     approved_origin = _origin_key(target_url)
     for line in output.splitlines():
         value = line.strip()
