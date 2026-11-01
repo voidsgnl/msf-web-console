@@ -212,11 +212,16 @@ def _parse_tool_output(tool_id: str, output: str) -> list[dict]:
                 (value for key, value in response_headers.items() if str(key).lower().replace("-", "_") == "location"),
                 None,
             )
+            content_type = next(
+                (value for key, value in response_headers.items() if str(key).lower().replace("-", "_") == "content_type"),
+                None,
+            )
             status_code = response.get("status_code", item.get("status_code"))
             return {
                 "url": endpoint if isinstance(endpoint, str) else None,
                 "method": str(request.get("method") or item.get("method") or "GET")[:12],
                 "status_code": status_code,
+                "content_type": str(content_type)[:200] if isinstance(content_type, str) else None,
                 "redirect_location": str(location)[:2048] if isinstance(location, str) else None,
                 "source": str(request.get("source") or item.get("source") or "")[:500],
                 "tag": str(request.get("tag") or item.get("tag") or "")[:100],
@@ -364,8 +369,8 @@ def _classify_katana_records(records: list[dict]) -> list[dict]:
             resource_type, reason = "malformed", "Path contains a raw or percent-encoded backslash."
         elif (isinstance(status, int) and 300 <= status < 400) or location:
             resource_type, reason = "redirect", "HTTP redirect observed; page redirects are not followed during crawling."
-        elif suffix in static_extensions:
-            resource_type, reason = "static_asset", "URL path has a static-resource extension (" + suffix + ")."
+        elif suffix in static_extensions or str(record.get("content_type") or "").split(";", 1)[0].strip().lower().startswith(("image/", "font/", "audio/", "video/", "text/css", "application/javascript", "text/javascript")):
+            resource_type, reason = "static_asset", "Response content type or URL extension identifies a static resource."
         elif api_path.search(path):
             resource_type, reason = "api_candidate", "Path resembles an API route; this is a hint, not proof of an API."
         else:
