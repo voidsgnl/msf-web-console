@@ -146,7 +146,10 @@ export const api = {
         records: { url: string; status_code?: number; reason?: string; response_title?: string | null;
           response_content_type?: string | null; response_preview?: string; content_length?: number; bytes_inspected?: number;
           body_truncated?: boolean; redirect_location?: string | null; fetch_state?: string;
-          classification_reason: string }[];
+          response_classification?: "likely_soft_404" | "distinct_response"; body_similarity?: number | null;
+          response_fingerprint?: string; soft_404_markers?: string[]; baseline_samples_compared?: number;
+          baseline_sample_count?: number; classification_reason: string }[];
+        baseline: { random_path_samples: number; comparison: string };
         assessment: string;
       }>("/web-recon/directories/check", {
         method: "POST",
