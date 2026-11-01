@@ -5,16 +5,42 @@ import os
 import re
 import uuid
 import shutil
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urljoin, urlsplit, urlunsplit
 
 import requests
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/web-recon", tags=["web-recon"])
+
+_JOB_EVENTS: dict[str, threading.Event] = {}
+_JOB_EVENTS_LOCK = threading.Lock()
+
+
+def request_job_cancellation(job_id: str) -> bool:
+    with _JOB_EVENTS_LOCK:
+        event = _JOB_EVENTS.get(job_id)
+        if event is None:
+            return False
+        event.set()
+        return True
+
+
+def _register_job_event(job_id: str) -> threading.Event:
+    event = threading.Event()
+    with _JOB_EVENTS_LOCK:
+        _JOB_EVENTS[job_id] = event
+    return event
+
+
+def _remove_job_event(job_id: str) -> None:
+    with _JOB_EVENTS_LOCK:
+        _JOB_EVENTS.pop(job_id, None)
+
 
 TOOL_CATALOG = [
     {"id":"httpx","name":"httpx","category":"HTTP probing","purpose":"Probe live web services and collect response metadata."},
@@ -446,6 +472,7 @@ def check_manual_directories(req: ManualPathCheckRequest):
     return {
         "execution_id": execution["id"],
         "assessment_id": req.assessment_id,
+        "cancelled": bool(completed.get("cancelled")),
         "tool_id": "manual-path-check",
         "target": origin,
         "records": records,
@@ -1787,8 +1814,8 @@ def _run_bounded_process(command: list[str], config: dict, env: dict, cancel_eve
 
 
 @router.post("/run")
-def run_recon_tool(req: ToolRunRequest):
-    """Run one fixed, bounded HTTP reconnaissance adapter against one authorized URL."""
+def run_recon_tool(req: ToolRunRequest, cancel_event=None):
+    """Run one fixed, bounded reconnaissance adapter against one authorized URL."""
     import os
     import subprocess
 
@@ -1846,6 +1873,7 @@ def run_recon_tool(req: ToolRunRequest):
                 "LANG": os.environ.get("LANG", "C.UTF-8"),
                 "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
             },
+            cancel_event=cancel_event,
         )
         output_size = completed["output_size"]
         stdout = completed["stdout"]
@@ -1961,3 +1989,54 @@ def run_recon_tool(req: ToolRunRequest):
         "stderr": stderr,
         "assessment": assessment_text,
     }
+
+def _run_recon_job_background(job_id: str, req: ToolRunRequest) -> None:
+    from app.routes.assessments import update_execution_job
+
+    event = _register_job_event(job_id)
+    try:
+        if event.is_set():
+            update_execution_job(job_id, "cancelled", error="Cancelled before scanner start.")
+            return
+        update_execution_job(job_id, "running")
+        result = run_recon_tool(req, cancel_event=event)
+        if result.get("cancelled"):
+            update_execution_job(
+                job_id, "cancelled", execution_id=result.get("execution_id"),
+                error="Cancelled by operator; partial output was retained.",
+            )
+        else:
+            update_execution_job(job_id, "completed", execution_id=result.get("execution_id"))
+    except HTTPException as exc:
+        update_execution_job(job_id, "failed", error=str(exc.detail))
+    except Exception as exc:
+        update_execution_job(job_id, "failed", error=f"Unexpected execution error: {str(exc)[:800]}")
+    finally:
+        _remove_job_event(job_id)
+
+
+@router.post("/run/async", status_code=202)
+def queue_recon_tool(req: ToolRunRequest, background_tasks: BackgroundTasks):
+    """Queue a bounded scanner execution and return a persistent job identifier."""
+    if not req.authorized:
+        raise HTTPException(400, "Confirm that you own this target or have explicit permission to assess it.")
+    target_url = _normalise_url(req.url)
+    from app.routes.assessments import assert_target_in_scope, create_execution_job
+    assert_target_in_scope(req.assessment_id, target_url)
+    config = RUNNABLE_TOOLS.get(req.tool_id)
+    if not config:
+        raise HTTPException(400, "This reconnaissance tool is not enabled for execution.")
+    if not shutil.which(req.tool_id):
+        raise HTTPException(409, f"{config['name']} is not installed or is not available on the backend PATH.")
+    # Validate option-dependent inputs before accepting the job.
+    if req.tool_id in {"gobuster", "ffuf", "feroxbuster"}:
+        if urlsplit(target_url).query:
+            raise HTTPException(400, "Remove the query string before running content discovery.")
+        if not req.wordlist_id:
+            raise HTTPException(400, "Select an available backend wordlist before running content discovery.")
+        _resolve_wordlist(req.wordlist_id)
+        _normalise_gobuster_extensions(req.extensions)
+    job = create_execution_job(req.assessment_id, req.tool_id, target_url)
+    _register_job_event(job["id"])
+    background_tasks.add_task(_run_recon_job_background, job["id"], req)
+    return job
