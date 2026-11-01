@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Manual path responses now include heuristic page fingerprints for login, registration, dashboard/account, not-found/error, possible SPA shell, generic form, and unclassified pages, with confidence and supporting evidence.
+
+## Unreleased
+
 - Manual path analysis now records bounded form methods, sanitized action paths, input names/types, autocomplete hints, and required-field flags without collecting values or query strings.
 
 ## Unreleased
