@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- Fixed Gobuster's default `404` status-code blacklist conflicting with the configured status-code allowlist by explicitly clearing the blacklist. This preserves the original accepted status codes and scan scope.
 - Expanded evidence management into an assessment-wide findings and evidence workspace with global search, tool/category/review filters, sorting, multi-select bulk review/dismiss/restore/classification/deletion, clipboard copy, JSON/CSV export, and a dedicated record-detail panel with editable analyst notes. Records are explicitly classified as evidence by default; analysts may promote selected records to findings without implying automatic vulnerability verification. Added run-to-run added/removed/unchanged comparison and historical activity summaries by tool.
 
 - Added repository-local wordlist discovery from the Git-ignored root `wordlists/` directory, so downloaded SecLists data stays in the project working tree without being committed. Fixed recursive discovery depth so the documented `wordlists/SecLists/Discovery/Web-Content` directory is included, and made `MSF_WEB_WORDLIST_DIRS` additive instead of hiding the default locations.
