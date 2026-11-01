@@ -150,7 +150,8 @@ export const api = {
           technologies?: string[]; host?: string; sources?: string[]; method?: string; source?: string;
           tag?: string; attribute?: string; redirect_location?: string | null;
           kind?: string; redirects?: { from: string; to?: string; status_code: number; followed: boolean; reason?: string }[];
-          raw?: string | null; resource_type?: "page" | "api_candidate" | "static_asset" | "redirect" | "framework_redirect" | "malformed"; classification_reason?: string; canonical_url?: string; endpoint_group?: string; fetch_state?: "fetched" | "discovered_unverified"; display_default?: boolean; observations?: number }[];
+          raw?: string | null; resource_type?: "page" | "api_candidate" | "static_asset" | "redirect" | "framework_redirect" | "malformed"; classification_reason?: string; response_classification?: "suspected_wildcard" | "distinct_response" | "unverified"; canonical_url?: string; endpoint_group?: string; fetch_state?: "fetched" | "discovered_unverified"; display_default?: boolean; observations?: number }[];
+        wildcard_summary?: { baseline_status_codes: number[]; baseline_length_range: [number, number]; reference_length: number; length_tolerance: number; suspected_wildcard: number; distinct_response: number; unverified: number; total: number } | null;
         redirect_chain?: { from: string; to?: string; status_code: number; followed: boolean; reason?: string }[];
         stderr: string; assessment: string;
       }>("/web-recon/run", {
