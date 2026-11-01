@@ -992,6 +992,14 @@ class GobusterAdapterTests(unittest.TestCase):
 
 
 class SpecialistAdapterTests(unittest.TestCase):
+    def test_tool_request_accepts_specialist_adapters(self):
+        for tool_id in ("nikto", "wpscan", "amass", "testssl.sh", "nmap"):
+            request = ToolRunRequest(
+                assessment_id=1, tool_id=tool_id,
+                url="https://example.test", authorized=True,
+            )
+            self.assertEqual(request.tool_id, tool_id)
+
     def test_specialist_commands_are_fixed_and_bounded(self):
         nikto = _build_tool_command("nikto", "/usr/bin/nikto", "https://example.test")
         self.assertIn("-maxtime", nikto)
@@ -1034,8 +1042,8 @@ class SpecialistAdapterTests(unittest.TestCase):
 
     def test_amass_parser_restricts_results_to_approved_hostname_suffix(self):
         output = (
-            '{"name":"api.example.test","sources":["crtsh"]}\\n'
-            '{"name":"example.test.evil.test","sources":["other"]}\\n'
+            '{"name":"api.example.test","sources":["crtsh"]}\n'
+            '{"name":"example.test.evil.test","sources":["other"]}\n'
             '{"name":"outside.test","sources":["other"]}'
         )
         records = _parse_specialist_tool_output("amass", output, "https://example.test")
