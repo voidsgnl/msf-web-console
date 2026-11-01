@@ -254,10 +254,12 @@ def check_manual_directories(req: ManualPathCheckRequest):
             record["response_classification"] = "baseline_unavailable"
             record["body_similarity"] = None
             record["baseline_samples_compared"] = 0
+            path_reason = record.get("classification_reason")
+            baseline_reason = "; ".join(sorted({item["reason"] for item in baseline["failures"]}))
             record["classification_reason"] = (
-                "Random-path baseline unavailable: "
-                + "; ".join(sorted({item["reason"] for item in baseline["failures"]}))
-                + " Response comparison was skipped; this result is unclassified."
+                (f"Path request: {path_reason} " if path_reason else "")
+                + f"Random-path baseline unavailable: {baseline_reason} "
+                + "Response comparison was skipped; this result is unclassified."
             )
     finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     execution = record_tool_execution(
