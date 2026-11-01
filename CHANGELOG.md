@@ -1,3 +1,5 @@
+- Fixed Gobuster compatibility with packaged versions that reject the optional `-l` output flag. Directory enumeration no longer passes that flag; response-size parsing remains optional when the installed version emits it.
+
 # Changelog
 
 ## Unreleased
