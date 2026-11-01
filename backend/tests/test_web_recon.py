@@ -181,7 +181,7 @@ class ReconToolAdapterTests(unittest.TestCase):
             "katana",
             '{"request":{"method":"GET","endpoint":"https://example.test/login",'
             '"source":"https://example.test/","tag":"a","attribute":"href"},'
-            '"response":{"status_code":200,"headers":{"location":"/next"}}}',
+            '"response":{"status_code":200,"headers":{"location":"/next","content-type":"text/html"}}}',
         )
         self.assertEqual(records[0]["url"], "https://example.test/login")
         self.assertEqual(records[0]["method"], "GET")
@@ -190,6 +190,7 @@ class ReconToolAdapterTests(unittest.TestCase):
         self.assertEqual(records[0]["attribute"], "href")
         self.assertEqual(records[0]["source"], "https://example.test/")
         self.assertEqual(records[0]["redirect_location"], "/next")
+        self.assertEqual(records[0]["content_type"], "text/html")
 
     def test_katana_classifies_pages_assets_api_redirects_and_unverified(self):
         records = _classify_katana_records([
