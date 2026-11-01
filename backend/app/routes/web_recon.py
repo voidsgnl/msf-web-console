@@ -157,7 +157,9 @@ def _project_wordlist_root() -> Path:
 
 def _wordlist_roots() -> list[Path]:
     configured = os.environ.get("MSF_WEB_WORDLIST_DIRS")
-    values = configured.split(os.pathsep) if configured else [
+    # Explicit directories are searched first, but they extend rather than
+    # replace the repository-local and standard system wordlist locations.
+    values = (configured.split(os.pathsep) if configured else []) + [
         str(_project_wordlist_root()),
         "/usr/share/seclists/Discovery/Web-Content",
         "/usr/share/wordlists",
@@ -185,7 +187,10 @@ def _list_wordlists() -> list[dict]:
         for current, directories, filenames in os.walk(root, followlinks=False):
             current_path = Path(current)
             depth = len(current_path.relative_to(root).parts)
-            directories[:] = [name for name in directories if not (current_path / name).is_symlink()] if depth < 2 else []
+            # SecLists commonly nests Web-Content at
+            # SecLists/Discovery/Web-Content (three levels below the root).
+            # Allow a bounded depth so those lists are actually selectable.
+            directories[:] = [name for name in directories if not (current_path / name).is_symlink()] if depth < 5 else []
             for filename in filenames:
                 candidate = current_path / filename
                 if candidate.suffix.lower() not in allowed_suffixes or candidate.is_symlink():
