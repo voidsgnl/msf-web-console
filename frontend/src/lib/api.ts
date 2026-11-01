@@ -126,7 +126,9 @@ export const api = {
   webRecon: {
     tools: () => request<{ tools: {
       id: string; name: string; category: string; purpose: string;
-      installed: boolean; path?: string | null;
+      installed: boolean; execution_enabled: boolean;
+      status: "ready" | "not_installed" | "not_integrated";
+      path?: string | null;
     }[]; built_in: { name: string; available: boolean; description: string }[] }>("/web-recon/tools"),
     wordlists: () => request<{ wordlists: { id: string; name: string; size_bytes: number }[] }>("/web-recon/wordlists"),
     probe: (assessmentId: number, url: string, authorized: boolean) =>
