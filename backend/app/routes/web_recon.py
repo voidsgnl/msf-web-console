@@ -80,7 +80,10 @@ def _check_manual_path(url: str) -> dict:
                 if len(body) >= 65536:
                     del body[65536:]
                     break
-            text = bytes(body).decode(response.encoding or "utf-8", errors="replace")
+            raw_body = bytes(body)
+            text = raw_body.decode(response.encoding or "utf-8", errors="replace")
+            body_signature = _gobuster_body_signature(raw_body, response.encoding)
+            body_signature["content_type"] = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
             title_match = re.search(r"<title[^>]*>(.*?)</title\s*>", text, re.IGNORECASE | re.DOTALL)
             title = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", title_match.group(1))).strip()[:200] if title_match else None
             content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() or None
@@ -97,6 +100,7 @@ def _check_manual_path(url: str) -> dict:
                 "bytes_inspected": len(body),
                 "body_truncated": len(body) >= 65536,
                 "redirect_location": location[:1000] if location else None,
+                "_body_signature": body_signature,
                 "classification_reason": "HTTP response observed. A status code or page title alone does not prove that the requested resource is a functional endpoint.",
             }
     except requests.exceptions.Timeout:
@@ -154,6 +158,60 @@ def _technology_hints(headers: dict[str, str], body: str) -> list[str]:
     return found
 
 
+def _classify_manual_path_records(records: list[dict], baseline_signatures: list[dict]) -> list[dict]:
+    """Compare manual responses with random-path baselines without asserting endpoint validity."""
+    usable = [item for item in baseline_signatures if item.get("status_code") is not None]
+    for record in records:
+        signature = record.pop("_body_signature", None)
+        if signature:
+            record["response_fingerprint"] = signature.get("fingerprint")
+            record["soft_404_markers"] = signature.get("soft_404_markers", [])
+        if not signature or not usable or record.get("status_code") is None:
+            continue
+        comparable = [item for item in usable if item.get("status_code") == record.get("status_code")
+                      and item.get("content_type") == signature.get("content_type")]
+        similarities = [_gobuster_body_similarity(signature, item) for item in comparable]
+        best = max(similarities, default=0.0)
+        candidate_markers = set(signature.get("soft_404_markers", []))
+        baseline_markers = set().union(*(set(item.get("soft_404_markers", [])) for item in comparable)) if comparable else set()
+        shared = sorted(candidate_markers & baseline_markers)
+        record["body_similarity"] = round(best, 4) if comparable else None
+        record["baseline_samples_compared"] = len(comparable)
+        if comparable and (best >= 0.85 or shared):
+            record["response_classification"] = "likely_soft_404"
+            detail = f" (body similarity {best:.0%})" if similarities else ""
+            marker_detail = f"; shared not-found markers: {', '.join(shared)}" if shared else ""
+            record["classification_reason"] = (
+                f"Response closely matches the random-path baseline{detail}{marker_detail}. "
+                "Treat as a likely soft 404, not a confirmed endpoint."
+            )
+        elif comparable:
+            record["response_classification"] = "distinct_response"
+            record["classification_reason"] = (
+                f"Response differs from {len(comparable)} comparable random-path baseline sample(s) "
+                f"(best body similarity {best:.0%}); this is not proof of a functional endpoint."
+            )
+    return records
+
+
+def _collect_manual_path_baseline(origin: str) -> list[dict]:
+    """Collect three bounded random-path responses on the exact approved origin."""
+    baselines = []
+    for _ in range(3):
+        probe_url = urljoin(origin, str(uuid.uuid4()))
+        record = _check_manual_path(probe_url)
+        signature = record.pop("_body_signature", None)
+        if signature and record.get("status_code") is not None:
+            baselines.append({
+                "status_code": record["status_code"],
+                "content_type": signature.get("content_type"),
+                "fingerprint": signature.get("fingerprint"),
+                "shingles": signature.get("shingles", set()),
+                "soft_404_markers": signature.get("soft_404_markers", []),
+            })
+    return baselines
+
+
 @router.post("/directories/check")
 def check_manual_directories(req: ManualPathCheckRequest):
     """Check a bounded list of analyst-supplied relative paths on one approved origin."""
@@ -171,8 +229,12 @@ def check_manual_directories(req: ManualPathCheckRequest):
     if any(urlsplit(url).netloc.lower() != target.netloc.lower() or urlsplit(url).scheme.lower() != target.scheme.lower() for url in urls):
         raise HTTPException(400, "Manual paths must remain on the exact approved origin.")
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    baseline_signatures = _collect_manual_path_baseline(origin)
     with ThreadPoolExecutor(max_workers=2) as executor:
         records = list(executor.map(_check_manual_path, urls))
+    records = _classify_manual_path_records(records, baseline_signatures)
+    for record in records:
+        record["baseline_sample_count"] = len(baseline_signatures)
     finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     execution = record_tool_execution(
         scope, "manual-path-check", origin, started_at, finished_at,
@@ -186,7 +248,8 @@ def check_manual_directories(req: ManualPathCheckRequest):
         "tool_id": "manual-path-check",
         "target": origin,
         "records": records,
-        "assessment": f"Checked {len(records)} manually supplied paths with at most two concurrent requests. Redirects were not followed; results are response observations, not endpoint or vulnerability confirmation.",
+        "baseline": {"random_path_samples": len(baseline_signatures), "comparison": "same status and content type; normalized body shingles and common not-found markers"},
+        "assessment": f"Checked {len(records)} manually supplied paths against {len(baseline_signatures)} random-path baseline sample(s). At most two requests ran concurrently; redirects were not followed. Classifications are response comparisons, not endpoint or vulnerability confirmation.",
     }
 
 
