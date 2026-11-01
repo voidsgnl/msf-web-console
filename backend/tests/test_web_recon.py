@@ -226,6 +226,25 @@ class ManualPathCheckTests(unittest.TestCase):
         self.assertNotIn("private@example.test", str(features))
         self.assertNotIn("secret", str(features))
 
+    def test_extract_html_response_features_includes_safe_form_metadata(self):
+        body = b"""<form method="post" action="/session/create?token=private#top">
+        <input type="email" name="email" autocomplete="username" required value="secret@example.test">
+        <input type="password" name="password" autocomplete="current-password" value="hunter2">
+        <input type="hidden" name="csrf_token" value="private-token"></form>
+        <form action="https://identity.example.test/submit"><input name="display_name"></form>"""
+        features = _extract_html_response_features(body)
+        self.assertEqual(features["form_count"], 2)
+        self.assertEqual(features["forms"][0]["method"], "POST")
+        self.assertEqual(features["forms"][0]["action"], "/session/create")
+        self.assertEqual(features["forms"][0]["inputs"][0], {
+            "type": "email", "name": "email", "autocomplete": "username", "required": True,
+        })
+        self.assertEqual(features["forms"][0]["inputs"][1]["autocomplete"], "current-password")
+        self.assertEqual(features["forms"][1]["action"], "external destination")
+        serialized = str(features)
+        for private_value in ("secret@example.test", "hunter2", "private-token", "token=private"):
+            self.assertNotIn(private_value, serialized)
+
     def test_extract_html_response_features_handles_malformed_html(self):
         features = _extract_html_response_features(b"<form><input type=password><button>Login")
         self.assertEqual(features["form_count"], 1)
