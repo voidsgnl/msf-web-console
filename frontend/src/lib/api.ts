@@ -148,8 +148,9 @@ export const api = {
         records: { url: string; status_code?: number; reason?: string; response_title?: string | null;
           response_content_type?: string | null; response_preview?: string; content_length?: number; bytes_inspected?: number;
           body_truncated?: boolean; redirect_location?: string | null; fetch_state?: string;
-          response_classification?: "likely_soft_404" | "distinct_response" | "baseline_unavailable"; body_similarity?: number | null;
-          response_fingerprint?: string; soft_404_markers?: string[]; baseline_samples_compared?: number;
+          response_classification?: "likely_soft_404" | "needs_verification" | "distinct_response" | "baseline_unavailable"; body_similarity?: number | null;
+          response_fingerprint?: string; soft_404_markers?: string[]; shared_not_found_markers?: string[];
+          shared_not_found_marker_count?: number; baseline_samples_compared?: number;
           baseline_sample_count?: number; classification_reason: string }[];
         baseline: { status: "available" | "partial" | "unavailable"; attempted: number; successful: number; failed: number; failures: { fetch_state: string; reason: string }[]; comparison: string };
         assessment: string;
