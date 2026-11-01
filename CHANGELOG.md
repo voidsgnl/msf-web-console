@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added repository-local wordlist discovery from the Git-ignored root `wordlists/` directory, so downloaded SecLists data stays in the project working tree without being committed.
 - Added Gobuster directory/file enumeration as a fixed adapter. It requires explicit authorization and an exact approved origin, uses backend-configured wordlists rather than browser-supplied filesystem paths, validates optional extensions, caps concurrency at two workers with a 500 ms delay and 8-second request timeout, does not follow redirects, parses matching paths/status/response sizes, and persists results in the assessment evidence store. DNS and virtual-host modes are intentionally not enabled.
 
 - Added persistent reconnaissance evidence management: records now have stable identifiers and can be marked reviewed, annotated with analyst notes, dismissed/restored, or permanently deleted without deleting their parent execution history. Dismissed records are hidden by default and can be shown again. Asset inventory is rebuilt from remaining evidence after permanent deletion so removed-only discoveries do not linger.
