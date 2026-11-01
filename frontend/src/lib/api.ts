@@ -144,7 +144,7 @@ export const api = {
       request<{
         execution_id: number; assessment_id: number; tool_id: "manual-path-check"; target: string;
         records: { url: string; status_code?: number; reason?: string; response_title?: string | null;
-          response_content_type?: string | null; content_length?: number; bytes_inspected?: number;
+          response_content_type?: string | null; response_preview?: string; content_length?: number; bytes_inspected?: number;
           body_truncated?: boolean; redirect_location?: string | null; fetch_state?: string;
           classification_reason: string }[];
         assessment: string;
