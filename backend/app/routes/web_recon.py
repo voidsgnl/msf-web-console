@@ -62,20 +62,39 @@ def _normalise_manual_path(raw_path: str) -> str:
 
 
 class _ResponseFeatureParser(HTMLParser):
-    """Count useful HTML controls without retaining submitted values or URLs."""
+    """Extract bounded form structure without retaining submitted values or query strings."""
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.features = {
             "form_count": 0, "input_count": 0, "password_input_count": 0,
             "email_input_count": 0, "link_count": 0, "script_count": 0,
-            "button_count": 0,
+            "button_count": 0, "forms": [],
         }
+        self._current_form = None
 
     def handle_starttag(self, tag, attrs):
         attributes = {key.lower(): value or "" for key, value in attrs}
         if tag == "form":
             self.features["form_count"] += 1
+            if len(self.features["forms"]) < 10:
+                method = attributes.get("method", "get").strip().upper()
+                action = attributes.get("action", "").strip()
+                safe_action = "(current page)"
+                if action:
+                    parsed = urlsplit(action)
+                    if parsed.scheme or parsed.netloc:
+                        safe_action = "external destination"
+                    elif parsed.path:
+                        safe_action = parsed.path[:160]
+                self._current_form = {
+                    "method": method[:10] if method else "GET",
+                    "action": safe_action,
+                    "inputs": [],
+                }
+                self.features["forms"].append(self._current_form)
+            else:
+                self._current_form = None
         elif tag == "input":
             self.features["input_count"] += 1
             input_type = attributes.get("type", "text").lower()
@@ -83,6 +102,14 @@ class _ResponseFeatureParser(HTMLParser):
                 self.features["password_input_count"] += 1
             elif input_type == "email":
                 self.features["email_input_count"] += 1
+            if self._current_form is not None and len(self._current_form["inputs"]) < 25:
+                field = {
+                    "type": input_type[:24],
+                    "name": attributes.get("name", "")[:64] or None,
+                    "autocomplete": attributes.get("autocomplete", "")[:40] or None,
+                    "required": "required" in attributes,
+                }
+                self._current_form["inputs"].append(field)
         elif tag == "a" and attributes.get("href"):
             self.features["link_count"] += 1
         elif tag == "script":
@@ -90,9 +117,13 @@ class _ResponseFeatureParser(HTMLParser):
         elif tag == "button":
             self.features["button_count"] += 1
 
+    def handle_endtag(self, tag):
+        if tag == "form":
+            self._current_form = None
+
 
 def _extract_html_response_features(body: bytes, encoding: str | None = None) -> dict:
-    """Return structural HTML counts; never capture form values or destinations."""
+    """Return HTML structure and safe form metadata, never submitted values or query strings."""
     parser = _ResponseFeatureParser()
     text = body.decode(encoding if isinstance(encoding, str) else "utf-8", errors="replace")
     try:
