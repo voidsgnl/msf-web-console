@@ -84,6 +84,7 @@ def _check_manual_path(url: str) -> dict:
             title_match = re.search(r"<title[^>]*>(.*?)</title\s*>", text, re.IGNORECASE | re.DOTALL)
             title = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", title_match.group(1))).strip()[:200] if title_match else None
             content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() or None
+            preview = re.sub(r"\\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", text))).strip()[:800]
             location = response.headers.get("Location")
             return {
                 "url": url,
@@ -91,6 +92,7 @@ def _check_manual_path(url: str) -> dict:
                 "reason": response.reason,
                 "response_title": title,
                 "response_content_type": content_type,
+                "response_preview": preview,
                 "content_length": int(response.headers["Content-Length"]) if str(response.headers.get("Content-Length", "")).isdigit() else len(body),
                 "bytes_inspected": len(body),
                 "body_truncated": len(body) >= 65536,
