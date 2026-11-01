@@ -74,12 +74,16 @@ Status: adapter implementation complete; validation and platform-wide normalisat
 - [ ] Verify httpx and WhatWeb CLI compatibility against the user's installed versions through local runtime smoke tests (CI uses mocks and cannot establish local binary compatibility).
 - [x] Persist completed executions, timeouts, launch failures, parsed evidence, and bounded stderr in the assessment store.
 - [x] Enforce wall-clock timeouts and combined stdout/stderr limits; terminate scanner process groups on timeout or output overflow.
-- [x] Add a platform-owned SQLite assessment store independent of Metasploit's database, with assessment lifecycle and target-scope CRUD APIs.\n- [x] Require explicit authorization when registering targets; enforce exact scheme/host/port scope matching in the platform scope guard.\n- [x] Bind the built-in web probe, httpx, and WhatWeb executions to an active assessment and exact approved origin.\n- [x] Persist completed runs, timeouts, and launch failures with timestamps, exit status, parsed evidence, and bounded stderr.\n- [x] Expose assessment execution history and stored evidence in the Web Security workspace.\n- [x] Enforce a combined stdout/stderr capture ceiling and terminate the scanner process group when the ceiling is exceeded.
-- [x] Enforce wall-clock timeouts with process-group termination so child processes do not outlive timed-out scans.
-- [ ] Add an asynchronous execution-job lifecycle with polling, persisted running/cancelled states, and an operator-facing Cancel action; the process runner already accepts a cancellation signal.
+- [x] Add a platform-owned SQLite assessment store independent of Metasploit's database, with assessment lifecycle and target-scope CRUD APIs.
+- [x] Require explicit authorization when registering targets; enforce exact scheme/host/port scope matching in the platform scope guard.
+- [x] Bind reconnaissance executions to an active assessment and an exact approved target origin.
+- [x] Persist completed runs, timeouts, launch failures, parsed evidence, and bounded stderr.
+- [x] Expose assessment execution history and stored evidence in the Web Security workspace.
+- [x] Enforce combined stdout/stderr capture ceilings and wall-clock timeouts; terminate scanner process groups when either limit is reached.
+- [x] Add a cancellation signal to the bounded process runner; it terminates the scanner process group and retains captured partial output.
+- [ ] Add an asynchronous execution-job lifecycle with polling, persisted running/cancelled states, and an operator-facing Cancel action.
 - [ ] Persist parser-version metadata with each execution and its evidence.
-- [x] Add a cancellation signal to the bounded process runner; it terminates the scanner process group and retains captured partial output. The operator-facing asynchronous job lifecycle is still outstanding.
-- [x] Distinguish installed executables from implemented adapters in the tool catalogue. All 13 catalogued adapters now have fixed execution implementations; readiness still depends on the executable being installed.
+- [x] Distinguish installed executables from implemented adapters in the tool catalogue. All 13 catalogued adapters have fixed execution implementations; readiness still depends on the executable being installed.
 
 ## Phase 2 — Asset discovery and mapping
 
