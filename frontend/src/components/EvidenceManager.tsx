@@ -204,8 +204,9 @@ export function EvidenceManager({ assessmentId, executions, onRefresh }: Props) 
           <input aria-label={"Select record " + record.record_id} type="checkbox" checked={selected.includes(record.record_id)} onChange={event => setSelected(current => event.target.checked ? [...current, record.record_id] : current.filter(id => id !== record.record_id))} />
           <button type="button" className="min-w-0 flex-1 text-left" onClick={() => chooseDetail(record)}>
             <div className="flex flex-wrap items-center gap-2"><span className="badge">{record.record_type}</span><span className={"badge " + (record.review_state === "dismissed" ? "badge-warning" : "badge-accent")}>{record.review_state}</span>{record.reviewed_at && <span className="badge">Reviewed</span>}<span className="text-[10px] text-gray-500">{record.tool_id} · run #{record.execution_id}</span></div>
-            <div className="mt-1 break-all font-mono text-xs text-gray-200">{String(record.url ?? record.target ?? record.host ?? record.path ?? record.raw ?? "Structured record")}</div>
-            <div className="mt-1 text-[10px] text-gray-500">{new Date(record.started_at).toLocaleString()} · {record.target_url}</div>
+            <div className="mt-1 break-words text-xs text-gray-200">{String(record.summary ?? record.url ?? record.target ?? record.host ?? record.path ?? record.raw ?? "Structured record")}</div>
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-gray-500"><span>{record.observation_type?.replace(/_/g, " ") ?? "legacy evidence"}</span><span>Severity: {record.severity ?? "unknown"}</span><span>Verification: {record.verification_state ?? "legacy"}</span><span>{new Date(record.observed_at ?? record.started_at).toLocaleString()}</span></div>
+            <div className="mt-1 break-all text-[10px] text-gray-600">{record.target_url}</div>
             {record.notes && <p className="mt-1 truncate text-[11px] text-gray-400">Note: {record.notes}</p>}
           </button>
         </article>)}
@@ -214,7 +215,9 @@ export function EvidenceManager({ assessmentId, executions, onRefresh }: Props) 
       <aside className="border-t border-border bg-bg-primary p-4 lg:border-l lg:border-t-0">
         {detail ? <div className="space-y-3">
           <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold text-gray-100">Record detail</h3><button type="button" className="btn btn-sm" onClick={() => setDetail(null)}>Close</button></div>
-          <div className="flex flex-wrap gap-2"><span className="badge">{detail.tool_id}</span><span className="badge">Run #{detail.execution_id}</span><span className="badge">{detail.record_type}</span></div>
+          <div className="flex flex-wrap gap-2"><span className="badge">{detail.tool_id}</span><span className="badge">Run #{detail.execution_id}</span><span className="badge">{detail.record_type}</span><span className="badge">{detail.observation_type?.replace(/_/g, " ") ?? "legacy evidence"}</span></div>
+          <p className="text-sm text-gray-200">{detail.summary ?? "No summary available for this legacy record."}</p>
+          <div className="grid grid-cols-2 gap-2 rounded-md bg-bg-secondary p-3 text-[10px] text-gray-400"><div>Severity<br/><span className="text-gray-200">{detail.severity ?? "unknown"}</span></div><div>Confidence<br/><span className="text-gray-200">{detail.confidence ?? "legacy / unassessed"}</span></div><div>Verification<br/><span className="text-gray-200">{detail.verification_state ?? "legacy / unverified"}</span></div><div>Evidence schema<br/><span className="text-gray-200">{detail.evidence_schema_version ?? "legacy"}</span></div></div>
           <p className="break-all font-mono text-xs text-gray-300">{detail.target_url}</p>
           <div className="grid grid-cols-2 gap-2 text-[10px] text-gray-500"><div>Started<br/>{new Date(detail.started_at).toLocaleString()}</div><div>Finished<br/>{new Date(detail.finished_at).toLocaleString()}</div></div>
           <label className="block text-xs text-gray-400">Classification<select className="input mt-1 w-full" value={detail.record_type} onChange={event => updateOne(detail, { record_type: event.target.value as "finding" | "evidence" })}><option value="evidence">Evidence</option><option value="finding">Finding (analyst classified)</option></select></label>
