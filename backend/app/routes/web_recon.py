@@ -617,6 +617,15 @@ def _classify_gobuster_records(records: list[dict], wildcard_profile: dict, targ
             if shared_soft_404_markers:
                 record["response_classification"] = "likely_soft_404"
                 record["soft_404_markers"] = shared_soft_404_markers
+                group_material = "|".join((
+                    str(status),
+                    str(record.get("response_title") or "").strip().lower(),
+                    str(record.get("response_content_type") or "").split(";", 1)[0].strip().lower(),
+                    ",".join(shared_soft_404_markers),
+                ))
+                record["response_group_id"] = "soft404-" + hashlib.sha256(
+                    group_material.encode("utf-8")
+                ).hexdigest()[:12]
                 record["classification_reason"] = (
                     "Response contains an application-level not-found message also present "
                     "in multiple random-path baselines: "
