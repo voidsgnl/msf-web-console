@@ -460,6 +460,53 @@ class GobusterAdapterTests(unittest.TestCase):
         self.assertLess(records[0]["body_similarity"], 0.92)
         self.assertEqual(summary["distinct_response"], 1)
 
+    @patch("app.routes.web_recon._fetch_gobuster_candidate_body")
+    def test_gobuster_marks_profile_not_found_shared_with_random_paths_as_soft_404(self, fetch_body):
+        body = (
+            b"<html><title>Profile not found</title><body>"
+            b"<h1>Profile not found</h1>"
+            b"<p>This profile doesn't exist or has been removed.</p>"
+            b"<footer>Support information</footer></body></html>"
+        )
+        baseline = _gobuster_body_signature(body)
+        candidate = _gobuster_body_signature(
+            body.replace(b"Support information", b"Requested profile: owa")
+        )
+        fetch_body.return_value = (200, candidate)
+        records = [{"url": "https://example.test/owa", "status_code": 200, "content_length": 37860}]
+        summary = _classify_gobuster_records(records, {
+            "status_codes": [200], "min_length": 37860, "max_length": 37860,
+            "reference_length": 37860, "length_tolerance": 128,
+            "body_signatures": [
+                {"status_code": 200, **baseline},
+                {"status_code": 200, **baseline},
+                {"status_code": 200, **baseline},
+            ],
+        }, "https://example.test/")
+        self.assertEqual(records[0]["response_classification"], "likely_soft_404")
+        self.assertIn("profile not found", records[0]["soft_404_markers"])
+        self.assertEqual(summary["likely_soft_404"], 1)
+        self.assertEqual(summary["distinct_response"], 0)
+
+    @patch("app.routes.web_recon._gobuster_body_similarity", return_value=0.905)
+    @patch("app.routes.web_recon._fetch_gobuster_candidate_body")
+    def test_gobuster_borderline_body_similarity_needs_verification(self, fetch_body, _similarity):
+        baseline = _gobuster_body_signature(b"<html><body>generic random response content</body></html>")
+        candidate = _gobuster_body_signature(b"<html><body>different response content</body></html>")
+        fetch_body.return_value = (200, candidate)
+        records = [{"url": "https://example.test/ecp", "status_code": 200, "content_length": 37860}]
+        summary = _classify_gobuster_records(records, {
+            "status_codes": [200], "min_length": 37860, "max_length": 37860,
+            "reference_length": 37860, "length_tolerance": 128,
+            "body_signatures": [
+                {"status_code": 200, **baseline},
+                {"status_code": 200, **baseline},
+            ],
+        }, "https://example.test/")
+        self.assertEqual(records[0]["response_classification"], "needs_verification")
+        self.assertEqual(summary["needs_verification"], 1)
+        self.assertEqual(summary["distinct_response"], 0)
+
     def test_gobuster_body_signature_normalizes_common_dynamic_values(self):
         first = _gobuster_body_signature(
             b"<p>Request 123e4567-e89b-12d3-a456-426614174000 at 2026-11-01T12:00:00Z</p>"
