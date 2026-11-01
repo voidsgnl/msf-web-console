@@ -252,6 +252,30 @@ class ManualPathCheckTests(unittest.TestCase):
         for private_value in ("secret@example.test", "hunter2", "private-token", "token=private"):
             self.assertNotIn(private_value, serialized)
 
+    def test_page_fingerprint_identifies_registration_form(self):
+        features = {"form_count": 1, "input_count": 5, "password_input_count": 2,
+                    "email_input_count": 1, "script_count": 4,
+                    "forms": [{"inputs": [{"name": "email", "type": "email"}, {"name": "password", "type": "password"}]}]}
+        result = _fingerprint_html_page("Create your account", "Register to get started", features)
+        self.assertEqual(result["page_type"], "registration")
+        self.assertIn(result["confidence"], ("medium", "high"))
+
+    def test_page_fingerprint_identifies_login_form(self):
+        features = {"form_count": 1, "input_count": 2, "password_input_count": 1,
+                    "email_input_count": 1, "script_count": 2, "forms": [{"inputs": []}]}
+        result = _fingerprint_html_page("Sign in", "Welcome back", features)
+        self.assertEqual(result["page_type"], "login")
+
+    def test_page_fingerprint_identifies_missing_resource(self):
+        result = _fingerprint_html_page("Profile not found", "This profile doesn't exist", {})
+        self.assertEqual(result["page_type"], "error_or_not_found")
+
+    def test_page_fingerprint_marks_script_heavy_shell_as_possible_spa(self):
+        features = {"form_count": 0, "input_count": 0, "password_input_count": 0,
+                    "email_input_count": 0, "script_count": 12, "forms": []}
+        result = _fingerprint_html_page("Application", "Loading...", features)
+        self.assertEqual(result["page_type"], "possible_spa_shell")
+
     def test_extract_html_response_features_handles_malformed_html(self):
         features = _extract_html_response_features(b"<form><input type=password><button>Login")
         self.assertEqual(features["form_count"], 1)
