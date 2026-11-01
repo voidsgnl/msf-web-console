@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "../lib/api";
-import type { AssessmentAsset, AssessmentDetail, AssessmentExecution, AssessmentSummary } from "../lib/api";
+import type { AssessmentAsset, AssessmentDetail, AssessmentExecution, AssessmentExecutionJob, AssessmentSummary } from "../lib/api";
 import { EvidenceManager } from "./EvidenceManager";
 
 type Tool = { id: string; name: string; category: string; purpose: string; installed: boolean; execution_enabled: boolean; status: "ready"|"not_installed"|"not_integrated"; path?: string | null };
@@ -28,6 +28,9 @@ export function WebSecurityView() {
   const [newAssessmentName,setNewAssessmentName]=useState("");
   const [assessmentError,setAssessmentError]=useState<string|null>(null);
   const [executions,setExecutions]=useState<AssessmentExecution[]>([]);
+  const [executionJobs,setExecutionJobs]=useState<AssessmentExecutionJob[]>([]);
+  const [activeJob,setActiveJob]=useState<AssessmentExecutionJob|null>(null);
+  const [cancelRequested,setCancelRequested]=useState(false);
   const [assets,setAssets]=useState<AssessmentAsset[]>([]);
   const [authorized,setAuthorized]=useState(false);
   const [probing,setProbing]=useState(false);
@@ -41,7 +44,7 @@ export function WebSecurityView() {
   const [manualPathResult,setManualPathResult]=useState<Awaited<ReturnType<typeof api.webRecon.checkManualPaths>>|null>(null);
   const [manualPathError,setManualPathError]=useState<string|null>(null);
   const loadTools=async()=>{setLoading(true);setError(null);try{const [toolData,wordlistData]=await Promise.all([api.webRecon.tools(),api.webRecon.wordlists()]);setTools(toolData.tools);setWordlists(wordlistData.wordlists);setSelectedWordlistId(current=>wordlistData.wordlists.some(list=>list.id===current)?current:wordlistData.wordlists[0]?.id||"");}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setLoading(false);}};
-  const loadAssessments=async(selectedId?:number)=>{try{const result=await api.assessments.list();setAssessments(result.assessments);const id=selectedId??assessmentId??result.assessments[0]?.id??null;setAssessmentId(id);if(id){const detail=await api.assessments.get(id);setAssessment(detail);setExecutions((await api.assessments.executions(id)).executions);setAssets((await api.assessments.assets(id)).assets);}else{setAssessment(null);setExecutions([]);setAssets([]);}}catch(e){setAssessmentError(e instanceof Error?e.message:String(e));}};
+  const loadAssessments=async(selectedId?:number)=>{try{const result=await api.assessments.list();setAssessments(result.assessments);const id=selectedId??assessmentId??result.assessments[0]?.id??null;setAssessmentId(id);if(id){const detail=await api.assessments.get(id);setAssessment(detail);setExecutions((await api.assessments.executions(id)).executions);setExecutionJobs((await api.assessments.executionJobs(id)).jobs);setAssets((await api.assessments.assets(id)).assets);}else{setAssessment(null);setExecutions([]);setExecutionJobs([]);setActiveJob(null);setAssets([]);}}catch(e){setAssessmentError(e instanceof Error?e.message:String(e));}};
   useEffect(()=>{void loadTools();void loadAssessments();},[]);
   const createAssessment=async()=>{if(!newAssessmentName.trim())return;setAssessmentError(null);try{const created=await api.assessments.create(newAssessmentName.trim());setNewAssessmentName("");await loadAssessments(created.id);}catch(e){setAssessmentError(e instanceof Error?e.message:String(e));}};
   const addTargetToScope=async()=>{if(!assessmentId||!authorized||!target.trim())return;setAssessmentError(null);try{await api.assessments.addTarget(assessmentId,target.trim(),true);await loadAssessments(assessmentId);}catch(e){setAssessmentError(e instanceof Error?e.message:String(e));}};
@@ -60,8 +63,59 @@ export function WebSecurityView() {
   },[toolResult]);
   const katanaCounts=useMemo(()=>{const records=toolResult?.tool_id==="katana"?toolResult.records:[];return {pages:records.filter(r=>r.resource_type==="page").length,apis:records.filter(r=>r.resource_type==="api_candidate").length,assets:records.filter(r=>r.resource_type==="static_asset").length,redirects:records.filter(r=>r.resource_type==="redirect").length,frameworkRedirects:records.filter(r=>r.resource_type==="framework_redirect").length,unverified:records.filter(r=>r.fetch_state==="discovered_unverified").length,malformed:records.filter(r=>r.resource_type==="malformed").length};},[toolResult]);
   const runProbe=async(event:FormEvent)=>{event.preventDefault();if(!authorized||!target.trim()||!assessmentId||!targetIsInScope()||probing)return;setProbing(true);setProbe(null);setProbeError(null);try{setProbe(await api.webRecon.probe(assessmentId,target.trim(),true));await loadAssessments(assessmentId);}catch(e){setProbeError(e instanceof Error?e.message:String(e));}finally{setProbing(false);}};
-  const runGobuster=async()=>{if(!authorized||!target.trim()||!assessmentId||!targetIsInScope()||runningTool)return;setToolError(null);setManualPathError(null);if(gobusterInputMode==="manual"){const paths=manualPaths.split(/[\r\n,]+/).map(path=>path.trim()).filter(Boolean);if(!paths.length){setManualPathError("Enter at least one path.");return;}if(paths.length>25){setManualPathError("A single run is limited to 25 paths.");return;}setRunningTool("gobuster");setManualPathResult(null);try{setManualPathResult(await api.webRecon.checkManualPaths(assessmentId,target.trim(),paths,true));await loadAssessments(assessmentId);}catch(e){setManualPathError(e instanceof Error?e.message:String(e));}finally{setRunningTool(null);}return;}if(!selectedWordlistId){setToolError("Select an available backend wordlist first.");return;}setRunningTool("gobuster");setToolResult(null);try{setToolResult(await api.webRecon.runTool(assessmentId,"gobuster",target.trim(),true,{wordlist_id:selectedWordlistId,extensions:gobusterExtensions}));await loadAssessments(assessmentId);}catch(e){setToolError(e instanceof Error?e.message:String(e));}finally{setRunningTool(null);}};
-  const runTool=async(toolId:"httpx"|"whatweb"|"subfinder"|"katana"|"gobuster"|"ffuf"|"feroxbuster"|"nuclei"|"nikto"|"wpscan"|"amass"|"testssl.sh"|"nmap")=>{if(toolId==="gobuster"){await runGobuster();return;}if((toolId==="ffuf"||toolId==="feroxbuster")&&!selectedWordlistId){setToolError("Select an available backend wordlist first.");return;}if(!authorized||!target.trim()||!assessmentId||!targetIsInScope()||runningTool)return;setRunningTool(toolId);setToolResult(null);setToolError(null);try{setToolResult(await api.webRecon.runTool(assessmentId,toolId,target.trim(),true,(toolId==="ffuf"||toolId==="feroxbuster")?{wordlist_id:selectedWordlistId}:undefined));await loadAssessments(assessmentId);}catch(e){setToolError(e instanceof Error?e.message:String(e));}finally{setRunningTool(null);}};
+  const startAsyncRun=async(toolId:"httpx"|"whatweb"|"subfinder"|"katana"|"gobuster"|"ffuf"|"feroxbuster"|"nuclei"|"nikto"|"wpscan"|"amass"|"testssl.sh"|"nmap",options?:{wordlist_id?:string;extensions?:string})=>{
+    if(!authorized||!target.trim()||!assessmentId||!targetIsInScope()||runningTool)return;
+    setRunningTool(toolId);setToolResult(null);setToolError(null);setCancelRequested(false);
+    try{
+      const queued=await api.webRecon.queueTool(assessmentId,toolId,target.trim(),true,options);
+      setActiveJob(queued);setExecutionJobs(current=>[queued,...current.filter(item=>item.id!==queued.id)]);
+      let latest=queued;
+      for(let attempt=0;attempt<360;attempt++){
+        if(["completed","failed","cancelled","interrupted"].includes(latest.state))break;
+        await new Promise(resolve=>setTimeout(resolve,1000));
+        latest=await api.assessments.executionJob(assessmentId,queued.id);
+        setActiveJob(latest);
+        setExecutionJobs(current=>current.map(item=>item.id===latest.id?latest:item));
+      }
+      if(!["completed","failed","cancelled","interrupted"].includes(latest.state)){
+        setToolError("This job is still running in the backend. Its status is saved; you can monitor it in Execution jobs.");
+      }else if(latest.state==="completed"&&latest.execution_id){
+        const detail=await api.assessments.execution(assessmentId,latest.execution_id);
+        setToolResult({execution_id:detail.id,assessment_id:detail.assessment_id,tool_id:detail.tool_id,tool:detail.tool_id,target:detail.target_url,exit_code:detail.exit_code,timed_out:false,output_truncated:Boolean(detail.output_truncated),records:detail.records,wildcard_summary:null,redirect_chain:[],stderr:detail.stderr,assessment:"Completed asynchronously. Stored scanner output is evidence for analyst review, not a confirmed vulnerability verdict."});
+      }else if(latest.state==="failed"||latest.state==="interrupted"){
+        setToolError(latest.error||`Execution ${latest.state}.`);
+      }
+      await loadAssessments(assessmentId);
+    }catch(e){setToolError(e instanceof Error?e.message:String(e));}
+    finally{setRunningTool(null);setCancelRequested(false);}
+  };
+  const cancelActiveJob=async(job:AssessmentExecutionJob)=>{
+    if(!assessmentId||cancelRequested)return;
+    setCancelRequested(true);
+    try{await api.assessments.stopExecutionJob(assessmentId,job.id);setActiveJob(current=>current?.id===job.id?{...current,state:"running"}:current);}
+    catch(e){setToolError(e instanceof Error?e.message:String(e));setCancelRequested(false);}
+  };
+  const runGobuster=async()=>{
+    if(!authorized||!target.trim()||!assessmentId||!targetIsInScope()||runningTool)return;
+    setToolError(null);setManualPathError(null);
+    if(gobusterInputMode==="manual"){
+      const paths=manualPaths.split(/[\\r\\n,]+/).map(path=>path.trim()).filter(Boolean);
+      if(!paths.length){setManualPathError("Enter at least one path.");return;}
+      if(paths.length>25){setManualPathError("A single run is limited to 25 paths.");return;}
+      setRunningTool("gobuster");setManualPathResult(null);
+      try{setManualPathResult(await api.webRecon.checkManualPaths(assessmentId,target.trim(),paths,true));await loadAssessments(assessmentId);}
+      catch(e){setManualPathError(e instanceof Error?e.message:String(e));}
+      finally{setRunningTool(null);}
+      return;
+    }
+    if(!selectedWordlistId){setToolError("Select an available backend wordlist first.");return;}
+    await startAsyncRun("gobuster",{wordlist_id:selectedWordlistId,extensions:gobusterExtensions});
+  };
+  const runTool=async(toolId:"httpx"|"whatweb"|"subfinder"|"katana"|"gobuster"|"ffuf"|"feroxbuster"|"nuclei"|"nikto"|"wpscan"|"amass"|"testssl.sh"|"nmap")=>{
+    if(toolId==="gobuster"){await runGobuster();return;}
+    if((toolId==="ffuf"||toolId==="feroxbuster")&&!selectedWordlistId){setToolError("Select an available backend wordlist first.");return;}
+    await startAsyncRun(toolId,(toolId==="ffuf"||toolId==="feroxbuster")?{wordlist_id:selectedWordlistId}:undefined);
+  };
   return <div className="h-full overflow-y-auto bg-bg-primary p-4 md:p-6"><div className="mx-auto max-w-7xl space-y-5">
     <header><div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">Web assessment</div><div className="mt-1 flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-xl font-semibold text-gray-100">Web Security</h1><p className="mt-1 max-w-3xl text-sm text-gray-400">Discover web services independently; Metasploit remains a separate, deliberate exploitation hand-off.</p></div><div className="flex gap-2"><span className="badge badge-accent">{tools.filter(t=>t.status==="ready").length} adapters ready</span><span className="badge">{tools.length} tools catalogued</span></div></div></header>
     <div role="note" className="flex gap-3 rounded-lg border border-warning/30 bg-warning/5 px-4 py-3"><span className="mt-0.5 text-warning">◆</span><div><p className="text-xs font-semibold text-warning">Authorised targets only</p><p className="mt-1 text-xs leading-relaxed text-gray-400">Only assess systems you own or have explicit permission to test. The first probe sends one HTTP GET request, does not follow redirects, and does not crawl or test for vulnerabilities.</p></div></div>
