@@ -173,6 +173,10 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ assessment_id: assessmentId, url, paths, authorized }),
       }),
+    queueTool: (assessmentId: number, toolId: string, url: string, authorized: boolean, options?: { wordlist_id?: string; extensions?: string }) =>
+      request<AssessmentExecutionJob>("/web-recon/run/async", {
+        method: "POST", body: JSON.stringify({ assessment_id: assessmentId, tool_id: toolId, url, authorized, ...options }),
+      }),
     runTool: (assessmentId: number, toolId: "httpx" | "whatweb" | "subfinder" | "katana" | "gobuster" | "ffuf" | "feroxbuster" | "nuclei" | "nikto" | "wpscan" | "amass" | "testssl.sh" | "nmap", url: string, authorized: boolean, options?: { wordlist_id?: string; extensions?: string }) =>
       request<{
         execution_id: number; assessment_id: number; tool_id: string; tool: string; target: string; exit_code: number;
