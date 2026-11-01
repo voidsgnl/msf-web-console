@@ -394,7 +394,7 @@ class GobusterAdapterTests(unittest.TestCase):
         session.get.side_effect = responses
         self.assertEqual(
             _probe_gobuster_wildcard_length("https://example.test/"),
-            "37892,37894,37900",
+            "37892-37900",
         )
 
     def test_gobuster_parser_supports_legacy_and_current_output_and_deduplicates(self):

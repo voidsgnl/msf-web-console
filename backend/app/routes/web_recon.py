@@ -251,7 +251,7 @@ def _build_tool_command(
     target_url: str,
     wordlist_path: str | None = None,
     extensions: str = "",
-    gobuster_exclude_length: int | None = None,
+    gobuster_exclude_length: int | str | None = None,
 ) -> list[str]:
     if tool_id == "httpx":
         return [
@@ -348,7 +348,11 @@ def _probe_gobuster_wildcard_length(target_url: str) -> int | str:
         if not lengths:
             raise HTTPException(502, "Gobuster wildcard probe returned no response body.")
         values = sorted(lengths)
-        return values[0] if len(values) == 1 else ",".join(str(value) for value in values)
+        if len(values) == 1:
+            return values[0]
+        # Gobuster supports inclusive length ranges. This avoids missing a
+        # transient wildcard size between two probe observations.
+        return f"{values[0]}-{values[-1]}"
     finally:
         session.close()
 
