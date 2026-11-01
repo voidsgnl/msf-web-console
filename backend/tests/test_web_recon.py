@@ -379,7 +379,7 @@ class GobusterAdapterTests(unittest.TestCase):
         self.assertEqual(_probe_gobuster_wildcard_length("https://example.test/"), 37900)
         self.assertFalse(session.trust_env)
         self.assertFalse(session.get.call_args.kwargs["allow_redirects"])
-        self.assertIn(".msf-web-console-", session.get.call_args.args[0])
+        self.assertRegex(session.get.call_args.args[0], r"/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
         self.assertEqual(session.get.call_count, 5)
 
     @patch("app.routes.web_recon.requests.Session")
