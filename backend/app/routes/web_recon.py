@@ -316,7 +316,7 @@ def _build_tool_command(
 
 def _gobuster_body_signature(body: bytes, encoding: str | None = None) -> dict:
     """Create a stable signature and token-shingle set for a response body."""
-    text = body.decode(encoding or "utf-8", errors="replace")
+    text = body.decode(encoding if isinstance(encoding, str) else "utf-8", errors="replace")
     text = re.sub(
         r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
         "<dynamic-uuid>",
