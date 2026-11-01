@@ -165,5 +165,78 @@ class AssessmentStoreTests(unittest.TestCase):
         self.assertEqual(login["source_tool"], "whatweb")
 
 
+    def test_record_review_dismiss_restore_and_notes_persist(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Record lifecycle"))
+        assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], "https://example.test")
+        saved = assessments.record_tool_execution(
+            scope, "katana", "https://example.test", "2026-11-01T10:00:00+00:00",
+            "2026-11-01T10:00:02+00:00", 0, False,
+            [{"url": "https://example.test/login", "status_code": 200}], "",
+        )
+        record = assessments.get_assessment_execution(created["id"], saved["id"])["records"][0]
+        record_id = record["record_id"]
+        dismissed = assessments.update_execution_record(
+            created["id"], saved["id"], record_id,
+            assessments.ExecutionRecordUpdate(review_state="dismissed", reviewed=True, notes="Expected login route."),
+        )
+        self.assertEqual(dismissed["review_state"], "dismissed")
+        self.assertIsNotNone(dismissed["reviewed_at"])
+        self.assertEqual(dismissed["notes"], "Expected login route.")
+        restored = assessments.update_execution_record(
+            created["id"], saved["id"], record_id,
+            assessments.ExecutionRecordUpdate(review_state="active", reviewed=False),
+        )
+        self.assertEqual(restored["review_state"], "active")
+        self.assertIsNone(restored["reviewed_at"])
+        detail = assessments.get_assessment_execution(created["id"], saved["id"])
+        self.assertEqual(detail["records"][0]["notes"], "Expected login route.")
+
+    def test_permanent_record_delete_retains_run_and_rebuilds_asset_inventory(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Record deletion"))
+        assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], "https://example.test")
+        saved = assessments.record_tool_execution(
+            scope, "katana", "https://example.test", "2026-11-01T10:00:00+00:00",
+            "2026-11-01T10:00:02+00:00", 0, False,
+            [{"url": "https://example.test/login", "status_code": 200},
+             {"url": "https://example.test/admin", "status_code": 200}], "",
+        )
+        records = assessments.get_assessment_execution(created["id"], saved["id"])["records"]
+        assessments.delete_execution_record(created["id"], saved["id"], records[0]["record_id"])
+        detail = assessments.get_assessment_execution(created["id"], saved["id"])
+        self.assertEqual(len(detail["records"]), 1)
+        self.assertEqual(detail["records"][0]["url"], "https://example.test/admin")
+        assets = assessments.list_assessment_assets(created["id"])["assets"]
+        values = {item["value"] for item in assets}
+        self.assertNotIn("https://example.test/login", values)
+        self.assertIn("https://example.test/admin", values)
+        self.assertEqual(
+            [item["id"] for item in assessments.list_assessment_executions(created["id"])["executions"]],
+            [saved["id"]],
+        )
+
+    def test_record_management_rejects_unknown_record(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Unknown record"))
+        target = assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], target["url"])
+        saved = assessments.record_tool_execution(
+            scope, "httpx", target["url"], "2026-11-01T10:00:00+00:00",
+            "2026-11-01T10:00:02+00:00", 0, False, [{"status_code": 200}], "",
+        )
+        with self.assertRaises(HTTPException) as raised:
+            assessments.update_execution_record(
+                created["id"], saved["id"], "missing",
+                assessments.ExecutionRecordUpdate(notes="no"),
+            )
+        self.assertEqual(raised.exception.status_code, 404)
+
+
 if __name__ == "__main__":
     unittest.main()
