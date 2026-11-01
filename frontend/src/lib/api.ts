@@ -163,7 +163,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ assessment_id: assessmentId, url, paths, authorized }),
       }),
-    runTool: (assessmentId: number, toolId: "httpx" | "whatweb" | "subfinder" | "katana" | "gobuster" | "ffuf" | "feroxbuster", url: string, authorized: boolean, options?: { wordlist_id?: string; extensions?: string }) =>
+    runTool: (assessmentId: number, toolId: "httpx" | "whatweb" | "subfinder" | "katana" | "gobuster" | "ffuf" | "feroxbuster" | "nuclei", url: string, authorized: boolean, options?: { wordlist_id?: string; extensions?: string }) =>
       request<{
         execution_id: number; assessment_id: number; tool_id: string; tool: string; target: string; exit_code: number;
         timed_out: boolean; output_truncated: boolean;
@@ -173,7 +173,7 @@ export const api = {
           technologies?: string[]; host?: string; sources?: string[]; method?: string; source?: string;
           tag?: string; attribute?: string; redirect_location?: string | null;
           kind?: string; redirects?: { from: string; to?: string; status_code: number; followed: boolean; reason?: string }[];
-          raw?: string | null; resource_type?: "page" | "api_candidate" | "static_asset" | "redirect" | "framework_redirect" | "malformed"; classification_reason?: string; response_classification?: "suspected_wildcard" | "likely_soft_404" | "needs_verification" | "distinct_response" | "unverified"; body_similarity?: number; response_title?: string | null; response_content_type?: string | null; response_group_id?: string; soft_404_markers?: string[]; canonical_url?: string; endpoint_group?: string; fetch_state?: "fetched" | "discovered_unverified"; display_default?: boolean; observations?: number }[];
+          raw?: string | null; resource_type?: "page" | "api_candidate" | "static_asset" | "redirect" | "framework_redirect" | "malformed"; classification_reason?: string; response_classification?: "suspected_wildcard" | "likely_soft_404" | "needs_verification" | "distinct_response" | "unverified"; body_similarity?: number; response_title?: string | null; response_content_type?: string | null; response_group_id?: string; soft_404_markers?: string[]; canonical_url?: string; endpoint_group?: string; fetch_state?: "fetched" | "discovered_unverified"; display_default?: boolean; observations?: number; template_id?: string; template_name?: string; severity?: string; matched_at?: string; matcher_name?: string | null; template_type?: string; extracted_results?: string[]; evidence_type?: string; assessment?: string }[];
         wildcard_summary?: { baseline_status_codes: number[]; baseline_length_range: [number, number]; reference_length: number; length_tolerance: number; body_similarity_threshold: number; review_similarity_threshold: number; body_fingerprint_checks: number; body_fingerprint_check_limit: number; suspected_wildcard: number; likely_soft_404: number; needs_verification: number; distinct_response: number; unverified: number; total: number } | null;
         redirect_chain?: { from: string; to?: string; status_code: number; followed: boolean; reason?: string }[];
         stderr: string; assessment: string;

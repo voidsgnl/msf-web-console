@@ -540,12 +540,13 @@ RUNNABLE_TOOLS = {
     "gobuster": {"name": "Gobuster (directory enumeration)", "timeout": 180, "max_output": 1048576},
     "ffuf": {"name": "FFUF (directory enumeration)", "timeout": 180, "max_output": 1048576},
     "feroxbuster": {"name": "Feroxbuster (directory enumeration)", "timeout": 180, "max_output": 1048576},
+    "nuclei": {"name": "Nuclei (HTTP vulnerability templates)", "timeout": 300, "max_output": 1048576},
 }
 
 
 class ToolRunRequest(BaseModel):
     assessment_id: int = Field(ge=1)
-    tool_id: str = Field(pattern=r"^(httpx|whatweb|subfinder|katana|gobuster|ffuf|feroxbuster)$")
+    tool_id: str = Field(pattern=r"^(httpx|whatweb|subfinder|katana|gobuster|ffuf|feroxbuster|nuclei)$")
     url: str = Field(min_length=1, max_length=2048)
     authorized: bool = False
     wordlist_id: str | None = Field(default=None, max_length=512)
@@ -693,7 +694,7 @@ def _build_tool_command(
             raise HTTPException(400, "Select an available backend wordlist before running FFUF.")
         return [
             executable, "-u", target_url.rstrip("/") + "/FUZZ", "-w", wordlist_path,
-            "-json", "-noninteractive", "-s", "-c", "-r",
+            "-json", "-noninteractive", "-s", "-c",
             "-t", "1", "-rate", "2", "-timeout", "8",
             "-mc", "200,204,301,302,307,401,403",
         ]
@@ -706,6 +707,15 @@ def _build_tool_command(
             "--no-recursion", "--threads", "1", "--rate-limit", "2",
             "--timeout", "8", "--status-codes", "200,204,301,302,307,401,403",
             "--output", "/dev/stdout",
+        ]
+    if tool_id == "nuclei":
+        return [
+            executable, "-u", target_url,
+            "-jsonl", "-silent", "-nc", "-ni", "-dr", "-dut",
+            "-pt", "http", "-ept", "dns,file,headless,tcp,workflow,ssl,websocket,whois,code,javascript",
+            "-s", "info,low,medium,high,critical",
+            "-rl", "2", "-c", "1", "-bs", "1", "-timeout", "8", "-retries", "0",
+            "-ot",
         ]
     if tool_id == "katana":
         parsed = urlsplit(target_url)
@@ -998,6 +1008,67 @@ def _parse_content_discovery_json(tool_id: str, output: str, target_url: str) ->
     return list(deduplicated.values())
 
 
+def _parse_nuclei_output(output: str, target_url: str) -> list[dict]:
+    import json
+
+    approved_origin = _origin_key(target_url)
+    records: list[dict] = []
+    for line in output.splitlines():
+        value = line.strip()
+        if not value:
+            continue
+        try:
+            item = json.loads(value)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(item, dict):
+            continue
+        matched_at = item.get("matched-at") or item.get("host")
+        if not isinstance(matched_at, str):
+            continue
+        try:
+            parsed = urlsplit(matched_at)
+            if (
+                parsed.scheme.lower() not in {"http", "https"}
+                or parsed.username or parsed.password or parsed.fragment
+                or _origin_key(matched_at) != approved_origin
+            ):
+                continue
+        except (TypeError, ValueError):
+            continue
+        info = item.get("info") if isinstance(item.get("info"), dict) else {}
+        severity = str(info.get("severity") or item.get("severity") or "unknown").lower()[:20]
+        extracted = item.get("extracted-results")
+        if isinstance(extracted, list):
+            extracted = [str(result)[:500] for result in extracted[:20]]
+        else:
+            extracted = []
+        records.append({
+            "url": matched_at,
+            "path": parsed.path or "/",
+            "status_code": item.get("status_code") if isinstance(item.get("status_code"), int) else None,
+            "template_id": str(item.get("template-id") or "")[:160],
+            "template_name": str(info.get("name") or "")[:300],
+            "severity": severity,
+            "matched_at": matched_at,
+            "matcher_name": str(item.get("matcher-name") or "")[:160] or None,
+            "template_type": str(item.get("type") or "http")[:40],
+            "extracted_results": extracted,
+            "source": "nuclei",
+            "evidence_type": "scanner_match",
+            "assessment": "Nuclei template match retained as evidence; it is not a confirmed vulnerability verdict.",
+        })
+    deduplicated: dict[tuple[str, str, str], dict] = {}
+    for record in records:
+        key = (record["template_id"], record["url"], record["matcher_name"] or "")
+        if key in deduplicated:
+            deduplicated[key]["observations"] += 1
+        else:
+            record["observations"] = 1
+            deduplicated[key] = record
+    return list(deduplicated.values())
+
+
 def _classify_gobuster_records(records: list[dict], wildcard_profile: dict, target_url: str) -> dict:
     """Compare near-baseline responses with normalized body fingerprints."""
     baseline_statuses = set(wildcard_profile.get("status_codes", []))
@@ -1175,6 +1246,8 @@ def _parse_tool_output(tool_id: str, output: str, target_url: str | None = None)
         return _parse_gobuster_output(output, target_url or "")
     if tool_id in {"ffuf", "feroxbuster"}:
         return _parse_content_discovery_json(tool_id, output, target_url or "")
+    if tool_id == "nuclei":
+        return _parse_nuclei_output(output, target_url or "")
 
     def normalise(item: object) -> dict:
         if tool_id == "httpx" and isinstance(item, dict):
@@ -1654,6 +1727,14 @@ def run_recon_tool(req: ToolRunRequest):
             "origin, using a backend-selected wordlist, one worker, a 2 requests/second rate limit, "
             "and redirects disabled. Only same-origin JSON results are retained as evidence; "
             "discoveries never expand approved scope."
+        )
+    elif req.tool_id == "nuclei":
+        assessment_text = (
+            "Nuclei ran the backend-owned HTTP template policy against the exact approved target "
+            "with redirects, OAST/Interactsh, non-HTTP protocols, and raw template output disabled. "
+            "Requests were bounded to one template worker and 2 requests/second with no retries. "
+            "Template matches are evidence for analyst review, not confirmed vulnerability verdicts; "
+            "they do not expand approved scope."
         )
     elif req.tool_id == "subfinder":
         assessment_text = (

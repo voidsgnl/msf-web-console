@@ -101,8 +101,8 @@ Status: in progress.
 
 ## Phase 3 — Vulnerability assessment
 
-- [ ] Add Nuclei as a template-driven scanner with selected template packs,
-      rate limits, severity filters, and clear active/passive classification.
+- [x] Add Nuclei as a template-driven HTTP scanner with backend-owned templates,
+      rate limits, severity filters, disabled redirects/OAST, and evidence-only findings.
 - [ ] Add specialist web checks (Nikto, testssl.sh, WPScan) as opt-in adapters.
 - [ ] Define a platform-owned finding schema and evidence lifecycle.
 - [ ] Normalise scanner output without promoting fingerprints or HTTP errors

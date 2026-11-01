@@ -13,7 +13,7 @@ from app.routes.web_recon import (
     check_manual_directories, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
     _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _extract_html_response_features, _classify_gobuster_records, _fetch_gobuster_candidate_body, _resolve_wordlist, _list_wordlists, _wordlist_roots, _classify_manual_path_records, _collect_manual_path_baseline,
-    _parse_content_discovery_json, _fingerprint_html_page,
+    _parse_content_discovery_json, _parse_nuclei_output, _fingerprint_html_page,
     probe_web_service, run_recon_tool, _run_bounded_process, list_tools,
 )
 
@@ -23,8 +23,8 @@ class WebReconTests(unittest.TestCase):
         tools = {item["id"]: item for item in list_tools()["tools"]}
         self.assertTrue(tools["httpx"]["execution_enabled"])
         self.assertEqual(tools["httpx"]["status"], "ready")
-        self.assertFalse(tools["nuclei"]["execution_enabled"])
-        self.assertEqual(tools["nuclei"]["status"], "not_integrated")
+        self.assertTrue(tools["nuclei"]["execution_enabled"])
+        self.assertEqual(tools["nuclei"]["status"], "ready")
         self.assertTrue(tools["nuclei"]["installed"])
 
     def test_adds_https_scheme(self):
@@ -992,6 +992,35 @@ class GobusterAdapterTests(unittest.TestCase):
 
 
 class ContentDiscoveryAdapterTests(unittest.TestCase):
+    def test_nuclei_command_is_http_only_bounded_and_does_not_follow_redirects(self):
+        command = _build_tool_command("nuclei", "/usr/bin/nuclei", "https://example.test")
+        self.assertIn("-jsonl", command)
+        self.assertIn("-dr", command)
+        self.assertIn("-ni", command)
+        self.assertEqual(command[command.index("-pt") + 1], "http")
+        self.assertEqual(command[command.index("-rl") + 1], "2")
+        self.assertEqual(command[command.index("-c") + 1], "1")
+        self.assertEqual(command[command.index("-timeout") + 1], "8")
+        self.assertNotIn("-t", command)
+        self.assertNotIn("-fr", command)
+
+    def test_nuclei_parser_keeps_same_origin_findings_and_deduplicates(self):
+        output = (
+            '{"template-id":"exposed-panel","type":"http","matched-at":"https://example.test/admin",'
+            '"info":{"name":"Exposed panel","severity":"medium"},"matcher-name":"title",'
+            '"extracted-results":["panel"]}\n'
+            '{"template-id":"exposed-panel","type":"http","matched-at":"https://example.test/admin",'
+            '"info":{"name":"Exposed panel","severity":"medium"},"matcher-name":"title"}\n'
+            '{"template-id":"other","type":"http","matched-at":"https://other.example/admin",'
+            '"info":{"name":"Other","severity":"high"}}\n'
+            'not json\n'
+        )
+        records = _parse_nuclei_output(output, "https://example.test/")
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["severity"], "medium")
+        self.assertEqual(records[0]["observations"], 2)
+        self.assertEqual(records[0]["assessment"].startswith("Nuclei template match"), True)
+
     def test_ffuf_command_is_fixed_and_bounded(self):
         command = _build_tool_command(
             "ffuf", "/usr/bin/ffuf", "https://example.test/app",
