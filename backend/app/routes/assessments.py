@@ -485,6 +485,7 @@ def _store_discovered_assets(
 ) -> None:
     origins = _approved_origins(connection, assessment_id)
     candidates: set[tuple[str, str, str]] = set()
+    nmap_hosts_in_scope: set[str] = set()
 
     target = _asset_url(target_url)
     if target:
@@ -504,6 +505,10 @@ def _store_discovered_assets(
                     if candidate:
                         candidates.add(("url", candidate[0], candidate[1]))
         host_value = record.get("host")
+        if tool_id == "nmap" and isinstance(host_value, str):
+            aliases = record.get("hostnames") if isinstance(record.get("hostnames"), list) else []
+            if any(str(alias).lower().rstrip(".") in {host for _, host, _ in origins} for alias in aliases):
+                nmap_hosts_in_scope.add(host_value.strip().lower().rstrip("."))
         if isinstance(host_value, str) and host_value.strip():
             host = host_value.strip().lower().rstrip(".")
             if "://" in host_value or "/" in host_value:
@@ -519,7 +524,7 @@ def _store_discovered_assets(
             port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
             state = "in_scope" if (parsed.scheme.lower(), hostname, port) in origins else "out_of_scope"
         else:
-            state = "in_scope" if hostname in approved_hosts else "out_of_scope"
+            state = "in_scope" if hostname in approved_hosts or hostname in nmap_hosts_in_scope else "out_of_scope"
         connection.execute(
             """
             INSERT INTO assessment_assets
@@ -548,6 +553,13 @@ def _store_discovered_services(
     approved_hosts = {
         host for _, host, _ in _approved_origins(connection, assessment_id)
     }
+    nmap_hosts_in_scope = {
+        str(record.get("host") or "").strip().lower().rstrip(".")
+        for record in records
+        if isinstance(record, dict)
+        and isinstance(record.get("hostnames"), list)
+        and any(str(alias).lower().rstrip(".") in approved_hosts for alias in record["hostnames"])
+    }
     for record in records:
         if not isinstance(record, dict):
             continue
@@ -564,7 +576,7 @@ def _store_discovered_services(
         host = str(record.get("host") or "").strip().lower().rstrip(".")
         if not host or len(host) > 253 or any(ch.isspace() for ch in host):
             continue
-        state = "in_scope" if host in approved_hosts else "out_of_scope"
+        state = "in_scope" if host in approved_hosts or host in nmap_hosts_in_scope else "out_of_scope"
         connection.execute(
             """
             INSERT INTO assessment_services
