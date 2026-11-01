@@ -515,6 +515,10 @@ def update_execution_record(
     changes = request.model_fields_set
     if not changes:
         raise HTTPException(400, "Provide at least one record field to update.")
+    if "review_state" in changes and request.review_state is None:
+        raise HTTPException(400, "Review state cannot be null.")
+    if "reviewed" in changes and request.reviewed is None:
+        raise HTTPException(400, "Reviewed state cannot be null.")
     with _connection() as connection:
         _assessment_or_404(connection, assessment_id)
         row = connection.execute(
