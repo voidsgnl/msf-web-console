@@ -163,17 +163,17 @@ def _normalise_evidence_envelope(
     )
     summary = " ".join(str(summary_value).split())[:1000]
 
-    item.setdefault("evidence_schema_version", 1)
-    item.setdefault("source_tool", tool_id)
-    item.setdefault("target_url", target_url)
-    item.setdefault("observed_at", observed_at)
-    item.setdefault("observation_type", observation_type)
-    item.setdefault("summary", summary)
-    item.setdefault("severity", severity)
+    item["evidence_schema_version"] = 1
+    item["source_tool"] = tool_id
+    item["target_url"] = target_url
+    item["observed_at"] = observed_at
+    item["observation_type"] = observation_type
+    item["summary"] = summary
+    item["severity"] = severity
     # These are deliberately neutral defaults. Scanner output is not a
     # verified vulnerability, and the platform must not infer confidence.
-    item.setdefault("confidence", "unassessed")
-    item.setdefault("verification_state", "unverified")
+    item["confidence"] = "unassessed"
+    item["verification_state"] = "unverified"
     return item
 
 
