@@ -6,7 +6,8 @@ from unittest.mock import MagicMock, patch
 from fastapi import HTTPException
 
 from app.routes.web_recon import (
-    ToolRunRequest, WebProbeRequest, _build_tool_command, _normalise_url,
+    ToolRunRequest, WebProbeRequest, ManualPathCheckRequest, _normalise_manual_path, _check_manual_path,
+    check_manual_directories, _build_tool_command, _normalise_url,
     _parse_tool_output, _technology_hints, _filter_katana_records, _classify_katana_records, _resolve_same_origin_redirects,
     _parse_gobuster_output, _normalise_gobuster_extensions, _probe_gobuster_wildcard_length, _gobuster_body_signature, _classify_gobuster_records, _fetch_gobuster_candidate_body, _resolve_wordlist, _list_wordlists, _wordlist_roots,
     probe_web_service, run_recon_tool,
@@ -59,6 +60,55 @@ class WebReconTests(unittest.TestCase):
         self.assertFalse(session.get.call_args.kwargs["allow_redirects"])
         self.assertFalse(session.trust_env)
 
+
+
+class ManualPathCheckTests(unittest.TestCase):
+    def test_manual_paths_are_relative_and_reject_traversal_or_query_components(self):
+        self.assertEqual(_normalise_manual_path(" /owa "), "owa")
+        self.assertEqual(_normalise_manual_path("api/v1/health"), "api/v1/health")
+        for value in ("https://outside.example/admin", "//outside.example/admin", "../admin", "%2e%2e/admin", "admin?debug=1", r"admin\\login"):
+            with self.subTest(value=value), self.assertRaises(HTTPException):
+                _normalise_manual_path(value)
+
+    @patch("app.routes.web_recon.requests.Session")
+    def test_manual_path_probe_does_not_follow_redirects_and_reads_response_metadata(self, session_factory):
+        response = MagicMock()
+        response.status_code = 302
+        response.reason = "Found"
+        response.encoding = "utf-8"
+        response.headers = {"Location": "/login", "Content-Type": "text/html; charset=utf-8", "Content-Length": "31"}
+        response.iter_content.return_value = [b"<html><title>Moved</title></html>"]
+        session = session_factory.return_value
+        session.get.return_value.__enter__.return_value = response
+        result = _check_manual_path("https://example.test/owa")
+        self.assertEqual(result["status_code"], 302)
+        self.assertEqual(result["response_title"], "Moved")
+        self.assertEqual(result["response_content_type"], "text/html")
+        self.assertEqual(result["redirect_location"], "/login")
+        self.assertFalse(session.get.call_args.kwargs["allow_redirects"])
+        self.assertFalse(session.trust_env)
+
+    @patch("app.routes.assessments.record_tool_execution", return_value={"id": 27})
+    @patch("app.routes.assessments.assert_target_in_scope", return_value={"assessment_id": 1, "target_id": 2})
+    @patch("app.routes.web_recon._check_manual_path")
+    def test_manual_directory_checks_are_scoped_persisted_and_deduplicated(self, check_path, _scope, record):
+        check_path.side_effect = lambda url: {"url": url, "status_code": 200, "classification_reason": "Observed"}
+        result = check_manual_directories(ManualPathCheckRequest(
+            assessment_id=1, url="https://example.test", paths=["/owa", "ecp", "/owa"], authorized=True
+        ))
+        self.assertEqual(result["execution_id"], 27)
+        self.assertEqual([item["url"] for item in result["records"]], [
+            "https://example.test/owa", "https://example.test/ecp"
+        ])
+        record.assert_called_once()
+        self.assertEqual(record.call_args.args[1], "manual-path-check")
+
+    def test_manual_directory_checks_require_authorization(self):
+        with self.assertRaises(HTTPException) as raised:
+            check_manual_directories(ManualPathCheckRequest(
+                assessment_id=1, url="https://example.test", paths=["owa"], authorized=False
+            ))
+        self.assertEqual(raised.exception.status_code, 400)
 
 
 class ReconToolExecutionGuardTests(unittest.TestCase):
