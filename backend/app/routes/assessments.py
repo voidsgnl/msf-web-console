@@ -1364,6 +1364,7 @@ def list_correlated_findings(assessment_id: int):
                     "scope_state": assets.get(host, "out_of_scope"),
                     "triage_state": "analyst_classified" if record.get("record_type") == "finding" else "needs_review",
                     "verification_state": "unverified",
+                    "finding_statuses": [record.get("finding_status") or "unverified"],
                     "software_context": software_by_host.get(host, [])[:8],
                     "remediation": remediation_for(tool, summary),
                 }
@@ -1378,6 +1379,7 @@ def list_correlated_findings(assessment_id: int):
             candidate["cve_ids"] = sorted(set(candidate["cve_ids"]) | set(cves))
             if record.get("record_type") == "finding":
                 candidate["triage_state"] = "analyst_classified"
+            candidate["finding_statuses"].append(record.get("finding_status") or "unverified")
             seen = record.get("observed_at") or record.get("finished_at") or ""
             candidate["first_seen"] = min(filter(None, [candidate["first_seen"], seen]), default="")
             candidate["last_seen"] = max(candidate["last_seen"], seen)
@@ -1395,6 +1397,10 @@ def list_correlated_findings(assessment_id: int):
                     "notes": record.get("notes") or "",
                 })
 
+    for candidate in grouped.values():
+        statuses = set(candidate.pop("finding_statuses", ["unverified"]))
+        candidate["finding_status"] = next(iter(statuses)) if len(statuses) == 1 else "mixed"
+
     findings = sorted(grouped.values(), key=lambda item: (
         severity_rank[item["severity"]] * -1, item["scope_state"] != "in_scope",
         item["host"], item["title"].casefold(),
@@ -1409,6 +1415,55 @@ def list_correlated_findings(assessment_id: int):
         },
         "notice": "WPScan interesting findings and other scanner observations are correlated with host software context where available. Remediation text is generic review guidance, not a vendor-specific fix or proof of vulnerability. Confirm component identity, affected version, reachability and impact before reporting.",
     }
+
+
+@router.patch("/{assessment_id}/findings/{finding_id}")
+def update_correlated_finding_status(assessment_id: int, finding_id: str, request: dict):
+    """Apply an analyst finding lifecycle state to every source record in a candidate."""
+    allowed = {"unverified", "validated", "false_positive", "accepted_risk", "remediated", "retested"}
+    transitions = {
+        "unverified": {"validated", "false_positive", "accepted_risk"},
+        "validated": {"false_positive", "accepted_risk", "remediated"},
+        "false_positive": {"unverified"},
+        "accepted_risk": {"validated", "false_positive"},
+        "remediated": {"validated", "retested"},
+        "retested": {"validated", "remediated"},
+    }
+    desired = request.get("finding_status")
+    if desired not in allowed:
+        raise HTTPException(400, "Choose a valid finding lifecycle status.")
+    inventory = list_correlated_findings(assessment_id)
+    candidate = next((item for item in inventory["findings"] if item["id"] == finding_id), None)
+    if candidate is None:
+        raise HTTPException(404, "Correlated finding not found.")
+    record_ids = sorted({item.get("source_record_id") or item.get("record_id") for item in candidate["observations"]} - {None})
+    if not record_ids:
+        raise HTTPException(409, "This candidate has no editable source records.")
+    now = _timestamp()
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        all_records = _all_assessment_records(connection, assessment_id)
+        selected = [item for item in all_records if item["record_id"] in set(record_ids)]
+        if len(selected) != len(record_ids):
+            raise HTTPException(409, "One or more source records are no longer available.")
+        for item in selected:
+            current = item.get("finding_status") or "unverified"
+            if desired != current and desired not in transitions.get(current, set()):
+                raise HTTPException(409, f"Invalid finding status transition: {current} to {desired}.")
+        for item in selected:
+            connection.execute(
+                """
+                INSERT INTO execution_record_metadata
+                    (record_id, execution_id, assessment_id, review_state, reviewed_at, notes,
+                     created_at, updated_at, record_type, finding_status)
+                VALUES (?, ?, ?, 'active', NULL, '', ?, ?, 'evidence', ?)
+                ON CONFLICT(record_id) DO UPDATE SET
+                    finding_status = excluded.finding_status,
+                    updated_at = excluded.updated_at
+                """,
+                (item["record_id"], item["execution_id"], assessment_id, now, now, desired),
+            )
+    return {"finding_id": finding_id, "finding_status": desired, "updated_records": len(selected)}
 
 
 @router.get("/{assessment_id}/records")
