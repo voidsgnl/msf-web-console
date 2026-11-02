@@ -717,7 +717,7 @@ def _software_fingerprints(records: list[dict], tool_id: str, target_url: str) -
     host = (parsed.hostname or "").lower().rstrip(".")
     findings: list[dict] = []
 
-    def add(name: object, version: object = "", evidence: str = "") -> None:
+    def add(name: object, version: object = "", evidence: str = "", host_value: object = None) -> None:
         product = " ".join(str(name or "").strip().split())[:160]
         if not product or product.lower() in {"title", "html", "http", "https"}:
             return
@@ -726,9 +726,12 @@ def _software_fingerprints(records: list[dict], tool_id: str, target_url: str) -
         version_text = " ".join(str(version or "").strip().split())[:120]
         if version_text.lower() in {"unknown", "n/a", "none", "null"}:
             version_text = ""
+        observed_host = str(host_value or host).strip().lower().rstrip(".")
+        if not observed_host or len(observed_host) > 253 or any(character.isspace() for character in observed_host) or "/" in observed_host:
+            observed_host = host
         findings.append({
             "product": product, "version": version_text,
-            "host": host, "target_url": target_url,
+            "host": observed_host, "target_url": target_url,
             "source_tool": tool_id, "evidence": evidence[:500],
         })
 
@@ -738,16 +741,16 @@ def _software_fingerprints(records: list[dict], tool_id: str, target_url: str) -
         if tool_id == "nmap":
             if str(record.get("state") or "").lower() == "open":
                 add(record.get("product") or record.get("service"), record.get("version"),
-                    f'Nmap open {record.get("protocol") or "tcp"} port {record.get("port")}.')
+                    f'Nmap open {record.get("protocol") or "tcp"} port {record.get("port")}.', record.get("host"))
         elif tool_id == "httpx":
             webserver = str(record.get("webserver") or "")
             server_product, separator, server_version = webserver.partition("/")
-            add(server_product, server_version if separator else "", "HTTP response Server fingerprint.")
+            add(server_product, server_version if separator else "", "HTTP response Server fingerprint.", record.get("host"))
             technologies = record.get("technologies")
             for item in technologies if isinstance(technologies, list) else []:
                 if isinstance(item, str):
                     name, separator, version = item.partition(":")
-                    add(name, version if separator else "", "httpx technology fingerprint.")
+                    add(name, version if separator else "", "httpx technology fingerprint.", record.get("host"))
         elif tool_id == "whatweb":
             plugins = record.get("plugin_details")
             if isinstance(plugins, dict):
