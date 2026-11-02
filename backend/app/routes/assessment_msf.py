@@ -396,7 +396,7 @@ def recommend_msf_modules_for_finding(assessment_id: int, finding_id: str):
         raise HTTPException(409, "The finding is not classified as in scope.")
     cve_ids = {
         str(value).upper() for value in finding.get("cve_ids", [])
-        if re.fullmatch(r"(?i)CVE-\\d{4}-\\d{4,}", str(value))
+        if re.fullmatch(r"(?i)CVE-\d{4}-\d{4,}", str(value))
     }
     if not cve_ids:
         raise HTTPException(422, "This finding has no CVE references to match against Metasploit module metadata.")
