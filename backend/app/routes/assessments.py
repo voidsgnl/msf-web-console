@@ -16,6 +16,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.routes.web_recon import _normalise_url
+from app.nvd_client import NvdError, nvd_client
+from app.cpe_products import CPE_PRODUCT_IDENTITIES
 
 router = APIRouter(prefix="/api/assessments", tags=["assessments"])
 
@@ -847,6 +849,61 @@ def list_assessment_software(assessment_id: int):
             "out_of_scope": sum(item["scope_state"] == "out_of_scope" for item in rows),
         },
         "notice": "Fingerprints are observations, not proof of an installed or vulnerable version. CVE matching has not been performed.",
+    }
+
+
+@router.get("/{assessment_id}/software/cves")
+def correlate_software_cves(assessment_id: int, limit: int = 3, offset: int = 0):
+    """Find NVD CVE candidates for known product identities and assess CPE version ranges."""
+    if not 1 <= limit <= 3 or offset < 0:
+        raise HTTPException(400, "limit must be between 1 and 3 and offset must be non-negative.")
+
+    inventory = list_assessment_software(assessment_id)["software"]
+    eligible = []
+    for item in inventory:
+        key = "".join(character for character in item["product"].lower() if character.isalnum())
+        if item["version"] and key in CPE_PRODUCT_IDENTITIES:
+            eligible.append(item)
+    page = eligible[offset:offset + limit]
+    results = []
+    errors = []
+
+    for item in page:
+        try:
+            cve_ids = sorted(nvd_client.search_cve_ids_by_keyword(item["product"], item["version"]))
+            candidates = []
+            for cve_id in cve_ids[:20]:
+                status = nvd_client.assess_product_version(cve_id, item["product"], item["version"])
+                if status == "not_affected":
+                    continue
+                summary = nvd_client.get_cve(cve_id) or {}
+                candidates.append({
+                    "cve_id": cve_id,
+                    "status": status,
+                    "description": summary.get("description"),
+                    "published": summary.get("published"),
+                    "cvss": summary.get("cvss"),
+                    "references": (summary.get("references") or [])[:5],
+                })
+            results.append({
+                "software_id": item["id"], "host": item["host"],
+                "product": item["product"], "version": item["version"],
+                "candidates": candidates,
+                "candidate_count": len(candidates),
+                "affected_count": sum(candidate["status"] == "affected" for candidate in candidates),
+                "indeterminate_count": sum(candidate["status"] == "indeterminate" for candidate in candidates),
+            })
+        except NvdError as exc:
+            errors.append({"software_id": item["id"], "product": item["product"], "error": str(exc)})
+
+    next_offset = offset + len(page)
+    return {
+        "results": results,
+        "errors": errors,
+        "eligible_products": len(eligible),
+        "processed": len(page),
+        "next_offset": next_offset if next_offset < len(eligible) else None,
+        "notice": "NVD CPE applicability is reference evidence, not proof that the deployed component is exploitable or reachable. Indeterminate matches require analyst review.",
     }
 
 
