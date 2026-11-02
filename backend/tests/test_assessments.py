@@ -290,6 +290,68 @@ class AssessmentStoreTests(unittest.TestCase):
             assessments.correlate_software_cves(created["id"], limit=4)
         self.assertEqual(raised.exception.status_code, 400)
 
+    def test_correlated_findings_merge_cross_tool_cve_and_preserve_review_state(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Finding correlation"))
+        target = assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], target["url"])
+        nuclei = assessments.record_tool_execution(
+            scope, "nuclei", target["url"], "2026-11-02T06:00:00+00:00",
+            "2026-11-02T06:00:02+00:00", 0, False,
+            [{
+                "url": "https://example.test/login", "template_id": "cve-2025-1234",
+                "template_name": "Example CVE check", "severity": "high",
+                "matched_at": "https://example.test/login",
+            }], "",
+        )
+        nikto = assessments.record_tool_execution(
+            scope, "nikto", target["url"], "2026-11-02T06:01:00+00:00",
+            "2026-11-02T06:01:02+00:00", 0, False,
+            [{
+                "target": "https://example.test/login",
+                "finding": "Potential exposure CVE-2025-1234",
+                "severity": "medium",
+            }], "",
+        )
+        result = assessments.list_correlated_findings(created["id"])
+        self.assertEqual(result["counts"]["total"], 1)
+        finding = result["findings"][0]
+        self.assertEqual(finding["title"], "CVE-2025-1234")
+        self.assertEqual(set(finding["sources"]), {"nuclei", "nikto"})
+        self.assertEqual(finding["severity"], "high")
+        self.assertEqual(finding["scope_state"], "in_scope")
+        self.assertEqual(finding["verification_state"], "unverified")
+        self.assertEqual(len(finding["observations"]), 2)
+
+        nuclei_record = assessments.get_assessment_execution(created["id"], nuclei["id"])["records"][0]
+        assessments.update_execution_record(
+            created["id"], nuclei["id"], nuclei_record["record_id"],
+            assessments.ExecutionRecordUpdate(review_state="dismissed"),
+        )
+        refreshed = assessments.list_correlated_findings(created["id"])
+        self.assertEqual(refreshed["counts"]["total"], 1)
+        self.assertEqual(refreshed["findings"][0]["sources"], ["nikto"])
+
+    def test_correlated_findings_exclude_generic_and_non_scanner_evidence(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="No finding noise"))
+        target = assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], target["url"])
+        assessments.record_tool_execution(
+            scope, "nikto", target["url"], "2026-11-02T07:00:00+00:00",
+            "2026-11-02T07:00:02+00:00", 0, False,
+            [{"target": target["url"], "source": "nikto", "raw": "{...}",
+              "assessment": "Nikto output retained for review; a scanner message is not a confirmed vulnerability."}], "",
+        )
+        assessments.record_tool_execution(
+            scope, "httpx", target["url"], "2026-11-02T07:01:00+00:00",
+            "2026-11-02T07:01:02+00:00", 0, False,
+            [{"url": target["url"], "status_code": 200}], "",
+        )
+        self.assertEqual(assessments.list_correlated_findings(created["id"])["counts"]["total"], 0)
+
     def test_persistent_job_state_and_restart_recovery(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="Job lifecycle"))
         job = assessments.create_execution_job(created["id"], "nuclei", "https://example.test")
