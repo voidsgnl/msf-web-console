@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -332,6 +333,45 @@ class AssessmentStoreTests(unittest.TestCase):
         refreshed = assessments.list_correlated_findings(created["id"])
         self.assertEqual(refreshed["counts"]["total"], 1)
         self.assertEqual(refreshed["findings"][0]["sources"], ["nikto"])
+
+    def test_wpscan_interesting_findings_join_cve_correlation_and_include_remediation(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="WPScan finding correlation"))
+        target = assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], target["url"])
+        wpscan_raw = json.dumps({
+            "interesting_findings": [{
+                "type": "CVE-2025-23456",
+                "url": "https://example.test/wp-content/plugins/example/",
+                "found_by": "Passive detection",
+            }]
+        })
+        assessments.record_tool_execution(
+            scope, "wpscan", target["url"], "2026-11-02T08:00:00+00:00",
+            "2026-11-02T08:00:02+00:00", 0, False,
+            [{"target": target["url"], "source": "wpscan", "raw": wpscan_raw}], "",
+        )
+        assessments.record_tool_execution(
+            scope, "nuclei", target["url"], "2026-11-02T08:01:00+00:00",
+            "2026-11-02T08:01:02+00:00", 0, False,
+            [{
+                "url": "https://example.test/wp-content/plugins/example/",
+                "template_id": "wordpress-plugin-check",
+                "template_name": "Plugin advisory match CVE-2025-23456",
+                "severity": "high",
+            }], "",
+        )
+        result = assessments.list_correlated_findings(created["id"])
+        self.assertEqual(result["counts"]["total"], 1)
+        finding = result["findings"][0]
+        self.assertEqual(finding["title"], "CVE-2025-23456")
+        self.assertEqual(set(finding["sources"]), {"wpscan", "nuclei"})
+        self.assertEqual(finding["scope_state"], "in_scope")
+        self.assertEqual(finding["verification_state"], "unverified")
+        self.assertIn("recommendation", finding["remediation"])
+        self.assertTrue(finding["remediation"]["validation_steps"])
+        self.assertEqual(len(finding["observations"]), 2)
 
     def test_correlated_findings_exclude_generic_and_non_scanner_evidence(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="No finding noise"))
