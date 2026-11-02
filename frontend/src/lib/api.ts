@@ -16,6 +16,22 @@ export type AssessmentService = {
 export type AssessmentServiceInventory = {
   services: AssessmentService[]; counts: { total: number; in_scope: number; out_of_scope: number };
 };
+export type CorrelatedFinding = {
+  id: string; title: string; host: string; target: string; path: string;
+  severity: "critical" | "high" | "medium" | "low" | "info" | "informational" | "unknown";
+  sources: string[]; cve_ids: string[];
+  observations: { record_id: string; execution_id: number; tool_id: string;
+    summary: string; observed_at: string; reviewed_at: string | null; notes: string }[];
+  first_seen: string; last_seen: string;
+  scope_state: "in_scope" | "out_of_scope";
+  triage_state: "needs_review" | "analyst_classified";
+  verification_state: "unverified";
+};
+export type CorrelatedFindingInventory = {
+  findings: CorrelatedFinding[];
+  counts: { total: number; needs_review: number; analyst_classified: number; in_scope: number };
+  notice: string;
+};
 export type AssessmentSoftware = {
   id: string; host: string; product: string; version: string;
   scope_state: "in_scope" | "out_of_scope"; sources: string[];
@@ -251,6 +267,7 @@ export const api = {
     services: (id: number) => request<AssessmentServiceInventory>(`/assessments/${id}/services`),
     relationships: (id: number) => request<AssessmentRelationshipInventory>(`/assessments/${id}/relationships`),
     software: (id: number) => request<AssessmentSoftwareInventory>(`/assessments/${id}/software`),
+    findings: (id: number) => request<CorrelatedFindingInventory>(`/assessments/${id}/findings`),
     softwareCves: (id: number, offset = 0) => request<SoftwareCveCorrelation>(`/assessments/${id}/software/cves?limit=3&offset=${offset}`),
     executions: (id: number) =>
       request<{ executions: AssessmentExecution[] }>(`/assessments/${id}/executions`),
