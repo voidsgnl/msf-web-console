@@ -1237,6 +1237,7 @@ def list_correlated_findings(assessment_id: int):
     """Group scanner observations into reviewable candidates without asserting vulnerability."""
     import re
 
+    _initialise()
     with _connection() as connection:
         _assessment_or_404(connection, assessment_id)
         records = _all_assessment_records(connection, assessment_id)
