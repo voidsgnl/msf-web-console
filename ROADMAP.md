@@ -130,7 +130,7 @@ Status: adapter implementation complete; validation and platform-wide normalisat
 - [x] Keep Metasploit module browsing and execution as an explicit workflow.
 - [x] Add explicit assessment linkage for verified module-run UUIDs and live sessions, requiring an operator-selected approved target and preserving operator-attribution semantics.
 - [x] Add a dedicated assessment UI for linking/reviewing Metasploit activity and include linked activity in unified report preview and HTML/JSON exports.
-- [ ] Hand selected findings to Metasploit with validated target context.
+- [x] Add a recommendation-only finding-to-Metasploit hand-off for analyst-validated, in-scope findings with an exact approved-origin match; only exploit modules sharing a CVE reference with the finding are surfaced, and no check or execution is triggered.
 - [ ] Show why a module is suggested and distinguish compatibility from
       a successful module check or confirmed vulnerability.
 - [ ] Require a separate operator action before exploitation.
