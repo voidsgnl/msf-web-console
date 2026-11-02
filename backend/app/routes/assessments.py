@@ -709,6 +709,110 @@ def list_assessment_services(assessment_id: int):
     }
 
 
+@router.get("/{assessment_id}/relationships")
+def list_assessment_relationships(assessment_id: int):
+    """Derive asset links only from explicit URL, host-alias, and service evidence."""
+    import ipaddress
+
+    _initialise()
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        _rebuild_assessment_assets(connection, assessment_id)
+        assets = [dict(row) for row in connection.execute(
+            "SELECT asset_type, value, hostname, scope_state, source_tool FROM assessment_assets WHERE assessment_id = ?",
+            (assessment_id,),
+        ).fetchall()]
+        services = [dict(row) for row in connection.execute(
+            "SELECT hostname, port, protocol, service, product, version, scope_state, source_tool FROM assessment_services WHERE assessment_id = ?",
+            (assessment_id,),
+        ).fetchall()]
+        executions = connection.execute(
+            "SELECT tool_id, result_json FROM tool_executions WHERE assessment_id = ? ORDER BY id",
+            (assessment_id,),
+        ).fetchall()
+
+    relationships: dict[tuple[str, str, str, str], dict] = {}
+
+    def add(source_type: str, source: str, relation: str, target_type: str,
+            target: str, source_tool: str, scope_state: str, evidence: str) -> None:
+        key = (source_type, source, relation, target_type + ":" + target)
+        current = relationships.get(key)
+        if current:
+            if source_tool not in current["sources"]:
+                current["sources"].append(source_tool)
+            if evidence and evidence not in current["evidence"]:
+                current["evidence"].append(evidence)
+            if scope_state == "out_of_scope":
+                current["scope_state"] = "out_of_scope"
+            return
+        relationships[key] = {
+            "source_type": source_type, "source": source,
+            "relationship": relation, "target_type": target_type,
+            "target": target, "sources": [source_tool],
+            "scope_state": scope_state, "evidence": [evidence] if evidence else [],
+        }
+
+    host_assets = {item["value"]: item for item in assets if item["asset_type"] == "host"}
+    url_assets = [item for item in assets if item["asset_type"] == "url"]
+    service_hosts = {item["hostname"] for item in services}
+
+    # A URL belongs to its parsed hostname; this is a structural URL relationship.
+    for item in url_assets:
+        host = host_assets.get(item["hostname"])
+        if host:
+            add("url", item["value"], "hosted_on", "host", host["value"],
+                item["source_tool"], item["scope_state"], "URL hostname matches the observed host asset.")
+
+    # Open services are attached only to an exact host identity match.
+    for service in services:
+        host = host_assets.get(service["hostname"])
+        if host:
+            endpoint = f'{service["hostname"]}:{service["port"]}/{service["protocol"]}'
+            add("host", host["value"], "exposes", "service", endpoint,
+                service["source_tool"], service["scope_state"],
+                f'Observed open {service["protocol"].upper()} port {service["port"]}.')
+
+    # Nmap hostname aliases are direct evidence linking an address to a DNS name.
+    for execution in executions:
+        if execution["tool_id"] != "nmap":
+            continue
+        try:
+            records = json.loads(execution["result_json"])
+        except (TypeError, ValueError):
+            continue
+        for record in records if isinstance(records, list) else []:
+            if not isinstance(record, dict):
+                continue
+            address = str(record.get("host") or "").strip().lower().rstrip(".")
+            aliases = record.get("hostnames")
+            if not address or not isinstance(aliases, list):
+                continue
+            try:
+                ipaddress.ip_address(address)
+            except ValueError:
+                continue
+            for alias_value in aliases:
+                alias = str(alias_value).strip().lower().rstrip(".")
+                if not alias or alias not in host_assets or address not in host_assets:
+                    continue
+                left, right = host_assets[alias], host_assets[address]
+                state = "in_scope" if left["scope_state"] == right["scope_state"] == "in_scope" else "out_of_scope"
+                add("host", alias, "resolves_to", "host", address, "nmap", state,
+                    "Nmap host record included this hostname alias for the IP address.")
+
+    rows = sorted(relationships.values(), key=lambda item: (
+        item["scope_state"] != "in_scope", item["source"], item["relationship"], item["target"]
+    ))
+    return {
+        "relationships": rows,
+        "counts": {
+            "total": len(rows),
+            "in_scope": sum(item["scope_state"] == "in_scope" for item in rows),
+            "out_of_scope": sum(item["scope_state"] == "out_of_scope" for item in rows),
+        },
+    }
+
+
 @router.get("/{assessment_id}/executions")
 def list_assessment_executions(assessment_id: int):
     _initialise()
