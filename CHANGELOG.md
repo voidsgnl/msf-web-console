@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Added an evidence-derived asset relationship view connecting observed URLs to hostnames, Nmap-reported hostname aliases to IP addresses, and exact host identities to open TCP services. Relationships retain source-tool provenance and scope classification; DNS/IP links are emitted only when present in Nmap hostname-alias evidence. Relationship mapping does not approve targets or initiate new network requests.
+
 - Reworked Web Security reconnaissance result presentation: tool-specific result headings, separate summary and detailed-record cards, compact expandable result rows, searchable records, bounded scrolling for large result sets and raw output, and independent sizing for toolchain cards. Gobuster path results are now separated from scan summaries, while grouped soft-404 details remain expandable. Gobuster configuration and manual-path output no longer force the toolchain grid to stretch.
 
 - Added a first-class assessment service inventory derived from Nmap evidence. Open TCP services are deduplicated by host/port/protocol and retain service/product/version fingerprints, first/last-seen timestamps, and source provenance. In-scope versus out-of-scope classification is explicit; closed ports, UDP observations, malformed ports, and non-Nmap records are excluded. The Web Security workspace now displays discovered services separately from URL/host assets.
