@@ -758,10 +758,8 @@ def list_assessment_relationships(assessment_id: int):
 
     # A URL belongs to its parsed hostname; this is a structural URL relationship.
     for item in url_assets:
-        host = host_assets.get(item["hostname"])
-        if host:
-            add("url", item["value"], "hosted_on", "host", host["value"],
-                item["source_tool"], item["scope_state"], "URL hostname matches the observed host asset.")
+        add("url", item["value"], "hosted_on", "host", item["hostname"],
+            item["source_tool"], item["scope_state"], "Hostname parsed from the observed URL.")
 
     # Open services are attached only to an exact host identity match.
     for service in services:
