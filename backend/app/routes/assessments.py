@@ -1557,6 +1557,96 @@ def bulk_delete_assessment_records(assessment_id: int, request: dict):
     return {"deleted": len(selected)}
 
 
+@router.get("/{assessment_id}/report")
+def build_assessment_report(assessment_id: int, include_nvd: bool = True, nvd_limit: int = 3):
+    """Build a reproducible assessment report from persisted scope and evidence."""
+    if not 1 <= nvd_limit <= 3:
+        raise HTTPException(400, "nvd_limit must be between 1 and 3.")
+    assessment = get_assessment(assessment_id)
+    assets = list_assessment_assets(assessment_id)
+    services = list_assessment_services(assessment_id)
+    software = list_assessment_software(assessment_id)
+    findings = list_correlated_findings(assessment_id)
+    records = list_assessment_records(assessment_id)["records"]
+    executions = list_assessment_executions(assessment_id)["executions"]
+    history = assessment_history_report(assessment_id)
+
+    lifecycle_counts = {}
+    for item in records:
+        if item.get("review_state") == "dismissed":
+            continue
+        state = item.get("finding_status") or "unverified"
+        lifecycle_counts[state] = lifecycle_counts.get(state, 0) + 1
+
+    nvd = {
+        "included": bool(include_nvd),
+        "results": [],
+        "errors": [],
+        "eligible_products": 0,
+        "processed": 0,
+        "next_offset": None,
+        "notice": "NVD CPE matches are reference intelligence, not proof of exploitability.",
+    }
+    if include_nvd:
+        nvd = correlate_software_cves(assessment_id, limit=nvd_limit, offset=0)
+        nvd["included"] = True
+        nvd["coverage"] = "partial" if nvd.get("next_offset") is not None else "complete_for_eligible_inventory"
+    else:
+        nvd["coverage"] = "not_requested"
+
+    finding_items = findings["findings"]
+    report = {
+        "report_version": 1,
+        "generated_at": _timestamp(),
+        "assessment": assessment,
+        "executive_summary": {
+            "targets": len(assessment.get("targets", [])),
+            "assets": assets["counts"],
+            "services": services["counts"],
+            "software": software["counts"],
+            "executions": len(executions),
+            "evidence_records": len(records),
+            "active_evidence_records": sum(item.get("review_state") != "dismissed" for item in records),
+            "dismissed_evidence_records": sum(item.get("review_state") == "dismissed" for item in records),
+            "correlated_finding_candidates": len(finding_items),
+            "finding_statuses": {
+                status: sum(item.get("finding_status") == status for item in finding_items)
+                for status in ("unverified", "validated", "false_positive", "accepted_risk", "remediated", "retested", "mixed")
+            },
+            "evidence_lifecycle_records": lifecycle_counts,
+        },
+        "scope": {
+            "targets": assessment.get("targets", []),
+            "in_scope_assets": assets["counts"]["in_scope"],
+            "out_of_scope_assets": assets["counts"]["out_of_scope"],
+            "notice": "Discovered assets are inventory observations and do not automatically expand authorised scope.",
+        },
+        "assets": assets["assets"],
+        "services": services["services"],
+        "software": software["software"],
+        "nvd_correlation": nvd,
+        "findings": finding_items,
+        "evidence": {
+            "records": records,
+            "by_tool": history["by_tool"],
+            "execution_history": executions,
+        },
+        "limitations": [
+            "Scanner output is evidence, not a vulnerability verdict.",
+            "Correlated findings remain unverified unless an analyst changes their lifecycle status.",
+            "NVD CPE applicability is not proof that a component is reachable or exploitable.",
+            "Software fingerprints may be incomplete or inaccurate and should be independently confirmed.",
+            "Remediation guidance is advisory; verify vendor instructions and fixed versions before making changes.",
+        ],
+        "notices": {
+            "findings": findings.get("notice", ""),
+            "software": software.get("notice", ""),
+            "nvd": nvd.get("notice", ""),
+        },
+    }
+    return report
+
+
 @router.get("/{assessment_id}/history")
 def assessment_history_report(assessment_id: int):
     _initialise()
