@@ -740,7 +740,9 @@ def _software_fingerprints(records: list[dict], tool_id: str, target_url: str) -
                 add(record.get("product") or record.get("service"), record.get("version"),
                     f'Nmap open {record.get("protocol") or "tcp"} port {record.get("port")}.')
         elif tool_id == "httpx":
-            add(record.get("webserver"), "", "HTTP response Server fingerprint.")
+            webserver = str(record.get("webserver") or "")
+            server_product, separator, server_version = webserver.partition("/")
+            add(server_product, server_version if separator else "", "HTTP response Server fingerprint.")
             technologies = record.get("technologies")
             for item in technologies if isinstance(technologies, list) else []:
                 if isinstance(item, str):
@@ -848,7 +850,7 @@ def list_assessment_software(assessment_id: int):
             "in_scope": sum(item["scope_state"] == "in_scope" for item in rows),
             "out_of_scope": sum(item["scope_state"] == "out_of_scope" for item in rows),
         },
-        "notice": "Fingerprints are observations, not proof of an installed or vulnerable version. CVE matching has not been performed.",
+        "notice": "Fingerprints are observations, not proof of an installed or vulnerable version. NVD correlation is an explicit, separate analyst action.",
     }
 
 
