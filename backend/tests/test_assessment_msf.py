@@ -128,7 +128,7 @@ class AssessmentMetasploitLinkTests(unittest.TestCase):
         self.assertEqual(len(report["metasploit_activity"]), 1)
         self.assertEqual(report["executive_summary"]["metasploit_activity"], 1)
         self.assertEqual(report["metasploit_activity"][0]["attribution"], "operator_assigned")
-        self.assertIn("operator attribution", report["metasploit_notice"])
+        self.assertIn("not independent proof", report["metasploit_notice"])
         nvd.assert_not_called()
 
 
