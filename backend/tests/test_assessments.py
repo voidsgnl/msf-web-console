@@ -201,6 +201,57 @@ class AssessmentStoreTests(unittest.TestCase):
         self.assertTrue(any(item["relationship"] == "hosted_on" for item in inventory["relationships"]))
         self.assertFalse(any(item["relationship"] == "resolves_to" for item in inventory["relationships"]))
 
+    def test_software_inventory_correlates_product_versions_and_sources(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Software inventory"))
+        assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], "https://example.test")
+        assessments.record_tool_execution(
+            scope, "httpx", "https://example.test",
+            "2026-11-02T03:00:00+00:00", "2026-11-02T03:00:02+00:00", 0, False,
+            [{"url": "https://example.test", "host": "example.test",
+              "webserver": "nginx/1.24.0", "technologies": ["nginx:1.24.0", "WordPress"]}], "",
+        )
+        assessments.record_tool_execution(
+            scope, "whatweb", "https://example.test",
+            "2026-11-02T03:01:00+00:00", "2026-11-02T03:01:02+00:00", 0, False,
+            [{"target": "https://example.test", "technologies": ["Apache"],
+              "plugin_details": {"Apache": {"version": ["2.4.58"]}}}], "",
+        )
+        assessments.record_tool_execution(
+            scope, "nmap", "https://example.test",
+            "2026-11-02T03:02:00+00:00", "2026-11-02T03:02:10+00:00", 0, False,
+            [{"host": "example.test", "port": 443, "protocol": "tcp", "state": "open",
+              "service": "https", "product": "nginx", "version": "1.24.0"}], "",
+        )
+        inventory = assessments.list_assessment_software(created["id"])
+        products = {(item["product"].lower(), item["version"]) : item for item in inventory["software"]}
+        nginx = products[("nginx", "1.24.0")]
+        self.assertEqual(set(nginx["sources"]), {"httpx", "nmap"})
+        self.assertEqual(nginx["scope_state"], "in_scope")
+        self.assertIn(("apache", "2.4.58"), products)
+        self.assertIn(("wordpress", ""), products)
+        self.assertEqual(inventory["counts"]["versioned"], 2)
+        self.assertEqual(inventory["notice"].find("CVE matching has not been performed") >= 0, True)
+
+    def test_software_inventory_does_not_invent_versions(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Unknown version"))
+        assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], "https://example.test")
+        assessments.record_tool_execution(
+            scope, "whatweb", "https://example.test",
+            "2026-11-02T04:00:00+00:00", "2026-11-02T04:00:02+00:00", 0, False,
+            [{"target": "https://example.test", "technologies": ["nginx"],
+              "plugin_details": {"nginx": {"version": []}}}], "",
+        )
+        inventory = assessments.list_assessment_software(created["id"])
+        self.assertEqual(len(inventory["software"]), 1)
+        self.assertEqual(inventory["software"][0]["version"], "")
+        self.assertEqual(inventory["counts"]["versioned"], 0)
+
     def test_persistent_job_state_and_restart_recovery(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="Job lifecycle"))
         job = assessments.create_execution_job(created["id"], "nuclei", "https://example.test")
