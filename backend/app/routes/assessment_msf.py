@@ -64,7 +64,7 @@ def _safe_session_snapshot(value: dict[str, Any]) -> dict[str, Any]:
     # Deliberately exclude session datastore, credentials, routes, and console data.
     allowed = (
         "type", "tunnel_peer", "tunnel_local", "session_host", "session_port",
-        "via_exploit", "via_payload", " opened_at", "platform", "arch",
+        "via_exploit", "via_payload", "opened_at", "platform", "arch",
     )
     return {key.strip(): value[key] for key in allowed if key in value}
 
