@@ -110,11 +110,11 @@ Status: adapter implementation complete; validation and platform-wide normalisat
 - [x] Add specialist web checks (Nikto, passive WPScan, and HTTPS-only testssl.sh) as bounded opt-in adapters.
 - [x] Add an analyst-controlled evidence lifecycle with stable record IDs, review/dismiss/restore, notes, and evidence-versus-finding classification.
 - [x] Add a versioned common evidence envelope with trusted tool provenance, target, observation time/type, bounded summary, and neutral severity/confidence/verification defaults.
-- [ ] Define a platform-owned finding schema and cross-tool correlation model; adapter payloads remain tool-specific evidence, not a unified vulnerability verdict.
+- [x] Define an initial platform-owned correlated finding-candidate schema for Nuclei, Nikto and testssl.sh, retaining source evidence and neutral unverified status; broader tool coverage and remediation fields remain open.
 - [x] Build an assessment-level software inventory from HTTPX, WhatWeb, WPScan and Nmap product/version evidence, deduplicated by host and exact reported fingerprint with provenance and scope state.
 - [x] Match supported software fingerprints to NVD CVE candidates using explicit CPE product identities and published affected-version ranges; keep indeterminate matches separate and require analyst review.
 - [ ] Expand the CPE identity catalogue using verified NVD dictionary entries and add distro/package-version normalization where evidence supports it.
-- [ ] Correlate and deduplicate equivalent observations across tools while retaining every source and execution reference.
+- [x] Correlate and deduplicate CVE observations across Nuclei, Nikto and testssl.sh by CVE and host; retain source and execution references. Extend matching for non-CVE observations and other adapters.
 - [ ] Add consistent severity, confidence, verification state, and remediation fields without converting fingerprints or HTTP errors into vulnerability claims.
 
 ## Phase 4 — Analysis and prioritisation
