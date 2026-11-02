@@ -370,6 +370,36 @@ export function WebSecurityView() {
         {!msfActivityLoading&&!msfActivity.length&&<p className="text-xs text-gray-500">No linked Metasploit activity yet.</p>}
       </div>
     </section>}
+    {assessment&&<section className="card">
+      <div className="card-header"><div><h2 className="text-sm font-semibold text-gray-100">Metasploit loot evidence</h2><p className="mt-1 text-xs text-gray-500">Attach a registered Metasploit loot item to an approved target. Artifact bytes remain in the Metasploit loot store.</p></div><span className="badge">{linkedMsfLoot.length} linked</span></div>
+      <div className="space-y-3 p-4">
+        <label className="block space-y-1 text-xs text-gray-400">Registered loot item
+          <select className="input w-full" value={selectedLootDownloadId} onChange={e=>setSelectedLootDownloadId(e.target.value)}>
+            <option value="">Select loot…</option>
+            {msfLootRecords.map(item=><option key={item.download_id} value={item.download_id}>{item.name??"Unnamed artifact"} · {item.ltype??item.ctype??"unknown type"} · {item.host??"unknown host"}{item.has_data?"":" · bytes unavailable"}</option>)}
+          </select>
+        </label>
+        <label className="block space-y-1 text-xs text-gray-400">Approved target
+          <select className="input w-full" value={msfTargetId??""} onChange={e=>setMsfTargetId(Number(e.target.value)||null)}>
+            <option value="">Select approved target…</option>{assessment.targets.map(item=><option key={item.id} value={item.id}>{item.url}</option>)}
+          </select>
+        </label>
+        <textarea className="input min-h-16 w-full" value={msfLootNote} onChange={e=>setMsfLootNote(e.target.value)} maxLength={4000} placeholder="Collection context / analyst note (optional)"/>
+        <button type="button" className="btn btn-primary btn-sm" disabled={!selectedLootDownloadId||!msfTargetId||msfLootLoading||assessment.status==="archived"} onClick={()=>void linkMetasploitLoot()}>Verify and link loot</button>
+        {msfLootError&&<p role="alert" className="text-xs text-danger">{msfLootError}</p>}
+        <p className="text-[10px] text-warning">{msfLootNotice||"SHA-256 is computed only when artifact bytes are available to the backend. A hash does not establish origin or prove exploitation."}</p>
+        {msfLootLoading&&<p className="text-xs text-gray-500">Loading loot inventory…</p>}
+        {!msfLootLoading&&!msfLootRecords.length&&<p className="text-xs text-gray-500">No registered Metasploit loot items are currently available.</p>}
+        {linkedMsfLoot.map(item=><div key={item.id} className="rounded border border-border bg-bg-primary p-3">
+          <div className="flex flex-wrap gap-2"><span className="badge">{item.review_state}</span><span className="break-all text-xs text-gray-200">{String(item.snapshot.name??"Loot artifact")}</span><span className="badge">{item.artifact_size==null?"size unavailable":item.artifact_size+" bytes"}</span></div>
+          <p className="mt-2 break-all text-[11px] text-gray-400">Target: {item.approved_target_url??item.approved_target_hostname??"Approved target"}</p>
+          <p className="mt-1 break-all font-mono text-[10px] text-gray-500">SHA-256: {item.artifact_sha256??"Unavailable — artifact bytes were not accessible at link time"}</p>
+          <p className="mt-1 text-[10px] text-gray-500">{String(item.snapshot.ltype??item.snapshot.ctype??"Unknown type")} · {String(item.snapshot.host??"Unknown host")} · {item.created_at}</p>
+          {item.analyst_note&&<p className="mt-1 text-[11px] text-gray-400">{item.analyst_note}</p>}
+          <div className="mt-2 flex gap-2"><button type="button" className="btn btn-sm" disabled={item.review_state==="reviewed"} onClick={()=>void reviewMetasploitLoot(item,"reviewed")}>Reviewed</button><button type="button" className="btn btn-sm" disabled={item.review_state==="dismissed"} onClick={()=>void reviewMetasploitLoot(item,"dismissed")}>Dismiss</button><button type="button" className="btn btn-sm" disabled={item.review_state==="unreviewed"} onClick={()=>void reviewMetasploitLoot(item,"unreviewed")}>Reopen</button></div>
+        </div>)}
+      </div>
+    </section>}
     {assessment&&<EvidenceManager assessmentId={assessment.id} executions={executions} onRefresh={()=>void loadAssessments(assessment.id)}/>}
     <div className="rounded-lg border border-border bg-bg-secondary px-4 py-3 text-xs leading-relaxed text-gray-500">httpx, WhatWeb, passive Subfinder and Amass, controlled Katana crawling, fixed FFUF/Feroxbuster/Gobuster content discovery, bounded Nuclei/Nikto/WPScan checks, TLS analysis, and limited Nmap service discovery run through fixed backend command adapters. Katana is limited to the approved scheme/host/port, three crawl levels, 100 pages, 2 requests per second, and 90 seconds. Only same-origin redirects from the starting URL are followed; cross-origin redirects are blocked, and crawler-discovered page redirects remain disabled. Discovered endpoints are inventory evidence only and never expand approved scope.</div>
   </div></div>;
