@@ -1251,7 +1251,7 @@ def list_correlated_findings(assessment_id: int):
     grouped: dict[str, dict] = {}
     severity_rank = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1, "informational": 1, "unknown": 0}
     eligible_tools = {"nuclei", "nikto", "testssl.sh"}
-    cve_pattern = re.compile(r"(?i)CVE-\\d{4}-\\d{4,}")
+    cve_pattern = re.compile(r"(?i)CVE-\d{4}-\d{4,}")
 
     for record in records:
         if record.get("review_state") == "dismissed":
@@ -1274,7 +1274,7 @@ def list_correlated_findings(assessment_id: int):
             identity = "nuclei:" + str(record.get("template_id") or summary).casefold() + "|" + host + path
             title = summary
         else:
-            normalized = re.sub(r"\\s+", " ", summary).casefold()[:300]
+            normalized = re.sub(r"\s+", " ", summary).casefold()[:300]
             identity = tool + "|" + host + "|" + normalized
             title = summary
 
