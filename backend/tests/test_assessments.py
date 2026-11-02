@@ -373,6 +373,40 @@ class AssessmentStoreTests(unittest.TestCase):
         self.assertTrue(finding["remediation"]["validation_steps"])
         self.assertEqual(len(finding["observations"]), 2)
 
+    def test_correlated_finding_status_persists_and_enforces_transitions(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Finding lifecycle"))
+        target = assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], target["url"])
+        assessments.record_tool_execution(
+            scope, "nuclei", target["url"], "2026-11-02T09:00:00+00:00",
+            "2026-11-02T09:00:02+00:00", 0, False,
+            [{
+                "url": "https://example.test/login", "template_id": "test-login-check",
+                "template_name": "Login response check", "severity": "medium",
+            }], "",
+        )
+        finding = assessments.list_correlated_findings(created["id"])["findings"][0]
+        self.assertEqual(finding["finding_status"], "unverified")
+        updated = assessments.update_correlated_finding_status(
+            created["id"], finding["id"], {"finding_status": "validated"}
+        )
+        self.assertEqual(updated["finding_status"], "validated")
+        self.assertEqual(assessments.list_correlated_findings(created["id"])["findings"][0]["finding_status"], "validated")
+        with self.assertRaises(HTTPException) as raised:
+            assessments.update_correlated_finding_status(
+                created["id"], finding["id"], {"finding_status": "retested"}
+            )
+        self.assertEqual(raised.exception.status_code, 409)
+        assessments.update_correlated_finding_status(
+            created["id"], finding["id"], {"finding_status": "remediated"}
+        )
+        assessments.update_correlated_finding_status(
+            created["id"], finding["id"], {"finding_status": "retested"}
+        )
+        self.assertEqual(assessments.list_correlated_findings(created["id"])["findings"][0]["finding_status"], "retested")
+
     def test_correlated_findings_exclude_generic_and_non_scanner_evidence(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="No finding noise"))
         target = assessments.add_assessment_target(
