@@ -8,6 +8,7 @@ import hashlib
 import re
 import sqlite3
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -355,3 +356,119 @@ def review_linked_msf_loot(assessment_id: int, loot_id: int, request: LootLinkRe
         ).fetchone()
     import json
     return {**dict(updated), "snapshot": json.loads(updated["snapshot_json"])}
+
+
+recommendation_router = APIRouter(
+    prefix="/api/assessments/{assessment_id}/findings",
+    tags=["assessment-metasploit"],
+)
+
+
+def _origin_key(value: str) -> tuple[str, str, int] | None:
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return None
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        return parsed.scheme.lower(), parsed.hostname.lower().rstrip("."), port
+    except ValueError:
+        return None
+
+
+@recommendation_router.get("/{finding_id}/metasploit-recommendations")
+def recommend_msf_modules_for_finding(assessment_id: int, finding_id: str):
+    """Return CVE-reference-matched exploit modules for a validated in-scope finding.
+
+    This is a recommendation-only hand-off. It never checks or executes a module.
+    """
+    with assessments._connection() as connection:
+        assessment = assessments._assessment_or_404(connection, assessment_id)
+        if assessment["status"] == "archived":
+            raise HTTPException(409, "Archived assessments cannot create Metasploit hand-offs.")
+
+    inventory = assessments.list_correlated_findings(assessment_id)
+    finding = next((item for item in inventory["findings"] if item["id"] == finding_id), None)
+    if finding is None:
+        raise HTTPException(404, "Correlated finding not found.")
+    if finding.get("finding_status") != "validated":
+        raise HTTPException(409, "Only analyst-validated findings can be handed to Metasploit.")
+    if finding.get("scope_state") != "in_scope":
+        raise HTTPException(409, "The finding is not classified as in scope.")
+    cve_ids = {
+        str(value).upper() for value in finding.get("cve_ids", [])
+        if re.fullmatch(r"(?i)CVE-\\d{4}-\\d{4,}", str(value))
+    }
+    if not cve_ids:
+        raise HTTPException(422, "This finding has no CVE references to match against Metasploit module metadata.")
+
+    finding_origin = _origin_key(str(finding.get("target") or ""))
+    if finding_origin is None:
+        raise HTTPException(409, "The finding does not have a valid HTTP(S) target origin.")
+    with assessments._connection() as connection:
+        targets = connection.execute(
+            "SELECT id, url, hostname FROM assessment_targets WHERE assessment_id = ? ORDER BY id",
+            (assessment_id,),
+        ).fetchall()
+    approved = next((row for row in targets if _origin_key(row["url"]) == finding_origin), None)
+    if approved is None:
+        raise HTTPException(409, "No already-approved assessment target matches the finding's exact origin.")
+
+    from app.routes import modules
+
+    parsed_target = urlsplit(str(finding.get("target") or ""))
+    port = parsed_target.port or (443 if parsed_target.scheme == "https" else 80)
+    recommendations: dict[tuple[str, str], dict[str, Any]] = {}
+    contexts = [
+        item for item in finding.get("software_context", [])
+        if item.get("scope_state") == "in_scope" and str(item.get("product") or "").strip()
+    ][:5]
+    for context in contexts:
+        product = str(context.get("product") or "").strip()[:120]
+        version = str(context.get("version") or "").strip()[:80]
+        result = modules.suggest_modules(service_info=f"{product} {version}".strip(), port=port, types="exploit")
+        for candidate in result.get("candidates", []):
+            if candidate.get("type") != "exploit":
+                continue
+            shared = sorted(cve_ids & {str(value).upper() for value in candidate.get("cve_matches", [])})
+            if not shared:
+                continue
+            key = (str(candidate.get("type")), str(candidate.get("name")))
+            recommendations[key] = {
+                "type": candidate.get("type"),
+                "name": candidate.get("name"),
+                "fullname": candidate.get("fullname"),
+                "rank_label": candidate.get("rank_label", "Unknown"),
+                "rank_weight": candidate.get("rank_weight", -1),
+                "description_snippet": candidate.get("description_snippet", ""),
+                "cve_matches": shared,
+                "cve_version_assessments": [
+                    item for item in candidate.get("cve_version_assessments", [])
+                    if str(item.get("cve_id", "")).upper() in shared
+                ],
+                "match_basis": "Shared CVE reference in finding and Metasploit module metadata; not proof of affected-version applicability or exploitability.",
+            }
+
+    ordered = sorted(
+        recommendations.values(),
+        key=lambda item: (item["rank_weight"], item["fullname"] or ""),
+        reverse=True,
+    )[:8]
+    return {
+        "finding_id": finding_id,
+        "finding_title": finding.get("title"),
+        "finding_status": finding.get("finding_status"),
+        "target_context": {
+            "target_id": approved["id"],
+            "approved_target_url": approved["url"],
+            "host": finding_origin[1],
+            "port": finding_origin[2],
+        },
+        "recommendations": ordered,
+        "notice": (
+            "Recommendations are based on shared CVE references in finding and module metadata. "
+            "They do not establish affected-version applicability, module compatibility, target "
+            "vulnerability, or exploit success. No module check or execution was performed. "
+            "Review module details and target options, then use the separate operator-controlled "
+            "check-first and execution workflows."
+        ),
+    }
