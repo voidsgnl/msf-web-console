@@ -4,6 +4,7 @@ The operator chooses the assessment target after reviewing the Metasploit
 activity. The association is therefore recorded as operator-attributed, not
 as an independently verified match between RPC output and target identity.
 """
+import hashlib
 import re
 import sqlite3
 from typing import Any, Literal
@@ -255,8 +256,8 @@ def _resolve_loot_reference(download_id: str) -> tuple[dict[str, Any], str | Non
     if selected is None or msf_db._loot_fingerprint(selected) != match.group(2):
         raise HTTPException(404, "Metasploit loot changed or was not found. Refresh the loot list.")
     payload = msf_db._loot_payload(selected)
-    artifact_sha256 = __import__("hashlib").sha256(payload).hexdigest() if payload is not None else None
-    allowed = ("name", "ltype", "ctype", "host", "service", "created_at", "updated_at", "info")
+    artifact_sha256 = hashlib.sha256(payload).hexdigest() if payload is not None else None
+    allowed = ("name", "ltype", "ctype", "host", "service", "created_at", "updated_at")
     snapshot = {key: selected.get(key) for key in allowed if selected.get(key) is not None}
     snapshot["has_data"] = payload is not None
     snapshot["download_id"] = download_id
