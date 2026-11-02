@@ -196,5 +196,72 @@ class AssessmentMetasploitLinkTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 404)
 
 
+    def _finding(self, **changes):
+        finding = {
+            "id": "finding-123", "title": "Example CVE", "target": "https://approved.example/login",
+            "host": "approved.example", "path": "/login", "scope_state": "in_scope",
+            "finding_status": "validated", "cve_ids": ["CVE-2025-12345"],
+            "software_context": [{
+                "product": "Example Server", "version": "1.2.3", "scope_state": "in_scope",
+            }],
+        }
+        finding.update(changes)
+        return finding
+
+    def test_recommends_only_exploit_modules_with_shared_cve_references(self):
+        with patch(
+            "app.routes.assessments.list_correlated_findings",
+            return_value={"findings": [self._finding()]},
+        ), patch(
+            "app.routes.modules.suggest_modules",
+            return_value={"candidates": [
+                {"type": "exploit", "name": "multi/http/example", "fullname": "exploit/multi/http/example",
+                 "rank_label": "Good", "rank_weight": 400, "description_snippet": "Example exploit",
+                 "cve_matches": ["CVE-2025-12345"], "cve_version_assessments": [
+                     {"cve_id": "CVE-2025-12345", "status": "indeterminate"}]},
+                {"type": "exploit", "name": "multi/http/unrelated", "fullname": "exploit/multi/http/unrelated",
+                 "cve_matches": ["CVE-2024-99999"]},
+                {"type": "auxiliary", "name": "scanner/http/example", "cve_matches": ["CVE-2025-12345"]},
+            ]},
+        ) as suggest:
+            result = assessment_msf.recommend_msf_modules_for_finding(
+                self.assessment["id"], "finding-123"
+            )
+        self.assertEqual([item["name"] for item in result["recommendations"]], ["multi/http/example"])
+        self.assertEqual(result["target_context"]["target_id"], self.target["id"])
+        self.assertEqual(result["target_context"]["port"], 443)
+        self.assertIn("No module check or execution was performed", result["notice"])
+        suggest.assert_called_once_with(service_info="Example Server 1.2.3", port=443, types="exploit")
+
+    def test_rejects_unvalidated_finding_before_module_search(self):
+        with patch(
+            "app.routes.assessments.list_correlated_findings",
+            return_value={"findings": [self._finding(finding_status="unverified")]},
+        ), patch("app.routes.modules.suggest_modules") as suggest:
+            with self.assertRaises(HTTPException) as raised:
+                assessment_msf.recommend_msf_modules_for_finding(self.assessment["id"], "finding-123")
+        self.assertEqual(raised.exception.status_code, 409)
+        suggest.assert_not_called()
+
+    def test_rejects_finding_outside_exact_approved_origin(self):
+        with patch(
+            "app.routes.assessments.list_correlated_findings",
+            return_value={"findings": [self._finding(target="https://approved.example:8443/login")]},
+        ), patch("app.routes.modules.suggest_modules") as suggest:
+            with self.assertRaises(HTTPException) as raised:
+                assessment_msf.recommend_msf_modules_for_finding(self.assessment["id"], "finding-123")
+        self.assertEqual(raised.exception.status_code, 409)
+        suggest.assert_not_called()
+
+    def test_rejects_out_of_scope_finding(self):
+        with patch(
+            "app.routes.assessments.list_correlated_findings",
+            return_value={"findings": [self._finding(scope_state="out_of_scope")]},
+        ), patch("app.routes.modules.suggest_modules") as suggest:
+            with self.assertRaises(HTTPException) as raised:
+                assessment_msf.recommend_msf_modules_for_finding(self.assessment["id"], "finding-123")
+        self.assertEqual(raised.exception.status_code, 409)
+        suggest.assert_not_called()
+
 if __name__ == "__main__":
     unittest.main()
