@@ -1393,20 +1393,53 @@ def _parse_specialist_tool_output(tool_id: str, output: str, target_url: str) ->
         version = document.get("version") if isinstance(document.get("version"), dict) else {}
         plugins = document.get("plugins") if isinstance(document.get("plugins"), dict) else {}
         themes = document.get("themes") if isinstance(document.get("themes"), dict) else {}
-        findings = document.get("interesting_findings") if isinstance(document.get("interesting_findings"), list) else []
-        return [{
-            "target": target_url, "source": "wpscan",
+        interesting = document.get("interesting_findings") if isinstance(document.get("interesting_findings"), list) else []
+        findings = []
+        for item in interesting[:50]:
+            if isinstance(item, dict):
+                findings.append(("interesting_finding", item))
+        for component_type, components in (("plugin", plugins), ("theme", themes)):
+            for component_name, component in list(components.items())[:50]:
+                if not isinstance(component, dict):
+                    continue
+                vulnerabilities = component.get("vulnerabilities")
+                if not isinstance(vulnerabilities, list):
+                    continue
+                for vulnerability in vulnerabilities[:20]:
+                    if isinstance(vulnerability, dict):
+                        findings.append((component_type + ":" + str(component_name)[:120], vulnerability))
+
+        common = {
+            "source": "wpscan",
             "wordpress_version": version.get("number"),
             "plugin_count": len(plugins), "theme_count": len(themes),
             "finding_count": len(findings),
-            "raw": json.dumps({
-                "version": version.get("number"),
-                "plugins": list(plugins.keys())[:50],
-                "themes": list(themes.keys())[:25],
-                "interesting_findings": findings[:25],
-            }, ensure_ascii=False)[:12000],
-            "assessment": "WPScan used passive detection modes. Results are evidence and require analyst validation; vulnerability data may be incomplete without a WPScan API token.",
-        }]
+        }
+        if not findings:
+            return [{
+                **common, "target": target_url,
+                "raw": json.dumps({
+                    "version": version.get("number"),
+                    "plugins": list(plugins.keys())[:50],
+                    "themes": list(themes.keys())[:25],
+                    "interesting_findings": [],
+                }, ensure_ascii=False)[:12000],
+                "assessment": "WPScan inventory retained as software evidence; component counts alone are not vulnerability findings. Passive vulnerability intelligence may be incomplete without an API token.",
+            }]
+
+        records = []
+        for finding_type, item in findings[:100]:
+            title = str(item.get("title") or item.get("name") or item.get("type") or item.get("to") or finding_type).strip()
+            target = str(item.get("url") or item.get("location") or target_url)[:2048]
+            records.append({
+                **common,
+                "target": target,
+                "finding": title[:1000],
+                "severity": str(item.get("severity") or "unknown")[:30],
+                "raw": json.dumps({"finding_type": finding_type, "finding": item}, ensure_ascii=False)[:6000],
+                "assessment": "WPScan observation retained as evidence. Confirm the affected component and exact version against vendor guidance before classifying it as a vulnerability.",
+            })
+        return records
 
     if tool_id == "nikto":
         if not isinstance(document, dict):
