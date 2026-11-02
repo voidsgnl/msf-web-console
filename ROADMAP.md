@@ -98,7 +98,7 @@ Status: adapter implementation complete; validation and platform-wide normalisat
 - [x] Add bounded Nmap network/service discovery as a separate adapter (TCP connect, top 100 ports, light service detection; no UDP, NSE, OS detection, or arbitrary port ranges).
 - [x] Persist and deduplicate URL/host assets observed in HTTP probe, httpx, and WhatWeb evidence; track first/last seen and source tool.
 - [x] Persist Nmap-observed host addresses and open TCP services in the assessment inventory, including port/protocol, service/product/version, scope classification, source provenance, and first/last-seen timestamps. UDP, closed ports, and unvalidated records are excluded.
-- [ ] Add explicit asset-to-service relationships and richer IP/DNS identity reconciliation across passive and active discovery sources.
+- [x] Add an evidence-derived relationship view for URL-to-host, Nmap hostname-alias-to-IP, and host-to-open-service links, retaining provenance and scope state without changing approved targets.
 - [x] Establish the first exact-origin target-scope boundary; extend it to discovered child assets through explicit scope expansion and approval.
 - [x] Track discovered in-scope and out-of-scope URL/host assets; discovery never changes approved targets.
 - [ ] Add an explicit review-and-approve workflow for expanding assessment scope; discovered assets remain out-of-scope until separately approved.
