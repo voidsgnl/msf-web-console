@@ -252,6 +252,44 @@ class AssessmentStoreTests(unittest.TestCase):
         self.assertEqual(inventory["software"][0]["version"], "")
         self.assertEqual(inventory["counts"]["versioned"], 0)
 
+    @patch("app.routes.assessments.nvd_client.get_cve", return_value={
+        "description": "Example advisory", "published": "2025-01-01",
+        "cvss": {"base_score": 8.1, "base_severity": "HIGH"}, "references": [],
+    })
+    @patch("app.routes.assessments.nvd_client.assess_product_version", side_effect=["affected", "not_affected", "indeterminate"])
+    @patch("app.routes.assessments.nvd_client.search_cve_ids_by_keyword", return_value={
+        "CVE-2025-1001", "CVE-2025-1002", "CVE-2025-1003",
+    })
+    def test_software_cve_correlation_uses_nvd_cpe_version_assessment(
+        self, _search, _assess, _get
+    ):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="CVE correlation"))
+        assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], "https://example.test")
+        assessments.record_tool_execution(
+            scope, "nmap", "https://example.test",
+            "2026-11-02T05:00:00+00:00", "2026-11-02T05:00:10+00:00", 0, False,
+            [{"host": "example.test", "port": 443, "protocol": "tcp", "state": "open",
+              "service": "https", "product": "nginx", "version": "1.24.0"}], "",
+        )
+        result = assessments.correlate_software_cves(created["id"])
+        self.assertEqual(result["processed"], 1)
+        self.assertEqual(result["results"][0]["affected_count"], 1)
+        self.assertEqual(result["results"][0]["indeterminate_count"], 1)
+        statuses = {item["cve_id"]: item["status"] for item in result["results"][0]["candidates"]}
+        self.assertEqual(statuses["CVE-2025-1001"], "affected")
+        self.assertNotIn("CVE-2025-1002", statuses)
+        self.assertEqual(statuses["CVE-2025-1003"], "indeterminate")
+        _search.assert_called_once_with("nginx", "1.24.0")
+
+    def test_software_cve_correlation_rejects_oversized_batch(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="CVE limit"))
+        with self.assertRaises(HTTPException) as raised:
+            assessments.correlate_software_cves(created["id"], limit=4)
+        self.assertEqual(raised.exception.status_code, 400)
+
     def test_persistent_job_state_and_restart_recovery(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="Job lifecycle"))
         job = assessments.create_execution_job(created["id"], "nuclei", "https://example.test")
