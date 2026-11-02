@@ -232,7 +232,6 @@ class ExecutionRecordUpdate(BaseModel):
     reviewed: bool | None = None
     notes: str | None = Field(default=None, max_length=4000)
     record_type: str | None = Field(default=None, pattern=r"^(evidence|finding)$")
-    finding_status: str | None = Field(default=None, pattern=r"^(unverified|validated|false_positive|accepted_risk|remediated|retested)$")
 
 
 def _assessment_or_404(connection: sqlite3.Connection, assessment_id: int) -> sqlite3.Row:
@@ -1155,7 +1154,7 @@ def update_execution_record(
         ) if "reviewed" in changes else (existing["reviewed_at"] if existing else None)
         notes = request.notes if "notes" in changes else (existing["notes"] if existing else "")
         record_type = request.record_type if "record_type" in changes else (existing["record_type"] if existing else "evidence")
-        finding_status = request.finding_status if "finding_status" in changes else (existing["finding_status"] if existing else "unverified")
+        finding_status = existing["finding_status"] if existing else "unverified"
         connection.execute(
             """
             INSERT INTO execution_record_metadata
@@ -1506,15 +1505,13 @@ def bulk_update_assessment_records(assessment_id: int, request: dict):
     ids = request.get("record_ids")
     if not isinstance(ids, list) or not ids or len(ids) > 200 or not all(isinstance(value, str) for value in ids):
         raise HTTPException(400, "Select between 1 and 200 evidence records.")
-    fields = {key for key in ("review_state", "reviewed", "record_type", "finding_status") if key in request}
+    fields = {key for key in ("review_state", "reviewed", "record_type") if key in request}
     if not fields:
         raise HTTPException(400, "Provide a review state, reviewed flag, or record type.")
     if "review_state" in request and request["review_state"] not in ("active", "dismissed"):
         raise HTTPException(400, "Invalid review state.")
     if "record_type" in request and request["record_type"] not in ("evidence", "finding"):
         raise HTTPException(400, "Invalid record type.")
-    if "finding_status" in request and request["finding_status"] not in ("unverified", "validated", "false_positive", "accepted_risk", "remediated", "retested"):
-        raise HTTPException(400, "Invalid finding status.")
     if "reviewed" in request and not isinstance(request["reviewed"], bool):
         raise HTTPException(400, "Reviewed state must be a boolean.")
     now = _timestamp()
