@@ -141,7 +141,7 @@ Status: adapter implementation complete; validation and platform-wide normalisat
 ## Phase 6 — Post-exploitation and evidence
 
 - [ ] Contextual session guidance for Meterpreter versus shell sessions.
-- [ ] Associate session activity and collected loot with the assessment.
+- [x] Associate session activity and collected loot with the assessment, with operator-selected approved targets and reviewable loot hashes/provenance.
 - [ ] Preserve evidence provenance, timestamps, and integrity metadata.
 - [ ] Keep post-exploitation actions visibly separate from discovery.
 
