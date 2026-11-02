@@ -141,7 +141,8 @@ def _initialise() -> None:
                 notes TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                record_type TEXT NOT NULL DEFAULT 'evidence' CHECK (record_type IN ('evidence', 'finding'))
+                record_type TEXT NOT NULL DEFAULT 'evidence' CHECK (record_type IN ('evidence', 'finding')),
+                finding_status TEXT NOT NULL DEFAULT 'unverified' CHECK (finding_status IN ('unverified', 'validated', 'false_positive', 'accepted_risk', 'remediated', 'retested'))
             );
             CREATE INDEX IF NOT EXISTS idx_execution_record_metadata_assessment
                 ON execution_record_metadata(assessment_id, review_state, reviewed_at);
@@ -150,6 +151,8 @@ def _initialise() -> None:
         columns = {row['name'] for row in connection.execute('PRAGMA table_info(execution_record_metadata)').fetchall()}
         if 'record_type' not in columns:
             connection.execute("ALTER TABLE execution_record_metadata ADD COLUMN record_type TEXT NOT NULL DEFAULT 'evidence' CHECK (record_type IN ('evidence', 'finding'))")
+        if 'finding_status' not in columns:
+            connection.execute("ALTER TABLE execution_record_metadata ADD COLUMN finding_status TEXT NOT NULL DEFAULT 'unverified' CHECK (finding_status IN ('unverified', 'validated', 'false_positive', 'accepted_risk', 'remediated', 'retested'))")
 
 
 def _timestamp() -> str:
@@ -229,6 +232,7 @@ class ExecutionRecordUpdate(BaseModel):
     reviewed: bool | None = None
     notes: str | None = Field(default=None, max_length=4000)
     record_type: str | None = Field(default=None, pattern=r"^(evidence|finding)$")
+    finding_status: str | None = Field(default=None, pattern=r"^(unverified|validated|false_positive|accepted_risk|remediated|retested)$")
 
 
 def _assessment_or_404(connection: sqlite3.Connection, assessment_id: int) -> sqlite3.Row:
@@ -1069,7 +1073,7 @@ def get_assessment_execution(assessment_id: int, execution_id: int):
             item = dict(record) if isinstance(record, dict) else {"raw": str(record)}
             record_id = item.get("_record_id") or f"legacy-{execution_id}-{index}"
             metadata = connection.execute(
-                "SELECT review_state, reviewed_at, notes, record_type FROM execution_record_metadata WHERE record_id = ? AND execution_id = ?",
+                "SELECT review_state, reviewed_at, notes, record_type, finding_status FROM execution_record_metadata WHERE record_id = ? AND execution_id = ?",
                 (record_id, execution_id),
             ).fetchone()
             item["record_id"] = record_id
@@ -1151,23 +1155,26 @@ def update_execution_record(
         ) if "reviewed" in changes else (existing["reviewed_at"] if existing else None)
         notes = request.notes if "notes" in changes else (existing["notes"] if existing else "")
         record_type = request.record_type if "record_type" in changes else (existing["record_type"] if existing else "evidence")
+        finding_status = request.finding_status if "finding_status" in changes else (existing["finding_status"] if existing else "unverified")
         connection.execute(
             """
             INSERT INTO execution_record_metadata
-                (record_id, execution_id, assessment_id, review_state, reviewed_at, notes, created_at, updated_at, record_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (record_id, execution_id, assessment_id, review_state, reviewed_at, notes, created_at, updated_at, record_type, finding_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(record_id) DO UPDATE SET
                 review_state = excluded.review_state,
                 reviewed_at = excluded.reviewed_at,
                 notes = excluded.notes,
                 record_type = excluded.record_type,
+                finding_status = excluded.finding_status,
                 updated_at = excluded.updated_at
             """,
-            (record_id, execution_id, assessment_id, state, reviewed_at, notes or "", now, now, record_type),
+            (record_id, execution_id, assessment_id, state, reviewed_at, notes or "", now, now, record_type, finding_status),
         )
     return {
         "record_id": record_id, "review_state": state,
         "reviewed_at": reviewed_at, "notes": notes or "", "record_type": record_type,
+        "finding_status": finding_status,
     }
 
 
@@ -1227,6 +1234,7 @@ def _all_assessment_records(connection: sqlite3.Connection, assessment_id: int) 
                 "reviewed_at": meta["reviewed_at"] if meta else None,
                 "notes": meta["notes"] if meta else "",
                 "record_type": meta["record_type"] if meta else "evidence",
+                "finding_status": meta["finding_status"] if meta else "unverified",
             })
             output.append(item)
     return output
@@ -1438,13 +1446,15 @@ def bulk_update_assessment_records(assessment_id: int, request: dict):
     ids = request.get("record_ids")
     if not isinstance(ids, list) or not ids or len(ids) > 200 or not all(isinstance(value, str) for value in ids):
         raise HTTPException(400, "Select between 1 and 200 evidence records.")
-    fields = {key for key in ("review_state", "reviewed", "record_type") if key in request}
+    fields = {key for key in ("review_state", "reviewed", "record_type", "finding_status") if key in request}
     if not fields:
         raise HTTPException(400, "Provide a review state, reviewed flag, or record type.")
     if "review_state" in request and request["review_state"] not in ("active", "dismissed"):
         raise HTTPException(400, "Invalid review state.")
     if "record_type" in request and request["record_type"] not in ("evidence", "finding"):
         raise HTTPException(400, "Invalid record type.")
+    if "finding_status" in request and request["finding_status"] not in ("unverified", "validated", "false_positive", "accepted_risk", "remediated", "retested"):
+        raise HTTPException(400, "Invalid finding status.")
     if "reviewed" in request and not isinstance(request["reviewed"], bool):
         raise HTTPException(400, "Reviewed state must be a boolean.")
     now = _timestamp()
