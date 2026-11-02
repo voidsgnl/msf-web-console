@@ -284,7 +284,7 @@ export const api = {
     execution: (id: number, executionId: number) =>
       request<AssessmentExecutionDetail>(`/assessments/${id}/executions/${executionId}`),
     updateExecutionRecord: (id: number, executionId: number, recordId: string, changes: {
-      review_state?: "active" | "dismissed"; reviewed?: boolean; notes?: string; record_type?: "evidence" | "finding"; finding_status?: "unverified" | "validated" | "false_positive" | "accepted_risk" | "remediated" | "retested";
+      review_state?: "active" | "dismissed"; reviewed?: boolean; notes?: string; record_type?: "evidence" | "finding";
     }) => request<{ record_id: string; review_state: "active" | "dismissed"; reviewed_at: string | null; notes: string; record_type: "evidence" | "finding" }>(
       `/assessments/${id}/executions/${executionId}/records/${encodeURIComponent(recordId)}`,
       { method: "PATCH", body: JSON.stringify(changes) },
