@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "../lib/api";
-import type { AssessmentAsset, AssessmentService, AssessmentSoftware, SoftwareCveCorrelation, CorrelatedFinding, AssessmentRelationship, AssessmentDetail, AssessmentExecution, AssessmentExecutionJob, AssessmentSummary, AssessmentReport, AssessmentMsfActivity } from "../lib/api";
+import type { AssessmentAsset, AssessmentService, AssessmentSoftware, SoftwareCveCorrelation, CorrelatedFinding, AssessmentRelationship, AssessmentDetail, AssessmentExecution, AssessmentExecutionJob, AssessmentSummary, AssessmentReport, AssessmentMsfActivity, AssessmentMsfLoot, MetasploitLootRecord } from "../lib/api";
 import { EvidenceManager } from "./EvidenceManager";
 
 type Tool = { id: string; name: string; category: string; purpose: string; installed: boolean; execution_enabled: boolean; status: "ready"|"not_installed"|"not_integrated"; path?: string | null };
@@ -47,6 +47,13 @@ export function WebSecurityView() {
   const [msfReference,setMsfReference]=useState("");
   const [msfTargetId,setMsfTargetId]=useState<number|null>(null);
   const [msfAnalystNote,setMsfAnalystNote]=useState("");
+  const [msfLootRecords,setMsfLootRecords]=useState<MetasploitLootRecord[]>([]);
+  const [linkedMsfLoot,setLinkedMsfLoot]=useState<AssessmentMsfLoot[]>([]);
+  const [msfLootNotice,setMsfLootNotice]=useState("");
+  const [msfLootError,setMsfLootError]=useState<string|null>(null);
+  const [msfLootLoading,setMsfLootLoading]=useState(false);
+  const [selectedLootDownloadId,setSelectedLootDownloadId]=useState("");
+  const [msfLootNote,setMsfLootNote]=useState("");
   const [softwareCveResults,setSoftwareCveResults]=useState<SoftwareCveCorrelation["results"]>([]);
   const [softwareCveErrors,setSoftwareCveErrors]=useState<SoftwareCveCorrelation["errors"]>([]);
   const [softwareCveOffset,setSoftwareCveOffset]=useState<number|null>(0);
@@ -73,9 +80,18 @@ export function WebSecurityView() {
     catch(e){setMsfActivityError(e instanceof Error?e.message:String(e));}
     finally{setMsfActivityLoading(false);}
   };
+  const loadMsfLoot=async(id:number)=>{
+    setMsfLootLoading(true);setMsfLootError(null);
+    try{
+      const [inventory,linked]=await Promise.all([api.db.loot(),api.assessments.msfLoot(id)]);
+      setMsfLootRecords(inventory.loot);setLinkedMsfLoot(linked.loot);setMsfLootNotice(linked.notice);
+      setSelectedLootDownloadId(current=>inventory.loot.some(item=>item.download_id===current)?current:inventory.loot[0]?.download_id??"");
+    }catch(e){setMsfLootError(e instanceof Error?e.message:String(e));}
+    finally{setMsfLootLoading(false);}
+  };
   useEffect(()=>{
-    if(assessmentId){void loadMsfActivity(assessmentId);setMsfTargetId(current=>assessment?.targets.some(item=>item.id===current)?current:assessment?.targets[0]?.id??null);}
-    else{setMsfActivity([]);setMsfActivityNotice("");setMsfActivityError(null);setMsfTargetId(null);}
+    if(assessmentId){void loadMsfActivity(assessmentId);void loadMsfLoot(assessmentId);setMsfTargetId(current=>assessment?.targets.some(item=>item.id===current)?current:assessment?.targets[0]?.id??null);}
+    else{setMsfActivity([]);setMsfActivityNotice("");setMsfActivityError(null);setMsfTargetId(null);setMsfLootRecords([]);setLinkedMsfLoot([]);setMsfLootNotice("");setMsfLootError(null);setSelectedLootDownloadId("");}
   },[assessmentId,assessment?.targets]);
   useEffect(()=>{
     if(!assessmentId||!executionJobs.some(job=>job.state==="queued"||job.state==="running"))return;
@@ -174,6 +190,24 @@ export function WebSecurityView() {
       await api.assessments.reviewMsfActivity(assessmentId,item.id,{review_state,analyst_note:item.analyst_note});
       await loadMsfActivity(assessmentId);setAssessmentReport(null);
     }catch(e){setMsfActivityError(e instanceof Error?e.message:String(e));}
+  };
+  const linkMetasploitLoot=async()=>{
+    if(!assessmentId||!msfTargetId||!selectedLootDownloadId)return;
+    setMsfLootError(null);
+    try{
+      await api.assessments.linkMsfLoot(assessmentId,{
+        download_id:selectedLootDownloadId,target_id:msfTargetId,analyst_note:msfLootNote.trim(),
+      });
+      setMsfLootNote("");await loadMsfLoot(assessmentId);setAssessmentReport(null);
+    }catch(e){setMsfLootError(e instanceof Error?e.message:String(e));}
+  };
+  const reviewMetasploitLoot=async(item:AssessmentMsfLoot,review_state:"unreviewed"|"reviewed"|"dismissed")=>{
+    if(!assessmentId)return;
+    setMsfLootError(null);
+    try{
+      await api.assessments.reviewMsfLoot(assessmentId,item.id,{review_state,analyst_note:item.analyst_note});
+      await loadMsfLoot(assessmentId);setAssessmentReport(null);
+    }catch(e){setMsfLootError(e instanceof Error?e.message:String(e));}
   };
   const generateAssessmentReport=async()=>{
     if(!assessmentId)return;
