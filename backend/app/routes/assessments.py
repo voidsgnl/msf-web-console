@@ -1307,23 +1307,28 @@ def list_correlated_findings(assessment_id: int):
 
         derived_observations = []
         if tool == "wpscan":
-            try:
-                raw = json.loads(record.get("raw") or "{}")
-            except (TypeError, ValueError):
-                raw = {}
-            interesting = raw.get("interesting_findings") if isinstance(raw, dict) else []
-            if isinstance(interesting, list):
-                for item in interesting[:25]:
-                    if not isinstance(item, dict):
-                        continue
-                    title = str(item.get("to") or item.get("url") or item.get("type") or item.get("found_by") or "").strip()
-                    if title:
-                        derived_observations.append({
-                            "finding": title[:1000],
-                            "target": str(item.get("url") or record.get("target") or record.get("target_url") or ""),
-                            "severity": str(item.get("severity") or "unknown"),
-                            "raw": item,
-                        })
+            if record.get("finding"):
+                derived_observations.append(record)
+            else:
+                # Backward compatibility for executions stored before WPScan
+                # findings became individually addressable evidence records.
+                try:
+                    raw = json.loads(record.get("raw") or "{}")
+                except (TypeError, ValueError):
+                    raw = {}
+                interesting = raw.get("interesting_findings") if isinstance(raw, dict) else []
+                if isinstance(interesting, list):
+                    for item in interesting[:25]:
+                        if not isinstance(item, dict):
+                            continue
+                        title = str(item.get("to") or item.get("url") or item.get("type") or item.get("found_by") or "").strip()
+                        if title:
+                            derived_observations.append({
+                                "finding": title[:1000],
+                                "target": str(item.get("url") or record.get("target") or record.get("target_url") or ""),
+                                "severity": str(item.get("severity") or "unknown"),
+                                "raw": item,
+                            })
             if not derived_observations:
                 # WPScan version/plugin/theme inventory is useful context, but
                 # inventory counts alone are not promoted to vulnerability candidates.
