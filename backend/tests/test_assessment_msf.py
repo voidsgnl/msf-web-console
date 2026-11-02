@@ -182,5 +182,19 @@ class AssessmentMetasploitLinkTests(unittest.TestCase):
         rpc_call.assert_not_called()
 
 
+    def test_rejects_stale_or_changed_loot_reference(self):
+        record = {"name": "loot.txt", "path": "/private/loot.txt"}
+        with patch("app.routes.assessment_msf.rpc.call", return_value={"loots": [record]}), \
+             patch("app.routes.assessment_msf.msf_db._loot_fingerprint", return_value="b" * 64):
+            with self.assertRaises(HTTPException) as raised:
+                assessment_msf.link_msf_loot(
+                    self.assessment["id"],
+                    assessment_msf.LootLinkCreate(
+                        download_id="0." + "a" * 64, target_id=self.target["id"]
+                    ),
+                )
+        self.assertEqual(raised.exception.status_code, 404)
+
+
 if __name__ == "__main__":
     unittest.main()
