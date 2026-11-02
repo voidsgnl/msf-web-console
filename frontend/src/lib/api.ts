@@ -59,6 +59,8 @@ export type AssessmentReport = {
     correlated_finding_candidates: number;
     finding_statuses: Record<string, number>;
     evidence_lifecycle_records: Record<string, number>;
+    metasploit_activity: number;
+    metasploit_reviewed: number;
   };
   scope: { targets: AssessmentTarget[]; in_scope_assets: number; out_of_scope_assets: number; notice: string };
   assets: AssessmentAsset[];
@@ -66,6 +68,8 @@ export type AssessmentReport = {
   software: AssessmentSoftware[];
   nvd_correlation: SoftwareCveCorrelation & { included: boolean; coverage: string };
   findings: CorrelatedFinding[];
+  metasploit_activity: AssessmentMsfActivity[];
+  metasploit_notice: string;
   evidence: { records: AssessmentExecutionRecord[]; by_tool: { tool_id: string; runs: number; first_run: string; last_run: string; successful_runs: number }[]; execution_history: AssessmentExecution[] };
   limitations: string[];
   notices: Record<string, string>;
