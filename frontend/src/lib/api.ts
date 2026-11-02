@@ -16,6 +16,16 @@ export type AssessmentService = {
 export type AssessmentServiceInventory = {
   services: AssessmentService[]; counts: { total: number; in_scope: number; out_of_scope: number };
 };
+export type AssessmentRelationship = {
+  source_type: "url" | "host"; source: string;
+  relationship: "hosted_on" | "resolves_to" | "exposes";
+  target_type: "host" | "service"; target: string;
+  sources: string[]; scope_state: "in_scope" | "out_of_scope"; evidence: string[];
+};
+export type AssessmentRelationshipInventory = {
+  relationships: AssessmentRelationship[];
+  counts: { total: number; in_scope: number; out_of_scope: number };
+};
 export type AssessmentExecutionRecord = Record<string, unknown> & {
   record_id: string; review_state: "active" | "dismissed"; reviewed_at: string | null; notes: string; record_type: "evidence" | "finding";
   evidence_schema_version?: number; source_tool?: string; target_url?: string; observed_at?: string;
@@ -216,6 +226,7 @@ export const api = {
       }),
     assets: (id: number) => request<AssessmentAssetInventory>(`/assessments/${id}/assets`),
     services: (id: number) => request<AssessmentServiceInventory>(`/assessments/${id}/services`),
+    relationships: (id: number) => request<AssessmentRelationshipInventory>(`/assessments/${id}/relationships`),
     executions: (id: number) =>
       request<{ executions: AssessmentExecution[] }>(`/assessments/${id}/executions`),
     executionJobs: (id: number) =>
