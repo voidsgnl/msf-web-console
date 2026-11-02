@@ -879,8 +879,6 @@ def correlate_software_cves(assessment_id: int, limit: int = 3, offset: int = 0)
             candidates = []
             for cve_id in cve_ids[:20]:
                 status = nvd_client.assess_product_version(cve_id, item["product"], item["version"])
-                if status == "not_affected":
-                    continue
                 summary = nvd_client.get_cve(cve_id) or {}
                 candidates.append({
                     "cve_id": cve_id,
@@ -897,6 +895,7 @@ def correlate_software_cves(assessment_id: int, limit: int = 3, offset: int = 0)
                 "candidate_count": len(candidates),
                 "affected_count": sum(candidate["status"] == "affected" for candidate in candidates),
                 "indeterminate_count": sum(candidate["status"] == "indeterminate" for candidate in candidates),
+                "not_affected_count": sum(candidate["status"] == "not_affected" for candidate in candidates),
             })
         except NvdError as exc:
             errors.append({"software_id": item["id"], "product": item["product"], "error": str(exc)})
