@@ -22,6 +22,18 @@ export type AssessmentSoftware = {
   evidence: string[]; first_seen: string; last_seen: string;
   cve_status: "not_checked";
 };
+export type SoftwareCveCandidate = {
+  cve_id: string; status: "affected" | "not_affected" | "indeterminate";
+  description?: string | null; published?: string | null;
+  cvss?: CveCvss | null; references: string[];
+};
+export type SoftwareCveCorrelation = {
+  results: { software_id: string; host: string; product: string; version: string;
+    candidates: SoftwareCveCandidate[]; candidate_count: number;
+    affected_count: number; indeterminate_count: number }[];
+  errors: { software_id: string; product: string; error: string }[];
+  eligible_products: number; processed: number; next_offset: number | null; notice: string;
+};
 export type AssessmentSoftwareInventory = {
   software: AssessmentSoftware[];
   counts: { total: number; versioned: number; in_scope: number; out_of_scope: number };
@@ -239,6 +251,7 @@ export const api = {
     services: (id: number) => request<AssessmentServiceInventory>(`/assessments/${id}/services`),
     relationships: (id: number) => request<AssessmentRelationshipInventory>(`/assessments/${id}/relationships`),
     software: (id: number) => request<AssessmentSoftwareInventory>(`/assessments/${id}/software`),
+    softwareCves: (id: number, offset = 0) => request<SoftwareCveCorrelation>(`/assessments/${id}/software/cves?limit=3&offset=${offset}`),
     executions: (id: number) =>
       request<{ executions: AssessmentExecution[] }>(`/assessments/${id}/executions`),
     executionJobs: (id: number) =>
