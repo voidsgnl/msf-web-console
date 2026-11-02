@@ -132,5 +132,55 @@ class AssessmentMetasploitLinkTests(unittest.TestCase):
         nvd.assert_not_called()
 
 
+    def test_links_registered_loot_with_hash_and_includes_it_in_report(self):
+        payload = b"sample evidence artifact"
+        record = {
+            "name": "loot.txt", "ltype": "text/plain", "ctype": "text/plain",
+            "host": "192.0.2.10", "service": "http", "created_at": "2026-11-02T10:00:00",
+            "path": "/private/server/path/loot.txt",
+        }
+        download_id = "0." + "a" * 64
+        with patch("app.routes.assessment_msf.rpc.call", return_value={"loots": [record]}), \
+             patch("app.routes.assessment_msf.msf_db._loot_fingerprint", return_value="a" * 64), \
+             patch("app.routes.assessment_msf.msf_db._loot_payload", return_value=payload):
+            linked = assessment_msf.link_msf_loot(
+                self.assessment["id"],
+                assessment_msf.LootLinkCreate(
+                    download_id=download_id, target_id=self.target["id"],
+                    analyst_note="Collected during the approved assessment.",
+                ),
+            )
+        import hashlib
+        self.assertEqual(linked["artifact_sha256"], hashlib.sha256(payload).hexdigest())
+        self.assertEqual(linked["artifact_size"], len(payload))
+        self.assertNotIn("path", linked["snapshot"])
+        self.assertEqual(linked["snapshot"]["name"], "loot.txt")
+        reviewed = assessment_msf.review_linked_msf_loot(
+            self.assessment["id"], linked["id"],
+            assessment_msf.LootLinkReview(review_state="reviewed", analyst_note="Hash recorded."),
+        )
+        self.assertEqual(reviewed["review_state"], "reviewed")
+        with patch("app.routes.assessment_msf.rpc.call", return_value={"loots": [record]}), \
+             patch("app.routes.assessment_msf.msf_db._loot_fingerprint", return_value="a" * 64), \
+             patch("app.routes.assessment_msf.msf_db._loot_payload", return_value=payload), \
+             patch("app.routes.assessments.correlate_software_cves"):
+            report = assessments.build_assessment_report(self.assessment["id"], include_nvd=False)
+        self.assertEqual(len(report["metasploit_loot"]), 1)
+        self.assertEqual(report["executive_summary"]["metasploit_loot"], 1)
+        self.assertEqual(report["metasploit_loot"][0]["artifact_sha256"], hashlib.sha256(payload).hexdigest())
+
+    def test_rejects_loot_for_target_outside_assessment(self):
+        with patch("app.routes.assessment_msf.rpc.call") as rpc_call:
+            with self.assertRaises(HTTPException) as raised:
+                assessment_msf.link_msf_loot(
+                    self.assessment["id"],
+                    assessment_msf.LootLinkCreate(
+                        download_id="0." + "a" * 64, target_id=999
+                    ),
+                )
+        self.assertEqual(raised.exception.status_code, 400)
+        rpc_call.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
