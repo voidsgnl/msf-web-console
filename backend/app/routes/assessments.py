@@ -1146,7 +1146,7 @@ def update_execution_record(
             )
         now = _timestamp()
         existing = connection.execute(
-            "SELECT review_state, reviewed_at, notes, record_type FROM execution_record_metadata WHERE record_id = ?",
+            "SELECT review_state, reviewed_at, notes, record_type, finding_status FROM execution_record_metadata WHERE record_id = ?",
             (record_id,),
         ).fetchone()
         state = request.review_state if "review_state" in changes else (existing["review_state"] if existing else "active")
