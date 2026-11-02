@@ -432,6 +432,14 @@ class ReconToolAdapterTests(unittest.TestCase):
         self.assertEqual(records[0]["http_status"], 200)
         self.assertIn("Apache", records[0]["technologies"])
 
+    def test_whatweb_parser_retains_plugin_versions_for_inventory(self):
+        records = _parse_tool_output(
+            "whatweb",
+            '{"target":"https://example.test","plugins":{"Apache":{"version":["2.4.58"]},"title":{"string":["Example"]}}}',
+        )
+        self.assertEqual(records[0]["plugin_details"]["Apache"]["version"], ["2.4.58"])
+        self.assertNotIn("title", records[0]["plugin_details"])
+
     def test_whatweb_parser_accepts_json_array_output(self):
         records = _parse_tool_output("whatweb", '[{"target":"https://example.test","http_status":200,"plugins":{"title":{"string":["Example"]},"Apache":{}}}]')
         self.assertEqual(records[0]["title"], "Example")
