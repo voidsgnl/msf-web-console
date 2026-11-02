@@ -1595,6 +1595,10 @@ def build_assessment_report(assessment_id: int, include_nvd: bool = True, nvd_li
         nvd["coverage"] = "not_requested"
 
     finding_items = findings["findings"]
+    # Import lazily to avoid a module-import cycle: assessment_msf depends on
+    # this module's assessment store and helpers.
+    from app.routes import assessment_msf
+    msf_activity = assessment_msf.list_linked_msf_activity(assessment_id)
     report = {
         "report_version": 1,
         "generated_at": _timestamp(),
@@ -1614,6 +1618,8 @@ def build_assessment_report(assessment_id: int, include_nvd: bool = True, nvd_li
                 for status in ("unverified", "validated", "false_positive", "accepted_risk", "remediated", "retested", "mixed")
             },
             "evidence_lifecycle_records": lifecycle_counts,
+            "metasploit_activity": len(msf_activity["activity"]),
+            "metasploit_reviewed": sum(item["review_state"] == "reviewed" for item in msf_activity["activity"]),
         },
         "scope": {
             "targets": assessment.get("targets", []),
@@ -1626,6 +1632,8 @@ def build_assessment_report(assessment_id: int, include_nvd: bool = True, nvd_li
         "software": software["software"],
         "nvd_correlation": nvd,
         "findings": finding_items,
+        "metasploit_activity": msf_activity["activity"],
+        "metasploit_notice": msf_activity["notice"],
         "evidence": {
             "records": records,
             "by_tool": history["by_tool"],
@@ -1637,6 +1645,7 @@ def build_assessment_report(assessment_id: int, include_nvd: bool = True, nvd_li
             "NVD CPE applicability is not proof that a component is reachable or exploitable.",
             "Software fingerprints may be incomplete or inaccurate and should be independently confirmed.",
             "Remediation guidance is advisory; verify vendor instructions and fixed versions before making changes.",
+            "Metasploit activity is linked by explicit operator attribution; linkage does not independently prove target identity or exploitation success.",
         ],
         "notices": {
             "findings": findings.get("notice", ""),
