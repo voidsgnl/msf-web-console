@@ -1076,13 +1076,15 @@ class SpecialistAdapterTests(unittest.TestCase):
         self.assertEqual([item["host"] for item in records], ["api.example.test"])
         self.assertEqual(records[0]["evidence_type"], "passive_subdomain")
 
-    def test_wpscan_parser_returns_bounded_summary_without_raw_credentials(self):
-        output = '{"version":{"number":"6.8"},"plugins":{"plugin-a":{},"plugin-b":{}},"themes":{"theme-a":{}},"interesting_findings":[{"url":"https://example.test/readme.html"}]}'
+    def test_wpscan_parser_returns_individual_bounded_finding_records(self):
+        output = '{"version":{"number":"6.8"},"plugins":{"plugin-a":{"vulnerabilities":[{"title":"Plugin issue CVE-2025-12345"}]},"plugin-b":{}},"themes":{"theme-a":{}},"interesting_findings":[{"url":"https://example.test/readme.html"}]}'
         records = _parse_specialist_tool_output("wpscan", output, "https://example.test")
-        self.assertEqual(len(records), 1)
+        self.assertEqual(len(records), 2)
         self.assertEqual(records[0]["wordpress_version"], "6.8")
         self.assertEqual(records[0]["plugin_count"], 2)
         self.assertEqual(records[0]["theme_count"], 1)
+        self.assertTrue(all(record["finding"] for record in records))
+        self.assertIn("CVE-2025-12345", records[1]["raw"])
 
     def test_testssl_parser_normalizes_json_findings(self):
         output = '[{"id":"TLS1_0","severity":"LOW","finding":"offered"}]'
