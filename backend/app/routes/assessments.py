@@ -719,6 +719,8 @@ def _software_fingerprints(records: list[dict], tool_id: str, target_url: str) -
         product = " ".join(str(name or "").strip().split())[:160]
         if not product or product.lower() in {"title", "html", "http", "https"}:
             return
+        if isinstance(version, list):
+            version = ", ".join(str(value) for value in version[:3])
         version_text = " ".join(str(version or "").strip().split())[:120]
         if version_text.lower() in {"unknown", "n/a", "none", "null"}:
             version_text = ""
