@@ -35,6 +35,34 @@ export type CorrelatedFindingInventory = {
   counts: { total: number; needs_review: number; analyst_classified: number; in_scope: number };
   notice: string;
 };
+export type AssessmentReport = {
+  report_version: number;
+  generated_at: string;
+  assessment: AssessmentDetail;
+  executive_summary: {
+    targets: number;
+    assets: { total: number; in_scope: number; out_of_scope: number };
+    services: { total: number; in_scope: number; out_of_scope: number };
+    software: { total: number; versioned: number; in_scope: number; out_of_scope: number };
+    executions: number;
+    evidence_records: number;
+    active_evidence_records: number;
+    dismissed_evidence_records: number;
+    correlated_finding_candidates: number;
+    finding_statuses: Record<string, number>;
+    evidence_lifecycle_records: Record<string, number>;
+  };
+  scope: { targets: AssessmentTarget[]; in_scope_assets: number; out_of_scope_assets: number; notice: string };
+  assets: AssessmentAsset[];
+  services: AssessmentService[];
+  software: AssessmentSoftware[];
+  nvd_correlation: SoftwareCveCorrelation & { included: boolean; coverage: string };
+  findings: CorrelatedFinding[];
+  evidence: { records: AssessmentExecutionRecord[]; by_tool: { tool_id: string; runs: number; first_run: string; last_run: string; successful_runs: number }[]; execution_history: AssessmentExecution[] };
+  limitations: string[];
+  notices: Record<string, string>;
+};
+
 export type AssessmentSoftware = {
   id: string; host: string; product: string; version: string;
   scope_state: "in_scope" | "out_of_scope"; sources: string[];
@@ -271,6 +299,7 @@ export const api = {
     relationships: (id: number) => request<AssessmentRelationshipInventory>(`/assessments/${id}/relationships`),
     software: (id: number) => request<AssessmentSoftwareInventory>(`/assessments/${id}/software`),
     findings: (id: number) => request<CorrelatedFindingInventory>(`/assessments/${id}/findings`),
+    report: (id: number, includeNvd = true) => request<AssessmentReport>(`/assessments/${id}/report?include_nvd=${includeNvd}&nvd_limit=3`),
     updateFindingStatus: (id: number, findingId: string, finding_status: "unverified" | "validated" | "false_positive" | "accepted_risk" | "remediated" | "retested") => request<{ finding_id: string; finding_status: string; updated_records: number }>(`/assessments/${id}/findings/${encodeURIComponent(findingId)}`, { method: "PATCH", body: JSON.stringify({ finding_status }) }),
     softwareCves: (id: number, offset = 0) => request<SoftwareCveCorrelation>(`/assessments/${id}/software/cves?limit=3&offset=${offset}`),
     executions: (id: number) =>
