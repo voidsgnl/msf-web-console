@@ -16,7 +16,7 @@ from app.routes import assessments
 
 router = APIRouter(prefix="/api/assessments/{assessment_id}/msf-activity", tags=["assessment-metasploit"])
 
-RUN_UUID_RE = re.compile(r"^[A-Za-z0-9]{12,64}$")
+RUN_UUID_RE = re.compile(r"^[A-Za-z0-9-]{12,64}$")
 
 
 class ActivityCreate(BaseModel):
