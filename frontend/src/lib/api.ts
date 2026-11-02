@@ -35,6 +35,19 @@ export type CorrelatedFindingInventory = {
   counts: { total: number; needs_review: number; analyst_classified: number; in_scope: number };
   notice: string;
 };
+
+export type MetasploitFindingRecommendation = {
+  type: "exploit"; name: string; fullname: string; rank_label: string; rank_weight: number;
+  description_snippet: string; cve_matches: string[];
+  cve_version_assessments: { cve_id: string; status: "affected" | "not_affected" | "indeterminate" }[];
+  match_basis: string;
+};
+export type MetasploitFindingRecommendations = {
+  finding_id: string; finding_title: string; finding_status: "validated";
+  target_context: { target_id: number; approved_target_url: string; host: string; port: number };
+  recommendations: MetasploitFindingRecommendation[]; notice: string;
+};
+
 export type AssessmentMsfActivity = {
   id: number; assessment_id: number; target_id: number; kind: "module_run" | "session";
   external_reference: string; external_state: string; snapshot: Record<string, unknown>;
@@ -326,6 +339,7 @@ export const api = {
     relationships: (id: number) => request<AssessmentRelationshipInventory>(`/assessments/${id}/relationships`),
     software: (id: number) => request<AssessmentSoftwareInventory>(`/assessments/${id}/software`),
     findings: (id: number) => request<CorrelatedFindingInventory>(`/assessments/${id}/findings`),
+    metasploitRecommendations: (id: number, findingId: string) => request<MetasploitFindingRecommendations>(`/assessments/${id}/findings/${encodeURIComponent(findingId)}/metasploit-recommendations`),
     report: (id: number, includeNvd = true) => request<AssessmentReport>(`/assessments/${id}/report?include_nvd=${includeNvd}&nvd_limit=3`),
     msfActivity: (id: number) => request<{ activity: AssessmentMsfActivity[]; notice: string }>(`/assessments/${id}/msf-activity`),
     linkMsfActivity: (id: number, activity: { kind: "module_run" | "session"; reference: string; target_id: number; analyst_note?: string }) =>
