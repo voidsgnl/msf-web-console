@@ -407,6 +407,31 @@ class AssessmentStoreTests(unittest.TestCase):
         )
         self.assertEqual(assessments.list_correlated_findings(created["id"])["findings"][0]["finding_status"], "retested")
 
+    def test_wpscan_lifecycle_update_does_not_change_sibling_findings(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="WPScan independent triage"))
+        target = assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], target["url"])
+        assessments.record_tool_execution(
+            scope, "wpscan", target["url"], "2026-11-02T10:00:00+00:00",
+            "2026-11-02T10:00:02+00:00", 0, False,
+            [
+                {"target": "https://example.test/readme.html", "finding": "Readme exposed", "raw": "{}"},
+                {"target": "https://example.test/wp-content/plugins/a/", "finding": "Plugin advisory", "raw": "{}"},
+            ], "",
+        )
+        findings = assessments.list_correlated_findings(created["id"])["findings"]
+        self.assertEqual(len(findings), 2)
+        chosen = next(item for item in findings if item["title"] == "Readme exposed")
+        assessments.update_correlated_finding_status(
+            created["id"], chosen["id"], {"finding_status": "validated"}
+        )
+        refreshed = assessments.list_correlated_findings(created["id"])["findings"]
+        states = {item["title"]: item["finding_status"] for item in refreshed}
+        self.assertEqual(states["Readme exposed"], "validated")
+        self.assertEqual(states["Plugin advisory"], "unverified")
+
     def test_correlated_findings_exclude_generic_and_non_scanner_evidence(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="No finding noise"))
         target = assessments.add_assessment_target(
