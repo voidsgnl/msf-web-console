@@ -1465,7 +1465,18 @@ def _parse_tool_output(tool_id: str, output: str, target_url: str | None = None)
             title_plugin = plugins.get("title", {})
             title_values = title_plugin.get("string") if isinstance(title_plugin, dict) else None
             title = title_values[0] if isinstance(title_values, list) and title_values else (title_values if isinstance(title_values, str) else None)
-            return {"target": item.get("target"), "http_status": item.get("http_status"), "title": title, "technologies": sorted(plugins.keys()), "raw": None}
+            plugin_details = {
+                str(name)[:160]: {
+                    "version": (
+                        detail.get("version")[:3] if isinstance(detail.get("version"), list)
+                        else [detail.get("version")] if isinstance(detail.get("version"), str) and detail.get("version")
+                        else []
+                    )
+                }
+                for name, detail in plugins.items()
+                if isinstance(detail, dict) and str(name).lower() not in {"title", "html"}
+            }
+            return {"target": item.get("target"), "http_status": item.get("http_status"), "title": title, "technologies": sorted(plugins.keys()), "plugin_details": plugin_details, "raw": None}
         if tool_id == "subfinder" and isinstance(item, dict):
             host = item.get("host")
             if not isinstance(host, str):
