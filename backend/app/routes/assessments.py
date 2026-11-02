@@ -709,6 +709,145 @@ def list_assessment_services(assessment_id: int):
     }
 
 
+def _software_fingerprints(records: list[dict], tool_id: str, target_url: str) -> list[dict]:
+    """Extract product/version observations without inventing versions or CVE claims."""
+    parsed = urlsplit(target_url)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    findings: list[dict] = []
+
+    def add(name: object, version: object = "", evidence: str = "") -> None:
+        product = " ".join(str(name or "").strip().split())[:160]
+        if not product or product.lower() in {"title", "html", "http", "https"}:
+            return
+        version_text = " ".join(str(version or "").strip().split())[:120]
+        if version_text.lower() in {"unknown", "n/a", "none", "null"}:
+            version_text = ""
+        findings.append({
+            "product": product, "version": version_text,
+            "host": host, "target_url": target_url,
+            "source_tool": tool_id, "evidence": evidence[:500],
+        })
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        if tool_id == "nmap":
+            if str(record.get("state") or "").lower() == "open":
+                add(record.get("product") or record.get("service"), record.get("version"),
+                    f'Nmap open {record.get("protocol") or "tcp"} port {record.get("port")}.')
+        elif tool_id == "httpx":
+            add(record.get("webserver"), "", "HTTP response Server fingerprint.")
+            technologies = record.get("technologies")
+            for item in technologies if isinstance(technologies, list) else []:
+                if isinstance(item, str):
+                    name, separator, version = item.partition(":")
+                    add(name, version if separator else "", "httpx technology fingerprint.")
+        elif tool_id == "whatweb":
+            plugins = record.get("plugin_details")
+            if isinstance(plugins, dict):
+                for name, detail in plugins.items():
+                    if str(name).lower() in {"title", "html"}:
+                        continue
+                    version = detail.get("version", "") if isinstance(detail, dict) else ""
+                    if isinstance(version, list):
+                        version = ", ".join(str(value) for value in version[:3])
+                    add(name, version, "WhatWeb plugin fingerprint.")
+            else:
+                for name in record.get("technologies", []) if isinstance(record.get("technologies"), list) else []:
+                    add(name, "", "WhatWeb plugin fingerprint; version not reported.")
+        elif tool_id == "wpscan":
+            add("WordPress", record.get("wordpress_version"), "WPScan passive version detection.")
+
+    return findings
+
+
+@router.get("/{assessment_id}/software")
+def list_assessment_software(assessment_id: int):
+    """Build a deduplicated software inventory from retained execution evidence."""
+    _initialise()
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        _rebuild_assessment_assets(connection, assessment_id)
+        executions = connection.execute(
+            "SELECT tool_id, target_url, finished_at, result_json FROM tool_executions WHERE assessment_id = ? ORDER BY id",
+            (assessment_id,),
+        ).fetchall()
+        assets = {
+            (row["asset_type"], row["value"]): row["scope_state"]
+            for row in connection.execute(
+                "SELECT asset_type, value, scope_state FROM assessment_assets WHERE assessment_id = ?",
+                (assessment_id,),
+            ).fetchall()
+        }
+        services = [dict(row) for row in connection.execute(
+            "SELECT hostname, port, protocol, service, product, version, scope_state, source_tool, first_seen, last_seen FROM assessment_services WHERE assessment_id = ?",
+            (assessment_id,),
+        ).fetchall()]
+
+    inventory: dict[tuple[str, str, str], dict] = {}
+
+    def merge(item: dict, seen_at: str) -> None:
+        product = " ".join(str(item.get("product") or "").split())
+        version = " ".join(str(item.get("version") or "").split())
+        host = str(item.get("host") or "").lower().rstrip(".")
+        if not product or not host:
+            return
+        key = (host, product.casefold(), version.casefold())
+        state = assets.get(("host", host), "out_of_scope")
+        current = inventory.get(key)
+        if current is None:
+            current = {
+                "id": f"{host}|{product.casefold()}|{version.casefold()}",
+                "host": host, "product": product, "version": version,
+                "scope_state": state, "sources": [], "evidence": [],
+                "first_seen": seen_at, "last_seen": seen_at,
+                "cve_status": "not_checked",
+            }
+            inventory[key] = current
+        if item["source_tool"] not in current["sources"]:
+            current["sources"].append(item["source_tool"])
+        if item.get("evidence") and item["evidence"] not in current["evidence"]:
+            current["evidence"].append(item["evidence"])
+        current["first_seen"] = min(current["first_seen"], seen_at)
+        current["last_seen"] = max(current["last_seen"], seen_at)
+        if state == "out_of_scope":
+            current["scope_state"] = "out_of_scope"
+
+    for service in services:
+        product = service.get("product") or service.get("service")
+        if product:
+            merge({
+                "host": service["hostname"], "product": product,
+                "version": service.get("version") or "",
+                "source_tool": service["source_tool"],
+                "evidence": f'Open {service["protocol"]} port {service["port"]}: {service.get("service") or "service"}',
+            }, service["last_seen"])
+
+    for execution in executions:
+        try:
+            records = json.loads(execution["result_json"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(records, list):
+            continue
+        for item in _software_fingerprints(records, execution["tool_id"], execution["target_url"]):
+            merge(item, execution["finished_at"])
+
+    rows = sorted(inventory.values(), key=lambda item: (
+        item["scope_state"] != "in_scope", item["host"], item["product"].casefold(), item["version"]
+    ))
+    return {
+        "software": rows,
+        "counts": {
+            "total": len(rows),
+            "versioned": sum(bool(item["version"]) for item in rows),
+            "in_scope": sum(item["scope_state"] == "in_scope" for item in rows),
+            "out_of_scope": sum(item["scope_state"] == "out_of_scope" for item in rows),
+        },
+        "notice": "Fingerprints are observations, not proof of an installed or vulnerable version. CVE matching has not been performed.",
+    }
+
+
 @router.get("/{assessment_id}/relationships")
 def list_assessment_relationships(assessment_id: int):
     """Derive asset links only from explicit URL, host-alias, and service evidence."""
