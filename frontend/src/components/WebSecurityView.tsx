@@ -156,7 +156,7 @@ export function WebSecurityView() {
       ["Validated",summary.finding_statuses.validated??0],["Remediated",summary.finding_statuses.remediated??0],
       ["Retested",summary.finding_statuses.retested??0],["Unverified",summary.finding_statuses.unverified??0],
     ];
-    const table=(headers:string[],rows:string[][])=>
+    const table=(headers:string[],rows:unknown[][])=>
       "<table><thead><tr>"+headers.map(value=>"<th>"+escape(value)+"</th>").join("")+"</tr></thead><tbody>"+
       (rows.length?rows.map(row=>"<tr>"+row.map(value=>"<td>"+escape(value)+"</td>").join("")+"</tr>").join(""):"<tr><td colspan=\""+headers.length+"\">No records.</td></tr>")+"</tbody></table>";
     const findings=assessmentReport.findings.map(item=>[
