@@ -313,6 +313,28 @@ export function WebSecurityView() {
         <div className="rounded border border-warning/20 bg-warning/5 p-3"><h3 className="text-xs font-semibold text-warning">Assessment limitations</h3><ul className="mt-2 list-disc space-y-1 pl-4 text-[10px] text-gray-400">{assessmentReport.limitations.map((item,index)=><li key={index}>{item}</li>)}</ul></div>
       </div>}
     </section>}
+    {assessment&&<section className="card">
+      <div className="card-header"><div><h2 className="text-sm font-semibold text-gray-100">Metasploit activity</h2><p className="mt-1 text-xs text-gray-500">Associate a verified run or session with an approved assessment target. Attribution is operator-supplied.</p></div><span className="badge">{msfActivity.length} linked</span></div>
+      <div className="space-y-3 p-4">
+        <div className="grid gap-2 md:grid-cols-2">
+          <label className="space-y-1 text-xs text-gray-400">Activity type<select className="input w-full" value={msfKind} onChange={e=>setMsfKind(e.target.value as "module_run"|"session")}><option value="module_run">Module run UUID</option><option value="session">Live session ID</option></select></label>
+          <label className="space-y-1 text-xs text-gray-400">Approved target<select className="input w-full" value={msfTargetId??""} onChange={e=>setMsfTargetId(Number(e.target.value)||null)}><option value="">Select target…</option>{assessment.targets.map(item=><option key={item.id} value={item.id}>{item.url}</option>)}</select></label>
+        </div>
+        <input className="input w-full font-mono" value={msfReference} onChange={e=>setMsfReference(e.target.value)} placeholder={msfKind==="module_run"?"Metasploit run UUID":"Metasploit session ID"} maxLength={128}/>
+        <textarea className="input min-h-16 w-full" value={msfAnalystNote} onChange={e=>setMsfAnalystNote(e.target.value)} maxLength={4000} placeholder="Analyst note (optional)"/>
+        <button type="button" className="btn btn-primary btn-sm" disabled={!msfReference.trim()||!msfTargetId||msfActivityLoading||assessment.status==="archived"} onClick={()=>void linkMetasploitActivity()}>Verify and link</button>
+        {msfActivityError&&<p role="alert" className="text-xs text-danger">{msfActivityError}</p>}
+        <p className="text-[10px] text-warning">{msfActivityNotice}</p>
+        {msfActivity.map(item=><div key={item.id} className="rounded border border-border bg-bg-primary p-3">
+          <div className="flex flex-wrap gap-2"><span className="badge">{item.kind}</span><span className="badge">{item.external_state}</span><span className="badge">{item.review_state}</span><span className="break-all font-mono text-[10px]">{item.external_reference}</span></div>
+          <p className="mt-2 break-all text-[11px] text-gray-400">{item.approved_target_url??item.approved_target_hostname}</p>
+          <pre className="mt-2 max-h-20 overflow-auto whitespace-pre-wrap break-all text-[10px] text-gray-500">{JSON.stringify(item.snapshot)}</pre>
+          {item.analyst_note&&<p className="mt-1 text-[10px] text-gray-400">{item.analyst_note}</p>}
+          <div className="mt-2 flex gap-2"><button type="button" className="btn btn-sm" disabled={item.review_state==="reviewed"} onClick={()=>void reviewMetasploitActivity(item,"reviewed")}>Reviewed</button><button type="button" className="btn btn-sm" disabled={item.review_state==="dismissed"} onClick={()=>void reviewMetasploitActivity(item,"dismissed")}>Dismiss</button></div>
+        </div>)}
+        {!msfActivityLoading&&!msfActivity.length&&<p className="text-xs text-gray-500">No linked Metasploit activity yet.</p>}
+      </div>
+    </section>}
     {assessment&&<EvidenceManager assessmentId={assessment.id} executions={executions} onRefresh={()=>void loadAssessments(assessment.id)}/>}
     <div className="rounded-lg border border-border bg-bg-secondary px-4 py-3 text-xs leading-relaxed text-gray-500">httpx, WhatWeb, passive Subfinder and Amass, controlled Katana crawling, fixed FFUF/Feroxbuster/Gobuster content discovery, bounded Nuclei/Nikto/WPScan checks, TLS analysis, and limited Nmap service discovery run through fixed backend command adapters. Katana is limited to the approved scheme/host/port, three crawl levels, 100 pages, 2 requests per second, and 90 seconds. Only same-origin redirects from the starting URL are followed; cross-origin redirects are blocked, and crawler-discovered page redirects remain disabled. Discovered endpoints are inventory evidence only and never expand approved scope.</div>
   </div></div>;
