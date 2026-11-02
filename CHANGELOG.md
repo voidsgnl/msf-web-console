@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Added an assessment-level software inventory that correlates product/version fingerprints from HTTPX, WhatWeb, WPScan and open Nmap services by host and exact reported product/version. Repeated observations merge while retaining source tools, evidence, scope state and first/last-seen timestamps. WhatWeb plugin versions are now preserved by the parser. Missing versions remain unknown; product names and fingerprints are not treated as CVE matches or vulnerability verdicts.
+
 - Added an evidence-derived asset relationship view connecting observed URLs to hostnames, Nmap-reported hostname aliases to IP addresses, and exact host identities to open TCP services. Relationships retain source-tool provenance and scope classification; DNS/IP links are emitted only when present in Nmap hostname-alias evidence. Relationship mapping does not approve targets or initiate new network requests.
 
 - Reworked Web Security reconnaissance result presentation: tool-specific result headings, separate summary and detailed-record cards, compact expandable result rows, searchable records, bounded scrolling for large result sets and raw output, and independent sizing for toolchain cards. Gobuster path results are now separated from scan summaries, while grouped soft-404 details remain expandable. Gobuster configuration and manual-path output no longer force the toolchain grid to stretch.
