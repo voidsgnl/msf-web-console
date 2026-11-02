@@ -280,7 +280,7 @@ class AssessmentStoreTests(unittest.TestCase):
         self.assertEqual(result["results"][0]["indeterminate_count"], 1)
         statuses = {item["cve_id"]: item["status"] for item in result["results"][0]["candidates"]}
         self.assertEqual(statuses["CVE-2025-1001"], "affected")
-        self.assertNotIn("CVE-2025-1002", statuses)
+        self.assertEqual(statuses["CVE-2025-1002"], "not_affected")
         self.assertEqual(statuses["CVE-2025-1003"], "indeterminate")
         _search.assert_called_once_with("nginx", "1.24.0")
 
