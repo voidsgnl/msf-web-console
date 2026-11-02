@@ -148,12 +148,13 @@ Status: adapter implementation complete; validation and platform-wide normalisat
 - [x] Add assessment-wide evidence search, filtering, sorting, bulk triage, record detail, clipboard copy, and JSON/CSV export.
 - [x] Add run-to-run comparison and historical execution/triage summaries.
 
-- [ ] Produce platform-wide reports spanning assets, findings, evidence,
-      exploitation outcomes, and remediation.
+- [x] Produce unified assessment reports spanning approved scope, assets, services, software, NVD matches, correlated findings, evidence, execution history, and analyst remediation lifecycle.
+- [ ] Integrate Metasploit exploitation outcomes into assessment reports after the exploitation workflow is implemented.
 - [x] Add assessment lifecycle and persisted approved target scope.
 - [ ] Add reusable assessment configurations and scope templates.
 - [ ] Add onboarding and a persistent security terminology glossary.
-- [ ] Add export formats and report templates.
+- [x] Add standalone HTML and JSON assessment report exports.
+- [ ] Add configurable report templates and PDF export.
 
 ## Engineering constraints
 
