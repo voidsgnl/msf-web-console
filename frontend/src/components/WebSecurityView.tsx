@@ -146,7 +146,8 @@ export function WebSecurityView() {
   };
   const downloadAssessmentReportHtml=()=>{
     if(!assessmentReport)return;
-    const escape=(value:unknown)=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]??char));
+    const htmlEntities:Record<string,string>={"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"};
+    const escape=(value:unknown)=>String(value??"").replace(/[&<>"']/g,char=>htmlEntities[char]??char);
     const summary=assessmentReport.executive_summary;
     const metricRows=[
       ["Targets",summary.targets],["Assets",summary.assets.total],["In-scope assets",summary.assets.in_scope],
