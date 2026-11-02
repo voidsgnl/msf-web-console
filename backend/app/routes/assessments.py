@@ -1222,7 +1222,7 @@ def _all_assessment_records(connection: sqlite3.Connection, assessment_id: int) 
             if not item.get("_record_id"):
                 item["_record_id"] = record_id
             meta = connection.execute(
-                "SELECT review_state, reviewed_at, notes, record_type FROM execution_record_metadata WHERE record_id = ?",
+                "SELECT review_state, reviewed_at, notes, record_type, finding_status FROM execution_record_metadata WHERE record_id = ?",
                 (record_id,),
             ).fetchone()
             item.update({
