@@ -43,6 +43,17 @@ export type AssessmentMsfActivity = {
   created_at: string; updated_at: string;
 };
 
+export type MetasploitLootRecord = {
+  download_id: string; name?: string; ltype?: string; ctype?: string; host?: string;
+  service?: string; created_at?: string; updated_at?: string; has_data: boolean; size: number | null;
+};
+export type AssessmentMsfLoot = {
+  id: number; assessment_id: number; target_id: number; external_reference: string;
+  snapshot: Record<string, unknown>; artifact_sha256: string | null; artifact_size: number | null;
+  review_state: "unreviewed" | "reviewed" | "dismissed"; analyst_note: string;
+  approved_target_url?: string; approved_target_hostname?: string; created_at: string; updated_at: string;
+};
+
 export type AssessmentReport = {
   report_version: number;
   generated_at: string;
@@ -61,6 +72,8 @@ export type AssessmentReport = {
     evidence_lifecycle_records: Record<string, number>;
     metasploit_activity: number;
     metasploit_reviewed: number;
+    metasploit_loot: number;
+    metasploit_loot_with_hash: number;
   };
   scope: { targets: AssessmentTarget[]; in_scope_assets: number; out_of_scope_assets: number; notice: string };
   assets: AssessmentAsset[];
@@ -70,6 +83,8 @@ export type AssessmentReport = {
   findings: CorrelatedFinding[];
   metasploit_activity: AssessmentMsfActivity[];
   metasploit_notice: string;
+  metasploit_loot: AssessmentMsfLoot[];
+  metasploit_loot_notice: string;
   evidence: { records: AssessmentExecutionRecord[]; by_tool: { tool_id: string; runs: number; first_run: string; last_run: string; successful_runs: number }[]; execution_history: AssessmentExecution[] };
   limitations: string[];
   notices: Record<string, string>;
@@ -317,6 +332,11 @@ export const api = {
       request<AssessmentMsfActivity>(`/assessments/${id}/msf-activity`, { method: "POST", body: JSON.stringify(activity) }),
     reviewMsfActivity: (id: number, activityId: number, changes: { review_state: "unreviewed" | "reviewed" | "dismissed"; analyst_note?: string }) =>
       request<AssessmentMsfActivity>(`/assessments/${id}/msf-activity/${activityId}`, { method: "PATCH", body: JSON.stringify(changes) }),
+    msfLoot: (id: number) => request<{ loot: AssessmentMsfLoot[]; notice: string }>(`/assessments/${id}/msf-activity/loot`),
+    linkMsfLoot: (id: number, loot: { download_id: string; target_id: number; analyst_note?: string }) =>
+      request<AssessmentMsfLoot>(`/assessments/${id}/msf-activity/loot`, { method: "POST", body: JSON.stringify(loot) }),
+    reviewMsfLoot: (id: number, lootId: number, changes: { review_state: "unreviewed" | "reviewed" | "dismissed"; analyst_note?: string }) =>
+      request<AssessmentMsfLoot>(`/assessments/${id}/msf-activity/loot/${lootId}`, { method: "PATCH", body: JSON.stringify(changes) }),
     updateFindingStatus: (id: number, findingId: string, finding_status: "unverified" | "validated" | "false_positive" | "accepted_risk" | "remediated" | "retested") => request<{ finding_id: string; finding_status: string; updated_records: number }>(`/assessments/${id}/findings/${encodeURIComponent(findingId)}`, { method: "PATCH", body: JSON.stringify({ finding_status }) }),
     softwareCves: (id: number, offset = 0) => request<SoftwareCveCorrelation>(`/assessments/${id}/software/cves?limit=3&offset=${offset}`),
     executions: (id: number) =>
@@ -470,7 +490,7 @@ export const api = {
     hosts: () => request<{ hosts: any[] }>("/db/hosts"),
     services: () => request<{ services: any[] }>("/db/services"),
     vulns: () => request<{ vulns: any[] }>("/db/vulns"),
-    loot: () => request<{ loot: any[] }>("/db/loot"),
+    loot: () => request<{ loot: MetasploitLootRecord[] }>("/db/loot"),
     downloadLoot: async (downloadId: string): Promise<{ blob: Blob; filename: string }> => {
       const response = await fetch(`${BASE}/db/loot/${encodeURIComponent(downloadId)}/download`, { credentials: "same-origin" });
       if (!response.ok) {
