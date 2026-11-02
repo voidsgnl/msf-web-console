@@ -644,6 +644,58 @@ class AssessmentStoreTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 404)
 
 
+    def test_unified_report_combines_scope_findings_inventory_and_bounded_nvd_results(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Report integration"))
+        target = assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], target["url"])
+        assessments.record_tool_execution(
+            scope, "nuclei", target["url"], "2026-11-02T11:00:00+00:00",
+            "2026-11-02T11:00:02+00:00", 0, False,
+            [{
+                "url": "https://example.test/login", "template_id": "report-login-check",
+                "template_name": "Login security observation", "severity": "medium",
+            }], "",
+        )
+        finding = assessments.list_correlated_findings(created["id"])["findings"][0]
+        assessments.update_correlated_finding_status(
+            created["id"], finding["id"], {"finding_status": "validated"}
+        )
+        mocked_nvd = {
+            "results": [{
+                "software_id": "example.test|nginx|1.24", "host": "example.test",
+                "product": "nginx", "version": "1.24",
+                "candidates": [{
+                    "cve_id": "CVE-2025-12345", "status": "indeterminate",
+                    "description": "Test CVE", "published": None, "cvss": None, "references": [],
+                }],
+                "candidate_count": 1, "affected_count": 0,
+                "indeterminate_count": 1, "not_affected_count": 0,
+            }],
+            "errors": [], "eligible_products": 4, "processed": 3,
+            "next_offset": 3, "notice": "NVD reference data only.",
+        }
+        with patch("app.routes.assessments.correlate_software_cves", return_value=mocked_nvd) as nvd_lookup:
+            report = assessments.build_assessment_report(created["id"], include_nvd=True, nvd_limit=3)
+        nvd_lookup.assert_called_once_with(created["id"], limit=3, offset=0)
+        self.assertEqual(report["assessment"]["id"], created["id"])
+        self.assertEqual(report["scope"]["targets"][0]["url"], target["url"])
+        self.assertEqual(report["executive_summary"]["correlated_finding_candidates"], 1)
+        self.assertEqual(report["executive_summary"]["finding_statuses"]["validated"], 1)
+        self.assertEqual(report["nvd_correlation"]["coverage"], "partial")
+        self.assertEqual(report["nvd_correlation"]["results"][0]["candidates"][0]["cve_id"], "CVE-2025-12345")
+        self.assertTrue(report["evidence"]["records"])
+        self.assertTrue(report["limitations"])
+
+    def test_unified_report_can_omit_nvd_lookup(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Report without NVD"))
+        with patch("app.routes.assessments.correlate_software_cves") as nvd_lookup:
+            report = assessments.build_assessment_report(created["id"], include_nvd=False)
+        nvd_lookup.assert_not_called()
+        self.assertEqual(report["nvd_correlation"]["coverage"], "not_requested")
+        self.assertEqual(report["executive_summary"]["targets"], 0)
+
     def test_assessment_wide_record_management_comparison_and_history(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="Evidence workspace"))
         target = assessments.add_assessment_target(
