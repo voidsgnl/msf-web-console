@@ -30,7 +30,7 @@ export type SoftwareCveCandidate = {
 export type SoftwareCveCorrelation = {
   results: { software_id: string; host: string; product: string; version: string;
     candidates: SoftwareCveCandidate[]; candidate_count: number;
-    affected_count: number; indeterminate_count: number }[];
+    affected_count: number; indeterminate_count: number; not_affected_count: number }[];
   errors: { software_id: string; product: string; error: string }[];
   eligible_products: number; processed: number; next_offset: number | null; notice: string;
 };
