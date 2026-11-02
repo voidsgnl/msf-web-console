@@ -97,7 +97,7 @@ export type AssessmentRelationshipInventory = {
   counts: { total: number; in_scope: number; out_of_scope: number };
 };
 export type AssessmentExecutionRecord = Record<string, unknown> & {
-  record_id: string; review_state: "active" | "dismissed"; reviewed_at: string | null; notes: string; record_type: "evidence" | "finding";
+  record_id: string; review_state: "active" | "dismissed"; reviewed_at: string | null; notes: string; record_type: "evidence" | "finding"; finding_status?: "unverified" | "validated" | "false_positive" | "accepted_risk" | "remediated" | "retested";
   evidence_schema_version?: number; source_tool?: string; target_url?: string; observed_at?: string;
   observation_type?: string; summary?: string; severity?: "critical" | "high" | "medium" | "low" | "info" | "informational" | "unknown";
   confidence?: "unassessed"; verification_state?: "unverified";
