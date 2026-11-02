@@ -1599,6 +1599,7 @@ def build_assessment_report(assessment_id: int, include_nvd: bool = True, nvd_li
     # this module's assessment store and helpers.
     from app.routes import assessment_msf
     msf_activity = assessment_msf.list_linked_msf_activity(assessment_id)
+    msf_loot = assessment_msf.list_linked_msf_loot(assessment_id)
     report = {
         "report_version": 1,
         "generated_at": _timestamp(),
@@ -1620,6 +1621,8 @@ def build_assessment_report(assessment_id: int, include_nvd: bool = True, nvd_li
             "evidence_lifecycle_records": lifecycle_counts,
             "metasploit_activity": len(msf_activity["activity"]),
             "metasploit_reviewed": sum(item["review_state"] == "reviewed" for item in msf_activity["activity"]),
+            "metasploit_loot": len(msf_loot["loot"]),
+            "metasploit_loot_with_hash": sum(bool(item.get("artifact_sha256")) for item in msf_loot["loot"]),
         },
         "scope": {
             "targets": assessment.get("targets", []),
@@ -1634,6 +1637,8 @@ def build_assessment_report(assessment_id: int, include_nvd: bool = True, nvd_li
         "findings": finding_items,
         "metasploit_activity": msf_activity["activity"],
         "metasploit_notice": msf_activity["notice"],
+        "metasploit_loot": msf_loot["loot"],
+        "metasploit_loot_notice": msf_loot["notice"],
         "evidence": {
             "records": records,
             "by_tool": history["by_tool"],
@@ -1646,6 +1651,7 @@ def build_assessment_report(assessment_id: int, include_nvd: bool = True, nvd_li
             "Software fingerprints may be incomplete or inaccurate and should be independently confirmed.",
             "Remediation guidance is advisory; verify vendor instructions and fixed versions before making changes.",
             "Metasploit activity is linked by explicit operator attribution; linkage does not independently prove target identity or exploitation success.",
+            "Metasploit loot is linked by operator attribution. SHA-256 identifies bytes available at link time; it does not establish origin, authenticity, or exploitation success.",
         ],
         "notices": {
             "findings": findings.get("notice", ""),
