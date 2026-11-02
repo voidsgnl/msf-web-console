@@ -163,6 +163,44 @@ class AssessmentStoreTests(unittest.TestCase):
         )
         self.assertEqual(assessments.get_assessment_execution(created["id"], saved["id"])["tool_id"], "nmap")
 
+    def test_asset_relationships_link_url_ip_hostname_and_service_evidence(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="Relationship map"))
+        assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], "https://example.test")
+        assessments.record_tool_execution(
+            scope, "nmap", "https://example.test",
+            "2026-11-02T01:00:00+00:00", "2026-11-02T01:00:10+00:00", 0, False,
+            [
+                {"host": "192.0.2.10", "hostnames": ["example.test"], "port": 443,
+                 "protocol": "tcp", "state": "open", "service": "https", "product": "nginx"},
+                {"host": "example.test", "port": 443, "protocol": "tcp", "state": "open",
+                 "service": "https", "product": "nginx"},
+            ], "",
+        )
+        inventory = assessments.list_assessment_relationships(created["id"])
+        edges = {(item["source"], item["relationship"], item["target"]) for item in inventory["relationships"]}
+        self.assertIn(("https://example.test", "hosted_on", "example.test"), edges)
+        self.assertIn(("example.test", "resolves_to", "192.0.2.10"), edges)
+        self.assertIn(("example.test", "exposes", "example.test:443/tcp"), edges)
+        self.assertEqual(inventory["counts"]["out_of_scope"], 0)
+
+    def test_relationships_do_not_infer_ip_aliases_without_nmap_evidence(self):
+        created = assessments.create_assessment(assessments.AssessmentCreate(name="No inferred DNS"))
+        assessments.add_assessment_target(
+            created["id"], assessments.TargetCreate(url="https://example.test", authorized=True)
+        )
+        scope = assessments.assert_target_in_scope(created["id"], "https://example.test")
+        assessments.record_tool_execution(
+            scope, "httpx", "https://example.test",
+            "2026-11-02T02:00:00+00:00", "2026-11-02T02:00:02+00:00", 0, False,
+            [{"url": "https://example.test/login", "host": "example.test"}], "",
+        )
+        inventory = assessments.list_assessment_relationships(created["id"])
+        self.assertTrue(any(item["relationship"] == "hosted_on" for item in inventory["relationships"]))
+        self.assertFalse(any(item["relationship"] == "resolves_to" for item in inventory["relationships"]))
+
     def test_persistent_job_state_and_restart_recovery(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="Job lifecycle"))
         job = assessments.create_execution_job(created["id"], "nuclei", "https://example.test")
