@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "../lib/api";
-import type { AssessmentAsset, AssessmentService, AssessmentSoftware, SoftwareCveCorrelation, CorrelatedFinding, CorrelatedFindingInventory, AssessmentRelationship, AssessmentDetail, AssessmentExecution, AssessmentExecutionJob, AssessmentSummary } from "../lib/api";
+import type { AssessmentAsset, AssessmentService, AssessmentSoftware, SoftwareCveCorrelation, CorrelatedFinding, AssessmentRelationship, AssessmentDetail, AssessmentExecution, AssessmentExecutionJob, AssessmentSummary } from "../lib/api";
 import { EvidenceManager } from "./EvidenceManager";
 
 type Tool = { id: string; name: string; category: string; purpose: string; installed: boolean; execution_enabled: boolean; status: "ready"|"not_installed"|"not_integrated"; path?: string | null };
