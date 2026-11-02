@@ -1232,6 +1232,105 @@ def _all_assessment_records(connection: sqlite3.Connection, assessment_id: int) 
     return output
 
 
+@router.get("/{assessment_id}/findings")
+def list_correlated_findings(assessment_id: int):
+    """Group scanner observations into reviewable candidates without asserting vulnerability."""
+    import re
+
+    with _connection() as connection:
+        _assessment_or_404(connection, assessment_id)
+        records = _all_assessment_records(connection, assessment_id)
+        assets = {
+            row["hostname"]: row["scope_state"]
+            for row in connection.execute(
+                "SELECT hostname, scope_state FROM assessment_assets WHERE assessment_id = ?",
+                (assessment_id,),
+            ).fetchall()
+        }
+
+    grouped: dict[str, dict] = {}
+    severity_rank = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1, "informational": 1, "unknown": 0}
+    eligible_tools = {"nuclei", "nikto", "testssl.sh"}
+    cve_pattern = re.compile(r"(?i)CVE-\\d{4}-\\d{4,}")
+
+    for record in records:
+        if record.get("review_state") == "dismissed":
+            continue
+        tool = str(record.get("tool_id") or "")
+        if tool not in eligible_tools:
+            continue
+        summary = str(record.get("finding") or record.get("template_name") or record.get("template_id") or "").strip()
+        if not summary or summary.lower() in {"tls observation", "nikto observation"}:
+            continue
+        target = str(record.get("url") or record.get("target") or record.get("matched_at") or record.get("target_url") or "")
+        parsed = urlsplit(target)
+        host = (parsed.hostname or urlsplit(str(record.get("target_url") or "")).hostname or "").lower().rstrip(".")
+        path = parsed.path or "/"
+        cves = sorted({value.upper() for value in cve_pattern.findall(json.dumps(record, ensure_ascii=False))})
+        if cves:
+            identity = "cve:" + cves[0] + "|" + host
+            title = cves[0]
+        elif tool == "nuclei":
+            identity = "nuclei:" + str(record.get("template_id") or summary).casefold() + "|" + host + path
+            title = summary
+        else:
+            normalized = re.sub(r"\\s+", " ", summary).casefold()[:300]
+            identity = tool + "|" + host + "|" + normalized
+            title = summary
+
+        candidate = grouped.get(identity)
+        if candidate is None:
+            candidate_id = uuid.uuid5(uuid.NAMESPACE_URL, str(assessment_id) + "|" + identity).hex
+            candidate = {
+                "id": candidate_id, "title": title[:300], "host": host,
+                "target": target[:2048], "path": path[:1024],
+                "severity": "unknown", "sources": [], "cve_ids": cves,
+                "observations": [], "first_seen": record.get("observed_at") or record.get("finished_at") or "",
+                "last_seen": record.get("observed_at") or record.get("finished_at") or "",
+                "scope_state": assets.get(host, "out_of_scope"),
+                "triage_state": "analyst_classified" if record.get("record_type") == "finding" else "needs_review",
+                "verification_state": "unverified",
+            }
+            grouped[identity] = candidate
+        severity = str(record.get("severity") or "unknown").lower()
+        if severity not in severity_rank:
+            severity = "unknown"
+        if severity_rank[severity] > severity_rank[candidate["severity"]]:
+            candidate["severity"] = severity
+        if tool not in candidate["sources"]:
+            candidate["sources"].append(tool)
+        if record.get("record_type") == "finding":
+            candidate["triage_state"] = "analyst_classified"
+        seen = record.get("observed_at") or record.get("finished_at") or ""
+        candidate["first_seen"] = min(filter(None, [candidate["first_seen"], seen]), default="")
+        candidate["last_seen"] = max(candidate["last_seen"], seen)
+        if record.get("record_id") not in {item["record_id"] for item in candidate["observations"]}:
+            candidate["observations"].append({
+                "record_id": record.get("record_id"),
+                "execution_id": record.get("execution_id"),
+                "tool_id": tool,
+                "summary": summary[:500],
+                "observed_at": seen,
+                "reviewed_at": record.get("reviewed_at"),
+                "notes": record.get("notes") or "",
+            })
+
+    findings = sorted(grouped.values(), key=lambda item: (
+        severity_rank[item["severity"]] * -1, item["scope_state"] != "in_scope",
+        item["host"], item["title"].casefold(),
+    ))
+    return {
+        "findings": findings,
+        "counts": {
+            "total": len(findings),
+            "needs_review": sum(item["triage_state"] == "needs_review" for item in findings),
+            "analyst_classified": sum(item["triage_state"] == "analyst_classified" for item in findings),
+            "in_scope": sum(item["scope_state"] == "in_scope" for item in findings),
+        },
+        "notice": "Correlated scanner observations are triage candidates, not confirmed vulnerabilities. Verify affected components, reachability, configuration and impact before reporting.",
+    }
+
+
 @router.get("/{assessment_id}/records")
 def list_assessment_records(assessment_id: int, q: str = "", tool_id: str = "", record_type: str = "", review_state: str = "", reviewed: str = "", sort_by: str = "newest"):
     _initialise()
