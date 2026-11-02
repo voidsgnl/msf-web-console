@@ -35,6 +35,7 @@ CPE_PRODUCT_IDENTITIES: dict[str, set[tuple[str, str]]] = {
     "sendmail": {("sendmail", "sendmail")},
     "dovecot": {("dovecot", "dovecot")},
     # Web servers and app servers
+    "apache": {("apache", "http_server")},
     "apachehttpd": {("apache", "http_server")},
     "apachehttpserver": {("apache", "http_server")},
     "nginx": {("nginx", "nginx"), ("f5", "nginx")},
