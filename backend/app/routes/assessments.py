@@ -1234,7 +1234,7 @@ def _all_assessment_records(connection: sqlite3.Connection, assessment_id: int) 
 
 @router.get("/{assessment_id}/findings")
 def list_correlated_findings(assessment_id: int):
-    """Group scanner observations into reviewable candidates without asserting vulnerability."""
+    """Correlate scanner observations with software context; never assert vulnerability."""
     import re
 
     _initialise()
@@ -1249,10 +1249,46 @@ def list_correlated_findings(assessment_id: int):
             ).fetchall()
         }
 
+    software_rows = list_assessment_software(assessment_id)["software"]
+    software_by_host: dict[str, list[dict]] = {}
+    for item in software_rows:
+        software_by_host.setdefault(item["host"], []).append({
+            "product": item["product"], "version": item["version"],
+            "sources": item["sources"], "scope_state": item["scope_state"],
+            "cve_status": item["cve_status"],
+        })
+
     grouped: dict[str, dict] = {}
     severity_rank = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1, "informational": 1, "unknown": 0}
-    eligible_tools = {"nuclei", "nikto", "testssl.sh"}
-    cve_pattern = re.compile(r"(?i)CVE-\d{4}-\d{4,}")
+    eligible_tools = {"nuclei", "nikto", "testssl.sh", "wpscan"}
+    cve_pattern = re.compile(r"(?i)CVE-\\d{4}-\\d{4,}")
+
+    def remediation_for(tool: str, summary: str) -> dict:
+        text = summary.casefold()
+        if tool == "wpscan":
+            return {
+                "recommendation": "Confirm the WordPress component and exact version, then update the affected core, plugin or theme to a vendor-supported release.",
+                "validation_steps": ["Identify the component named in the original WPScan evidence.", "Verify the installed version from an authenticated or trusted inventory source.", "Review the vendor advisory and supported fixed version.", "Apply the update in a controlled maintenance window and rerun passive detection."],
+            }
+        if tool == "testssl.sh":
+            return {
+                "recommendation": "Review the reported TLS protocol, cipher or certificate configuration and align it with the organisation's current TLS baseline.",
+                "validation_steps": ["Inspect the original testssl.sh result and affected endpoint.", "Confirm client compatibility requirements.", "Disable deprecated protocol/cipher options or renew/fix certificate configuration as appropriate.", "Repeat the TLS assessment and verify the negotiated configuration."],
+            }
+        if "directory listing" in text or "index of" in text:
+            return {
+                "recommendation": "Review whether directory indexing is required; disable listing or restrict access where it exposes unintended files.",
+                "validation_steps": ["Request the exact path and inspect the returned listing.", "Confirm whether the listed files are intended to be public.", "Disable auto-indexing or apply access controls if unnecessary.", "Retest the same path."],
+            }
+        if "header" in text or "cookie" in text:
+            return {
+                "recommendation": "Review the affected HTTP security header or cookie attribute and apply the control appropriate to the application.",
+                "validation_steps": ["Inspect the raw response headers and affected route.", "Check the control against the application's threat model and browser compatibility.", "Apply the server or application configuration change.", "Verify the header or cookie attribute on the same route."],
+            }
+        return {
+            "recommendation": "Validate the observation against the original response and vendor guidance before selecting a corrective change; no exploitability conclusion is implied.",
+            "validation_steps": ["Re-open the original scanner record and preserve its response evidence.", "Confirm the affected host, path, component and version.", "Check the relevant vendor advisory or secure-configuration guidance.", "Apply the smallest appropriate fix and rerun the same check."],
+        }
 
     for record in records:
         if record.get("review_state") == "dismissed":
@@ -1260,61 +1296,96 @@ def list_correlated_findings(assessment_id: int):
         tool = str(record.get("tool_id") or "")
         if tool not in eligible_tools:
             continue
-        summary = str(record.get("finding") or record.get("template_name") or record.get("template_id") or "").strip()
-        if not summary or summary.lower() in {"tls observation", "nikto observation"}:
-            continue
-        target = str(record.get("url") or record.get("target") or record.get("matched_at") or record.get("target_url") or "")
-        parsed = urlsplit(target)
-        host = (parsed.hostname or urlsplit(str(record.get("target_url") or "")).hostname or "").lower().rstrip(".")
-        path = parsed.path or "/"
-        cves = sorted({value.upper() for value in cve_pattern.findall(json.dumps(record, ensure_ascii=False))})
-        if cves:
-            identity = "cve:" + cves[0] + "|" + host
-            title = cves[0]
-        elif tool == "nuclei":
-            identity = "nuclei:" + str(record.get("template_id") or summary).casefold() + "|" + host + path
-            title = summary
-        else:
-            normalized = re.sub(r"\s+", " ", summary).casefold()[:300]
-            identity = tool + "|" + host + "|" + normalized
-            title = summary
 
-        candidate = grouped.get(identity)
-        if candidate is None:
-            candidate_id = uuid.uuid5(uuid.NAMESPACE_URL, str(assessment_id) + "|" + identity).hex
-            candidate = {
-                "id": candidate_id, "title": title[:300], "host": host,
-                "target": target[:2048], "path": path[:1024],
-                "severity": "unknown", "sources": [], "cve_ids": cves,
-                "observations": [], "first_seen": record.get("observed_at") or record.get("finished_at") or "",
-                "last_seen": record.get("observed_at") or record.get("finished_at") or "",
-                "scope_state": assets.get(host, "out_of_scope"),
-                "triage_state": "analyst_classified" if record.get("record_type") == "finding" else "needs_review",
-                "verification_state": "unverified",
-            }
-            grouped[identity] = candidate
-        severity = str(record.get("severity") or "unknown").lower()
-        if severity not in severity_rank:
-            severity = "unknown"
-        if severity_rank[severity] > severity_rank[candidate["severity"]]:
-            candidate["severity"] = severity
-        if tool not in candidate["sources"]:
-            candidate["sources"].append(tool)
-        if record.get("record_type") == "finding":
-            candidate["triage_state"] = "analyst_classified"
-        seen = record.get("observed_at") or record.get("finished_at") or ""
-        candidate["first_seen"] = min(filter(None, [candidate["first_seen"], seen]), default="")
-        candidate["last_seen"] = max(candidate["last_seen"], seen)
-        if record.get("record_id") not in {item["record_id"] for item in candidate["observations"]}:
-            candidate["observations"].append({
-                "record_id": record.get("record_id"),
-                "execution_id": record.get("execution_id"),
-                "tool_id": tool,
-                "summary": summary[:500],
-                "observed_at": seen,
-                "reviewed_at": record.get("reviewed_at"),
-                "notes": record.get("notes") or "",
-            })
+        derived_observations = []
+        if tool == "wpscan":
+            try:
+                raw = json.loads(record.get("raw") or "{}")
+            except (TypeError, ValueError):
+                raw = {}
+            interesting = raw.get("interesting_findings") if isinstance(raw, dict) else []
+            if isinstance(interesting, list):
+                for item in interesting[:25]:
+                    if not isinstance(item, dict):
+                        continue
+                    title = str(item.get("to") or item.get("url") or item.get("type") or item.get("found_by") or "").strip()
+                    if title:
+                        derived_observations.append({
+                            "finding": title[:1000],
+                            "target": str(item.get("url") or record.get("target") or record.get("target_url") or ""),
+                            "severity": str(item.get("severity") or "unknown"),
+                            "raw": item,
+                        })
+            if not derived_observations:
+                # WPScan version/plugin/theme inventory is useful context, but
+                # inventory counts alone are not promoted to vulnerability candidates.
+                continue
+        else:
+            derived_observations.append(record)
+
+        for observation in derived_observations:
+            summary = str(observation.get("finding") or observation.get("template_name") or observation.get("template_id") or "").strip()
+            if not summary or summary.lower() in {"tls observation", "nikto observation"}:
+                continue
+            target = str(observation.get("url") or observation.get("target") or observation.get("matched_at") or record.get("target_url") or "")
+            parsed = urlsplit(target)
+            host = (parsed.hostname or urlsplit(str(record.get("target_url") or "")).hostname or "").lower().rstrip(".")
+            path = parsed.path or "/"
+            evidence_blob = json.dumps({"record": record, "observation": observation}, ensure_ascii=False, default=str)
+            cves = sorted({value.upper() for value in cve_pattern.findall(evidence_blob)})
+            if cves:
+                identity = "cve:" + cves[0] + "|" + host
+                title = cves[0]
+            elif tool == "nuclei":
+                identity = "nuclei:" + str(record.get("template_id") or summary).casefold() + "|" + host + path
+                title = summary
+            else:
+                normalized = re.sub(r"\\s+", " ", summary).casefold()[:300]
+                identity = tool + "|" + host + "|" + path + "|" + normalized
+                title = summary
+
+            candidate = grouped.get(identity)
+            if candidate is None:
+                candidate_id = uuid.uuid5(uuid.NAMESPACE_URL, str(assessment_id) + "|" + identity).hex
+                candidate = {
+                    "id": candidate_id, "title": title[:300], "host": host,
+                    "target": target[:2048], "path": path[:1024],
+                    "severity": "unknown", "sources": [], "cve_ids": cves,
+                    "observations": [], "first_seen": record.get("observed_at") or record.get("finished_at") or "",
+                    "last_seen": record.get("observed_at") or record.get("finished_at") or "",
+                    "scope_state": assets.get(host, "out_of_scope"),
+                    "triage_state": "analyst_classified" if record.get("record_type") == "finding" else "needs_review",
+                    "verification_state": "unverified",
+                    "software_context": software_by_host.get(host, [])[:8],
+                    "remediation": remediation_for(tool, summary),
+                }
+                grouped[identity] = candidate
+            severity = str(observation.get("severity") or record.get("severity") or "unknown").lower()
+            if severity not in severity_rank:
+                severity = "unknown"
+            if severity_rank[severity] > severity_rank[candidate["severity"]]:
+                candidate["severity"] = severity
+            if tool not in candidate["sources"]:
+                candidate["sources"].append(tool)
+            candidate["cve_ids"] = sorted(set(candidate["cve_ids"]) | set(cves))
+            if record.get("record_type") == "finding":
+                candidate["triage_state"] = "analyst_classified"
+            seen = record.get("observed_at") or record.get("finished_at") or ""
+            candidate["first_seen"] = min(filter(None, [candidate["first_seen"], seen]), default="")
+            candidate["last_seen"] = max(candidate["last_seen"], seen)
+            record_id = record.get("record_id")
+            observation_id = f"{record_id}:{len(candidate['observations'])}" if tool == "wpscan" else record_id
+            if observation_id not in {item["record_id"] for item in candidate["observations"]}:
+                candidate["observations"].append({
+                    "record_id": observation_id,
+                    "source_record_id": record_id,
+                    "execution_id": record.get("execution_id"),
+                    "tool_id": tool,
+                    "summary": summary[:500],
+                    "observed_at": seen,
+                    "reviewed_at": record.get("reviewed_at"),
+                    "notes": record.get("notes") or "",
+                })
 
     findings = sorted(grouped.values(), key=lambda item: (
         severity_rank[item["severity"]] * -1, item["scope_state"] != "in_scope",
@@ -1328,7 +1399,7 @@ def list_correlated_findings(assessment_id: int):
             "analyst_classified": sum(item["triage_state"] == "analyst_classified" for item in findings),
             "in_scope": sum(item["scope_state"] == "in_scope" for item in findings),
         },
-        "notice": "Correlated scanner observations are triage candidates, not confirmed vulnerabilities. Verify affected components, reachability, configuration and impact before reporting.",
+        "notice": "WPScan interesting findings and other scanner observations are correlated with host software context where available. Remediation text is generic review guidance, not a vendor-specific fix or proof of vulnerability. Confirm component identity, affected version, reachability and impact before reporting.",
     }
 
 
