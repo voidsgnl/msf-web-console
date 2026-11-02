@@ -110,12 +110,12 @@ Status: adapter implementation complete; validation and platform-wide normalisat
 - [x] Add specialist web checks (Nikto, passive WPScan, and HTTPS-only testssl.sh) as bounded opt-in adapters.
 - [x] Add an analyst-controlled evidence lifecycle with stable record IDs, review/dismiss/restore, notes, and evidence-versus-finding classification.
 - [x] Add a versioned common evidence envelope with trusted tool provenance, target, observation time/type, bounded summary, and neutral severity/confidence/verification defaults.
-- [x] Define an initial platform-owned correlated finding-candidate schema for Nuclei, Nikto and testssl.sh, retaining source evidence and neutral unverified status; broader tool coverage and remediation fields remain open.
+- [x] Define a platform-owned correlated finding-candidate schema for Nuclei, Nikto, WPScan and testssl.sh, retaining source evidence, same-host software context, and neutral unverified status.
 - [x] Build an assessment-level software inventory from HTTPX, WhatWeb, WPScan and Nmap product/version evidence, deduplicated by host and exact reported fingerprint with provenance and scope state.
 - [x] Match supported software fingerprints to NVD CVE candidates using explicit CPE product identities and published affected-version ranges; keep indeterminate matches separate and require analyst review.
 - [ ] Expand the CPE identity catalogue using verified NVD dictionary entries and add distro/package-version normalization where evidence supports it.
 - [x] Correlate and deduplicate CVE observations across Nuclei, Nikto and testssl.sh by CVE and host; retain source and execution references. Extend matching for non-CVE observations and other adapters.
-- [ ] Add consistent severity, confidence, verification state, and remediation fields without converting fingerprints or HTTP errors into vulnerability claims.
+- [x] Add consistent severity, neutral verification state, and generic remediation/validation guidance without converting fingerprints or HTTP errors into vulnerability claims. Confidence remains unassessed unless supported by explicit evidence.
 
 ## Phase 4 — Analysis and prioritisation
 
@@ -123,6 +123,7 @@ Status: adapter implementation complete; validation and platform-wide normalisat
 - [ ] Enrich CVEs from NVD without treating keyword matches as proof of impact.
 - [ ] Build attack-path and exposure context from confirmed relationships.
 - [x] Add triage states, analyst notes, dismissal/restore, and analyst-controlled finding/evidence classification.
+- [x] Add persisted finding lifecycle states (unverified, validated, false positive, accepted risk, remediated, retested) with guarded transitions across correlated source records.
 
 ## Phase 5 — Metasploit exploitation integration
 
