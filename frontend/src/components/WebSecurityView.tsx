@@ -144,6 +144,37 @@ export function WebSecurityView() {
     catch(e){setReportError(e instanceof Error?e.message:String(e));}
     finally{setReportLoading(false);}
   };
+  const downloadAssessmentReportHtml=()=>{
+    if(!assessmentReport)return;
+    const escape=(value:unknown)=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]??char));
+    const summary=assessmentReport.executive_summary;
+    const metricRows=[
+      ["Targets",summary.targets],["Assets",summary.assets.total],["In-scope assets",summary.assets.in_scope],
+      ["Services",summary.services.total],["Software fingerprints",summary.software.total],
+      ["Executions",summary.executions],["Evidence records",summary.evidence_records],
+      ["Finding candidates",summary.correlated_finding_candidates],
+      ["Validated",summary.finding_statuses.validated??0],["Remediated",summary.finding_statuses.remediated??0],
+      ["Retested",summary.finding_statuses.retested??0],["Unverified",summary.finding_statuses.unverified??0],
+    ];
+    const table=(headers:string[],rows:string[][])=>
+      "<table><thead><tr>"+headers.map(value=>"<th>"+escape(value)+"</th>").join("")+"</tr></thead><tbody>"+
+      (rows.length?rows.map(row=>"<tr>"+row.map(value=>"<td>"+escape(value)+"</td>").join("")+"</tr>").join(""):"<tr><td colspan=\""+headers.length+"\">No records.</td></tr>")+"</tbody></table>";
+    const findings=assessmentReport.findings.map(item=>[
+      item.title,item.severity,item.finding_status,item.scope_state,item.host+item.path,item.sources.join(", "),
+      item.remediation.recommendation,
+    ]);
+    const nvd=assessmentReport.nvd_correlation.results.flatMap(result=>result.candidates.map(item=>[
+      item.cve_id,result.product+" "+result.version,result.host,item.status,item.cvss?.base_score??"n/a",item.description??"",
+    ]));
+    const services=assessmentReport.services.map(item=>[item.hostname+":"+item.port+"/"+item.protocol,item.product||item.service,item.version,item.scope_state,item.source_tool]);
+    const softwareRows=assessmentReport.software.map(item=>[item.host,item.product,item.version,item.scope_state,item.sources.join(", ")]);
+    const scopeRows=assessmentReport.scope.targets.map(item=>[item.url,item.hostname,item.created_at]);
+    const html="<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>"+escape(assessmentReport.assessment.name)+" — Assessment Report</title><style>body{font:14px/1.5 system-ui,sans-serif;color:#18212f;max-width:1100px;margin:40px auto;padding:0 24px}h1{font-size:28px;margin-bottom:4px}h2{font-size:18px;margin:30px 0 10px;border-bottom:1px solid #cbd5e1;padding-bottom:6px}.muted{color:#64748b;font-size:12px}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.metric{border:1px solid #cbd5e1;border-radius:6px;padding:10px}.metric b{display:block;font-size:22px}table{width:100%;border-collapse:collapse;font-size:12px;margin:10px 0 18px}th,td{text-align:left;vertical-align:top;padding:7px;border:1px solid #cbd5e1;overflow-wrap:anywhere}th{background:#f1f5f9}.notice{background:#fff7ed;border:1px solid #fed7aa;padding:12px;border-radius:6px;margin:16px 0}ul{padding-left:20px}@media print{body{margin:0;max-width:none}.grid{grid-template-columns:repeat(4,1fr)}tr{break-inside:avoid}h2{break-after:avoid}}</style></head><body><h1>"+escape(assessmentReport.assessment.name)+"</h1><div class=\"muted\">Security assessment report · Generated "+escape(new Date(assessmentReport.generated_at).toLocaleString())+" · Status: "+escape(assessmentReport.assessment.status)+"</div><div class=\"grid\">"+metricRows.map(([label,value])=>"<div class=\"metric\"><span class=\"muted\">"+escape(label)+"</span><b>"+escape(value)+"</b></div>").join("")+"</div><h2>Authorised scope</h2>"+table(["Target URL","Host","Added"],scopeRows)+"<p class=\"muted\">"+escape(assessmentReport.scope.notice)+"</p><h2>Correlated finding candidates</h2>"+table(["Finding","Severity","Analyst status","Scope","Host / path","Sources","Remediation guidance"],findings)+"<p class=\"muted\">"+escape(assessmentReport.notices.findings)+"</p><h2>NVD reference correlation</h2><p class=\"muted\">Coverage: "+escape(assessmentReport.nvd_correlation.coverage)+" · "+escape(assessmentReport.nvd_correlation.processed)+" of "+escape(assessmentReport.nvd_correlation.eligible_products)+" eligible products processed.</p>"+table(["CVE","Product / version","Host","CPE status","CVSS","Description"],nvd)+"<p class=\"muted\">"+escape(assessmentReport.nvd_correlation.notice)+"</p><h2>Service inventory</h2>"+table(["Endpoint","Product / service","Version","Scope","Source"],services)+"<h2>Software inventory</h2>"+table(["Host","Product","Version","Scope","Sources"],softwareRows)+"<h2>Assessment limitations</h2><div class=\"notice\"><ul>"+assessmentReport.limitations.map(item=>"<li>"+escape(item)+"</li>").join("")+"</ul></div></body></html>";
+    const blob=new Blob([html],{type:"text/html;charset=utf-8"});
+    const url=URL.createObjectURL(blob);const link=document.createElement("a");
+    link.href=url;link.download="assessment-"+assessmentReport.assessment.id+"-report-"+assessmentReport.generated_at.slice(0,10)+".html";
+    document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
+  };
   const downloadAssessmentReport=()=>{
     if(!assessmentReport)return;
     const blob=new Blob([JSON.stringify(assessmentReport,null,2)],{type:"application/json"});
@@ -199,7 +230,7 @@ export function WebSecurityView() {
         <div><h2 className="text-sm font-semibold text-gray-100">Unified assessment report</h2><p className="mt-1 text-xs text-gray-500">Scope, inventory, NVD reference matches, correlated findings, analyst lifecycle and execution evidence in one export.</p></div>
         <div className="flex flex-wrap gap-2">
           <button type="button" className="btn btn-sm" onClick={()=>void generateAssessmentReport()} disabled={reportLoading}>{reportLoading?"Generating…":"Generate report + NVD check"}</button>
-          {assessmentReport&&<><button type="button" className="btn btn-sm" onClick={downloadAssessmentReport}>Export JSON</button><button type="button" className="btn btn-sm" onClick={()=>window.print()}>Print</button></>}
+          {assessmentReport&&<><button type="button" className="btn btn-sm" onClick={downloadAssessmentReportHtml}>Export HTML</button><button type="button" className="btn btn-sm" onClick={downloadAssessmentReport}>Export JSON</button></>}
         </div>
       </div>
       {reportError&&<div role="alert" className="mx-4 mb-3 rounded border border-danger/30 bg-danger/5 p-3 text-xs text-danger">{reportError}</div>}
