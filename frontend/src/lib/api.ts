@@ -20,12 +20,15 @@ export type CorrelatedFinding = {
   id: string; title: string; host: string; target: string; path: string;
   severity: "critical" | "high" | "medium" | "low" | "info" | "informational" | "unknown";
   sources: string[]; cve_ids: string[];
-  observations: { record_id: string; execution_id: number; tool_id: string;
+  observations: { record_id: string; source_record_id: string; execution_id: number; tool_id: string;
     summary: string; observed_at: string; reviewed_at: string | null; notes: string }[];
   first_seen: string; last_seen: string;
   scope_state: "in_scope" | "out_of_scope";
   triage_state: "needs_review" | "analyst_classified";
   verification_state: "unverified";
+  finding_status: "unverified" | "validated" | "false_positive" | "accepted_risk" | "remediated" | "retested" | "mixed";
+  software_context: { product: string; version: string; sources: string[]; scope_state: "in_scope" | "out_of_scope"; cve_status: "not_checked" }[];
+  remediation: { recommendation: string; validation_steps: string[] };
 };
 export type CorrelatedFindingInventory = {
   findings: CorrelatedFinding[];
@@ -268,6 +271,7 @@ export const api = {
     relationships: (id: number) => request<AssessmentRelationshipInventory>(`/assessments/${id}/relationships`),
     software: (id: number) => request<AssessmentSoftwareInventory>(`/assessments/${id}/software`),
     findings: (id: number) => request<CorrelatedFindingInventory>(`/assessments/${id}/findings`),
+    updateFindingStatus: (id: number, findingId: string, finding_status: "unverified" | "validated" | "false_positive" | "accepted_risk" | "remediated" | "retested") => request<{ finding_id: string; finding_status: string; updated_records: number }>(`/assessments/${id}/findings/${encodeURIComponent(findingId)}`, { method: "PATCH", body: JSON.stringify({ finding_status }) }),
     softwareCves: (id: number, offset = 0) => request<SoftwareCveCorrelation>(`/assessments/${id}/software/cves?limit=3&offset=${offset}`),
     executions: (id: number) =>
       request<{ executions: AssessmentExecution[] }>(`/assessments/${id}/executions`),
