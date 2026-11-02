@@ -16,6 +16,17 @@ export type AssessmentService = {
 export type AssessmentServiceInventory = {
   services: AssessmentService[]; counts: { total: number; in_scope: number; out_of_scope: number };
 };
+export type AssessmentSoftware = {
+  id: string; host: string; product: string; version: string;
+  scope_state: "in_scope" | "out_of_scope"; sources: string[];
+  evidence: string[]; first_seen: string; last_seen: string;
+  cve_status: "not_checked";
+};
+export type AssessmentSoftwareInventory = {
+  software: AssessmentSoftware[];
+  counts: { total: number; versioned: number; in_scope: number; out_of_scope: number };
+  notice: string;
+};
 export type AssessmentRelationship = {
   source_type: "url" | "host"; source: string;
   relationship: "hosted_on" | "resolves_to" | "exposes";
@@ -227,6 +238,7 @@ export const api = {
     assets: (id: number) => request<AssessmentAssetInventory>(`/assessments/${id}/assets`),
     services: (id: number) => request<AssessmentServiceInventory>(`/assessments/${id}/services`),
     relationships: (id: number) => request<AssessmentRelationshipInventory>(`/assessments/${id}/relationships`),
+    software: (id: number) => request<AssessmentSoftwareInventory>(`/assessments/${id}/software`),
     executions: (id: number) =>
       request<{ executions: AssessmentExecution[] }>(`/assessments/${id}/executions`),
     executionJobs: (id: number) =>
