@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Added a unified assessment report endpoint and dashboard that snapshots authorised scope, assets, services, software fingerprints, correlated finding dispositions, evidence and execution history. Report generation can perform a bounded NVD correlation pass (up to three versioned products), explicitly labels partial coverage, and exports standalone HTML and machine-readable JSON.
 - WPScan now stores interesting findings and plugin/theme vulnerability entries as individually addressable evidence records (with a separate inventory-only record when no findings exist), so analyst lifecycle updates do not unintentionally change unrelated findings from the same scan.
 - Expanded correlated finding candidates to WPScan interesting findings, preserving the originating evidence record and correlating CVE references across WPScan, Nuclei and Nikto. Candidate details now include observed software fingerprints for the same host and bounded, generic remediation/validation guidance; WPScan inventory counts alone are not promoted to findings.
 - Added persisted analyst finding lifecycle states (`unverified`, `validated`, `false_positive`, `accepted_risk`, `remediated`, `retested`) with transition validation. Lifecycle updates apply to all source records in a correlated candidate and remain distinct from scanner verification state.
