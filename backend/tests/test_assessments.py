@@ -233,7 +233,7 @@ class AssessmentStoreTests(unittest.TestCase):
         self.assertIn(("apache", "2.4.58"), products)
         self.assertIn(("wordpress", ""), products)
         self.assertEqual(inventory["counts"]["versioned"], 2)
-        self.assertEqual(inventory["notice"].find("CVE matching has not been performed") >= 0, True)
+        self.assertIn("explicit, separate analyst action", inventory["notice"])
 
     def test_software_inventory_does_not_invent_versions(self):
         created = assessments.create_assessment(assessments.AssessmentCreate(name="Unknown version"))
