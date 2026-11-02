@@ -111,5 +111,26 @@ class AssessmentMetasploitLinkTests(unittest.TestCase):
         self.assertEqual(reviewed["analyst_note"], "Checked.")
 
 
+    def test_unified_report_includes_linked_metasploit_activity(self):
+        reference = "yJWES2Y6d4MRyfFLWjqhqvon"
+        with patch(
+            "app.routes.assessment_msf.rpc.call",
+            return_value={"status": "completed", "job_id": 21, "result": {"hosts": ["192.0.2.5"]}},
+        ):
+            assessment_msf.link_msf_activity(
+                self.assessment["id"],
+                assessment_msf.ActivityCreate(
+                    kind="module_run", reference=reference, target_id=self.target["id"]
+                ),
+            )
+        with patch("app.routes.assessments.correlate_software_cves") as nvd:
+            report = assessments.build_assessment_report(self.assessment["id"], include_nvd=False)
+        self.assertEqual(len(report["metasploit_activity"]), 1)
+        self.assertEqual(report["executive_summary"]["metasploit_activity"], 1)
+        self.assertEqual(report["metasploit_activity"][0]["attribution"], "operator_assigned")
+        self.assertIn("operator attribution", report["metasploit_notice"])
+        nvd.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
