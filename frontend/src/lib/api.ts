@@ -35,6 +35,14 @@ export type CorrelatedFindingInventory = {
   counts: { total: number; needs_review: number; analyst_classified: number; in_scope: number };
   notice: string;
 };
+export type AssessmentMsfActivity = {
+  id: number; assessment_id: number; target_id: number; kind: "module_run" | "session";
+  external_reference: string; external_state: string; snapshot: Record<string, unknown>;
+  attribution: "operator_assigned"; review_state: "unreviewed" | "reviewed" | "dismissed";
+  analyst_note: string; approved_target_url?: string; approved_target_hostname?: string;
+  created_at: string; updated_at: string;
+};
+
 export type AssessmentReport = {
   report_version: number;
   generated_at: string;
@@ -300,6 +308,11 @@ export const api = {
     software: (id: number) => request<AssessmentSoftwareInventory>(`/assessments/${id}/software`),
     findings: (id: number) => request<CorrelatedFindingInventory>(`/assessments/${id}/findings`),
     report: (id: number, includeNvd = true) => request<AssessmentReport>(`/assessments/${id}/report?include_nvd=${includeNvd}&nvd_limit=3`),
+    msfActivity: (id: number) => request<{ activity: AssessmentMsfActivity[]; notice: string }>(`/assessments/${id}/msf-activity`),
+    linkMsfActivity: (id: number, activity: { kind: "module_run" | "session"; reference: string; target_id: number; analyst_note?: string }) =>
+      request<AssessmentMsfActivity>(`/assessments/${id}/msf-activity`, { method: "POST", body: JSON.stringify(activity) }),
+    reviewMsfActivity: (id: number, activityId: number, changes: { review_state: "unreviewed" | "reviewed" | "dismissed"; analyst_note?: string }) =>
+      request<AssessmentMsfActivity>(`/assessments/${id}/msf-activity/${activityId}`, { method: "PATCH", body: JSON.stringify(changes) }),
     updateFindingStatus: (id: number, findingId: string, finding_status: "unverified" | "validated" | "false_positive" | "accepted_risk" | "remediated" | "retested") => request<{ finding_id: string; finding_status: string; updated_records: number }>(`/assessments/${id}/findings/${encodeURIComponent(findingId)}`, { method: "PATCH", body: JSON.stringify({ finding_status }) }),
     softwareCves: (id: number, offset = 0) => request<SoftwareCveCorrelation>(`/assessments/${id}/software/cves?limit=3&offset=${offset}`),
     executions: (id: number) =>
