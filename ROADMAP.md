@@ -142,7 +142,7 @@ Status: adapter implementation complete; validation and platform-wide normalisat
 
 - [ ] Contextual session guidance for Meterpreter versus shell sessions.
 - [x] Associate session activity and collected loot with the assessment, with operator-selected approved targets and reviewable loot hashes/provenance.
-- [ ] Preserve evidence provenance, timestamps, and integrity metadata.
+- [x] Preserve loot provenance, collection timestamps, approved-target attribution, and SHA-256/size metadata when artifact bytes are available.
 - [ ] Keep post-exploitation actions visibly separate from discovery.
 
 ## Phase 7 — Reporting and workflow polish
