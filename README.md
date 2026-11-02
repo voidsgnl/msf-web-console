@@ -79,9 +79,7 @@ phases.
 
 The application remains single-account; multi-user accounts and roles are outside the current design.
 
-The plain-language layer, guided workflows, and initial safety rails are
-implemented. Execution Reliability is being hardened before further workflow
-guidance; see [ROADMAP.md](ROADMAP.md) for the remaining work.
+The plain-language layer, guided workflows, safety rails, assessment reporting, and the first recommendation-only finding-to-Metasploit hand-off are implemented. The hand-off accepts only analyst-validated, in-scope findings that match an already-approved target origin; it surfaces exploit modules only when CVE references overlap and never checks or executes a module automatically. Execution Reliability and the remaining operator-controlled exploitation workflow are still being developed; see [ROADMAP.md](ROADMAP.md) for the remaining work.
 
 ## Security boundary
 
