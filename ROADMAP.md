@@ -127,7 +127,9 @@ Status: adapter implementation complete; validation and platform-wide normalisat
 
 ## Phase 5 — Metasploit exploitation integration
 
-- [ ] Keep Metasploit module browsing and execution as an explicit workflow.
+- [x] Keep Metasploit module browsing and execution as an explicit workflow.
+- [x] Add explicit assessment linkage for verified module-run UUIDs and live sessions, requiring an operator-selected approved target and preserving operator-attribution semantics.
+- [ ] Add a dedicated assessment UI for linking/reviewing Metasploit activity and include linked activity in unified report exports.
 - [ ] Hand selected findings to Metasploit with validated target context.
 - [ ] Show why a module is suggested and distinguish compatibility from
       a successful module check or confirmed vulnerability.
