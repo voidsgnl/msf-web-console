@@ -112,7 +112,8 @@ Status: adapter implementation complete; validation and platform-wide normalisat
 - [x] Add a versioned common evidence envelope with trusted tool provenance, target, observation time/type, bounded summary, and neutral severity/confidence/verification defaults.
 - [ ] Define a platform-owned finding schema and cross-tool correlation model; adapter payloads remain tool-specific evidence, not a unified vulnerability verdict.
 - [x] Build an assessment-level software inventory from HTTPX, WhatWeb, WPScan and Nmap product/version evidence, deduplicated by host and exact reported fingerprint with provenance and scope state.
-- [ ] Match software fingerprints to NVD CPE records and CVEs using vendor/product identity and affected-version ranges; ambiguous name matches must remain candidates for analyst review.
+- [x] Match supported software fingerprints to NVD CVE candidates using explicit CPE product identities and published affected-version ranges; keep indeterminate matches separate and require analyst review.
+- [ ] Expand the CPE identity catalogue using verified NVD dictionary entries and add distro/package-version normalization where evidence supports it.
 - [ ] Correlate and deduplicate equivalent observations across tools while retaining every source and execution reference.
 - [ ] Add consistent severity, confidence, verification state, and remediation fields without converting fingerprints or HTTP errors into vulnerability claims.
 
